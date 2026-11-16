@@ -52,7 +52,7 @@
       this.chain = this.chain.then(async () => {
         await this.ws.write(buf); this.bytes += n;
         // checkpoint: closing commits what's written so far, so a crash or a closed tab keeps it
-        if (Date.now() - this.lastCheckpoint > 5000) {
+        if (Date.now() - this.lastCheckpoint > 30000) {
           await this.ws.write({ type: "write", position: 0, data: wavHeader(this.bytes, this.rate, 24) });
           await this.ws.close(); this.ws = await this.fh.createWritable({ keepExistingData: true }); await this.ws.seek(44 + this.bytes);
           this.lastCheckpoint = Date.now();
@@ -154,61 +154,119 @@
     async play(render, from, to, opts) {
       this.stop();
       const ctx = this.ctx = new AudioContext({ sampleRate: RATE });
-      const me = this.token = {}; this.playing = true; this.from = from; this.to = to;
-      const t0 = ctx.currentTime + 0.12; this.t0 = t0;
-      let pos = from; const CH = 3;
+      const me = this.token = {}; this.playing = true; this.from = from; this.to = to; this.t0 = null;
+      if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+      let pos = from, t0 = null; const CH = 3;
       while (pos < to && this.token === me) {
         const d = Math.min(CH, to - pos);
         const pcm = await render(pos, d);
         if (this.token !== me) return;
+        // the clock starts once the first chunk is in hand; if a later chunk is late, slide the clock rather than
+        // start it on top of the one still playing (that overlap is what sounds choppy)
+        if (t0 == null) { t0 = this.t0 = ctx.currentTime + 0.15; }
+        else if (t0 + (pos - from) < ctx.currentTime + 0.03) { t0 = this.t0 = ctx.currentTime + 0.08 - (pos - from); }
         const buf = ctx.createBuffer(1, pcm.length || 1, RATE); buf.copyToChannel(pcm, 0);
         const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
         src.start(t0 + (pos - from));
         pos += d;
         while (this.token === me && (t0 + (pos - from)) - ctx.currentTime > 6) await new Promise(r => setTimeout(r, 200));
       }
-      while (this.token === me && ctx.currentTime < t0 + (to - from)) await new Promise(r => setTimeout(r, 50));
+      while (this.token === me && t0 != null && ctx.currentTime < t0 + (to - from)) await new Promise(r => setTimeout(r, 50));
       if (this.token === me) { this.stop(); opts && opts.onEnd && opts.onEnd(); }
     }
-    get time() { return this.playing && this.ctx ? Math.min(this.to, this.from + Math.max(0, this.ctx.currentTime - this.t0)) : null; }
+    get time() { return this.playing && this.ctx && this.t0 != null ? Math.min(this.to, this.from + Math.max(0, this.ctx.currentTime - this.t0)) : null; }
     stop() { this.token = null; this.playing = false; if (this.ctx) { this.ctx.close().catch(() => {}); this.ctx = null; } }
   }
 
   // ---------------- microphone ----------------
-  const WORKLET = `class LRCap extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}process(i){const c=i[0]&&i[0][0];if(c){for(let k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===2048){this.port.postMessage(this.b.slice(0));this.n=0}}}return true}}registerProcessor('lr-cap',LRCap);`;
+  // Capture, the way Finished Hour settled on after the same trouble:
+  //  1. "direct": read the microphone's own frames (MediaStreamTrackProcessor). No AudioContext, so no output-device
+  //     clock to drift against, and nothing for Chrome's speech recognition (follow-along, which opens the mic too) to
+  //     disturb. Lost frames are spotted from the timestamps, filled with silence so timing stays true, and reported.
+  //  2. "worklet" fallback: an AudioContext with big, steady buffers ("playback" latency).
+  // Either way the microphone runs raw: no echo cancelling, noise suppression or auto-gain.
+  const WORKLET = `class LRCap extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(4096);this.n=0;this.port.onmessage=()=>{if(this.n){this.port.postMessage(this.b.slice(0,this.n));this.n=0}}}process(i){const c=i[0]&&i[0][0];if(c){for(let k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===4096){this.port.postMessage(this.b.slice(0));this.n=0}}}return true}}registerProcessor('lr-cap',LRCap);`;
+  // a stand-in for an AnalyserNode, fed from the captured frames (the Booth's glowing voice line reads it)
+  class Scope {
+    constructor(n) { this.fftSize = n; this.ring = new Float32Array(n); this.w = 0; }
+    push(f) { const r = this.ring, n = r.length; for (let i = Math.max(0, f.length - n); i < f.length; i++) { r[this.w] = f[i]; this.w = (this.w + 1) % n; } }
+    getFloatTimeDomainData(out) { const r = this.ring, n = r.length; for (let i = 0; i < out.length && i < n; i++) out[i] = r[(this.w + i) % n]; }
+  }
   class Mic {
-    constructor() { this.ctx = null; this.stream = null; this.onFrames = null; this.level = -90; this.peakHold = -90; this.clip = false; }
+    constructor() { this.ctx = null; this.stream = null; this.onFrames = null; this.onDrop = null; this.level = -90; this.peakHold = -90; this.clip = false; this.mode = ""; this.devRate = 0; this.drops = 0; }
     static async devices() { try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput"); } catch (e) { return []; } }
+    get isOpen() { return !!this.stream; }
     async open(deviceId) {
-      if (this.stream && this.deviceId === deviceId) return;
+      if (this.stream && this.deviceId === deviceId && this.stream.getAudioTracks().some(t => t.readyState === "live")) return;
       this.close();
       this.deviceId = deviceId;
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 1, sampleRate: RATE,
+        deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 1, sampleRate: { ideal: RATE },
         echoCancellation: false, noiseSuppression: false, autoGainControl: false } });   // raw audio: no phone-call processing
-      const ctx = this.ctx = new AudioContext({ sampleRate: RATE, latencyHint: "interactive" });
-      const src = ctx.createMediaStreamSource(this.stream);
-      const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
-      this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 1024; src.connect(this.analyser);
+      const track = this.stream.getAudioTracks()[0], set = (track.getSettings && track.getSettings()) || {};
+      this.devRate = set.sampleRate || 0; this.drops = 0; this.lastDropMs = 0;
+      this.analyser = new Scope(1024);
+      const me = this.token = {};
       const handle = f32 => {
-        let pk = 0; for (let i = 0; i < f32.length; i++) { const a = Math.abs(f32[i]); if (a > pk) pk = a; }
+        if (this.token !== me || !this.analyser) return;               // frames still arriving after the mic was closed
+        let pk = 0; for (let i = 0; i < f32.length; i++) { const a = f32[i] < 0 ? -f32[i] : f32[i]; if (a > pk) pk = a; }
         const db = pk > 0 ? 20 * Math.log10(pk) : -90;
         this.level = db; if (db > this.peakHold) this.peakHold = db; if (pk >= 0.999) this.clip = true;
+        this.analyser.push(f32);
         if (this.onFrames) this.onFrames(f32);
       };
-      try {
-        const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-        await ctx.audioWorklet.addModule(url);
-        const node = new AudioWorkletNode(ctx, "lr-cap"); node.port.onmessage = e => handle(e.data);
-        src.connect(node); node.connect(sink);
-      } catch (e) {
-        const sp = ctx.createScriptProcessor(2048, 1, 1); sp.onaudioprocess = ev => handle(new Float32Array(ev.inputBuffer.getChannelData(0)));
-        src.connect(sp); sp.connect(sink);
+      track.addEventListener("mute", () => { if (this.token === me) this.dropped(0, "the browser or macOS paused the microphone"); });
+      if (typeof window.MediaStreamTrackProcessor === "function" && (!this.devRate || this.devRate === RATE || window.LR_FORCE_DIRECT)) {
+        this.mode = "direct";
+        const reader = this.reader = new window.MediaStreamTrackProcessor({ track, maxBufferSize: 200 }).readable.getReader();
+        (async () => {
+          const buf = new Float32Array(8192); let pos = 0, lastEnd = null;
+          try {
+            for (;;) {
+              const { value, done } = await reader.read(); if (done || this.token !== me) { if (value) value.close(); break; }
+              try {
+                const n = value.numberOfFrames, sr = value.sampleRate, f = new Float32Array(n);
+                if (sr !== RATE && !this.warnedRate) { this.warnedRate = true; console.warn("mic frames at", sr); }
+                value.copyTo(f, { planeIndex: 0, format: "f32-planar" });
+                const ts = value.timestamp;                                 // microseconds
+                if (lastEnd != null && ts - lastEnd > 80000) {             // frames went missing: keep time honest
+                  const miss = Math.min(Math.round((ts - lastEnd) / 1e6 * RATE), RATE * 2);
+                  if (pos) { handle(buf.slice(0, pos)); pos = 0; }
+                  handle(new Float32Array(miss)); this.dropped(Math.round((ts - lastEnd) / 1000));
+                }
+                lastEnd = ts + n / sr * 1e6;
+                if (pos + n > buf.length) { handle(buf.slice(0, pos)); pos = 0; }
+                buf.set(f, pos); pos += n;
+                if (pos >= 2048) { handle(buf.slice(0, pos)); pos = 0; }
+              } finally { value.close(); }
+            }
+          } catch (e) { if (this.token === me) console.warn("mic reader", e); }
+          if (pos && this.token === me) handle(buf.slice(0, pos));
+        })();
+      } else {
+        this.mode = "worklet";
+        const ctx = this.ctx = new AudioContext({ sampleRate: RATE, latencyHint: "playback" });
+        const src = ctx.createMediaStreamSource(this.stream);
+        const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
+        try {
+          const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+          await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+          const node = this.node = new AudioWorkletNode(ctx, "lr-cap"); node.port.onmessage = e => handle(e.data);
+          src.connect(node); node.connect(sink);
+        } catch (e) {
+          this.mode = "script";
+          const sp = ctx.createScriptProcessor(16384, 1, 1); sp.onaudioprocess = ev => handle(new Float32Array(ev.inputBuffer.getChannelData(0)));
+          src.connect(sp); sp.connect(sink);
+        }
+        if (ctx.state === "suspended") await ctx.resume();
       }
-      if (ctx.state === "suspended") await ctx.resume();
     }
+    dropped(ms, why) { this.drops++; if (this.onDrop) this.onDrop(ms, why || (ms + " ms of microphone audio was lost")); }
+    // hand over any frames still waiting in the capture buffer (call before stopping a take)
+    async flush() { if (this.node && this.node.port) { this.node.port.postMessage("flush"); await new Promise(r => setTimeout(r, 120)); } else await new Promise(r => setTimeout(r, 60)); }
     get label() { const t = this.stream && this.stream.getAudioTracks()[0]; return t ? t.label : ""; }
-    close() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); if (this.ctx) this.ctx.close().catch(() => {}); this.stream = null; this.ctx = null; this.onFrames = null; this.analyser = null; }
+    get info() { return { mode: this.mode, rate: this.devRate, drops: this.drops }; }
+    close() { this.token = null; try { if (this.reader) this.reader.cancel().catch(() => {}); } catch (e) {} this.reader = null; if (this.stream) this.stream.getTracks().forEach(t => t.stop()); if (this.ctx) this.ctx.close().catch(() => {}); this.stream = null; this.ctx = null; this.node = null; this.onFrames = null; this.analyser = null; }
   }
 
   // { mm: Int8Array of min,max pairs } for new takes; older takes have { abs: Uint8Array }
