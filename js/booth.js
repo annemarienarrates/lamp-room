@@ -639,6 +639,9 @@
     return { wordsToday, boothToday, earnedToday, pace, paceSrc, bookValue: valueOfMyPart(), milestone, bookSec };
   }
   function valueOfMyPart() {
+    // on the schedule: the title's net, shared by the words each of you reads
+    const T = B.book.titleId && window.LL && LL.tById(B.book.titleId);
+    if (T && T.kind !== "author") { const net = LL.moneyOf(T).net, tw = LL.partWords(T), me = (T.stages || []).find(s => s.type === "record" && s.owner === LL.keyOf(B.readingAs)); return net > 0 && tw ? net * ((me && me.words) || B.bookMine) / tw : 0; }
     const words = B.book.chapters.filter(c => c.included).reduce((a, c) => a + c.words, 0);
     const e = Prep.estimate(words, B.book, Store.settings);
     const readers = {}; B.book.chapters.filter(c => c.included).forEach(c => { const w = Prep.wordsByReader(c, B.book); for (const k in w) readers[k] = (readers[k] || 0) + w[k]; });

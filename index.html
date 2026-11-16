@@ -6,20 +6,28 @@
 <title>The Lamp Room</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%95%AF%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/ll.css">
 </head>
 <body>
 <header class="top">
   <div class="brand"><span class="mark">LR</span>The Lamp Room</div>
   <nav id="nav">
     <a href="#/library" data-r="library">Dashboard</a>
+    <a href="#/almanac" data-r="almanac">Almanac</a>
+    <a href="#/titles" data-r="titles">Titles</a>
+    <a href="#/log" data-r="log">Log</a>
+    <a href="#/ledger" data-r="ledger">Ledger</a>
     <a href="#/workspace" data-r="workspace">Workspace</a>
     <a href="#/calc" data-r="calc">Tools</a>
     <a href="#/settings" data-r="settings">Settings</a>
+    <a href="#/key" data-r="key" title="The Key: how the planner works">?</a>
   </nav>
   <span id="savechip" class="chip hidden"></span>
   <span id="folderchip" class="chip hidden"></span>
 </header>
 <main id="main"></main>
+<div id="layer" class="ll"></div>
+<div id="llpops" class="ll"></div>
 
 <!-- libraries (bundled, nothing loads from the internet) -->
 <script src="lib/jszip.min.js"></script>
@@ -34,6 +42,7 @@
   <script src="js/audio.js"></script>
 <script src="js/export.js"></script>
 <script src="js/cheers.js"></script>
+<script src="js/ll.js"></script>
 <script src="js/app.js"></script>
 <script src="js/booth.js"></script>
 </body>

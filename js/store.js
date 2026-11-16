@@ -1,6 +1,11 @@
-/* The Lamp Room — storage. Everything lives as plain files in a library folder the user picks:
+/* The Lamp Room — storage. Everything lives as plain files in a library folder the user picks (share it through
+   Google Drive and both computers see the same titles, schedule, ledger and duet lines):
      <Library>/lamp-room.json                 settings
-     <Library>/Books/<Book folder>/book.json   one book
+     <Library>/Books/<Book folder>/book.json   one book: manuscript, chapters, shared details
+     <Library>/Books/<Book folder>/people/<Name>.json   one person's progress, timelines and tracks for that book
+                                              (each computer writes only what it changed, so two people can work at once)
+     <Library>/Ledger/<collection>/<id>.json  the business side, one file per record (titles, logs, bills, deposits…)
+     <Library>/Covers/<title id>.jpg          cover images
      <Library>/Books/<Book folder>/manuscript/  the original file you imported
      <Library>/Books/<Book folder>/audio/       recordings (Booth & Studio, coming next)
      <Library>/Books/<Book folder>/exports/     deliverables
@@ -30,6 +35,7 @@
     async set(k, v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
   };
 
+  const safeId = s => String(s).replace(/[^\w.-]+/g, "_");
   const safeFolder = s => String(s || "Untitled").replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim().slice(0, 80) || "Untitled";
 
   async function readJson(dir, name) {
@@ -73,12 +79,69 @@
       this.books = [];
       for await (const [name, h] of booksDir.entries()) {
         if (h.kind !== "directory") continue;
-        try { const b = await readJson(h, "book.json"); if (b) { b.folder = name; this.books.push(b); } }
+        try { const b = await this.readBook(h, name); if (b) this.books.push(b); }
         catch (e) { console.warn("Couldn't read", name, e); }
       }
       this.books.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+      await this.loadLedger();
     },
-    async saveSettings() { await writeFile(this.root, "lamp-room.json", JSON.stringify(this.settings, null, 2)); },
+    // ---- a book is book.json plus one file per person ----
+    _written: {},                 // path → last text this computer read or wrote (so unchanged files aren't rewritten)
+    _seen: {},                    // path → lastModified when last read (to spot changes arriving from the other computer)
+    async readText(dir, name, path) {
+      try { const f = await (await dir.getFileHandle(name)).getFile(); const t = await f.text(); this._written[path] = t; this._seen[path] = f.lastModified; return t; }
+      catch (e) { if (e.name === "NotFoundError") return null; throw e; }
+    },
+    async readBook(h, folder) {
+      const t = await this.readText(h, "book.json", folder + "/book.json"); if (!t) return null;
+      const b = JSON.parse(t); b.folder = folder;
+      try {
+        const pd = await h.getDirectoryHandle("people");
+        for await (const [n, fh] of pd.entries()) {
+          if (fh.kind !== "file" || !n.endsWith(".json")) continue;
+          const pt = await this.readText(pd, n, folder + "/people/" + n); if (!pt) continue;
+          const p = JSON.parse(pt), who = p.person || n.replace(/\.json$/, "");
+          if (p.trackSet) { b.trackSet = b.trackSet || {}; b.trackSet[who] = p.trackSet; }
+          for (const c of b.chapters || []) { const x = (p.chapters || {})[c.id]; if (!x) continue;
+            if (x.prog) { c.prog = c.prog || {}; c.prog[who] = x.prog; }
+            if (x.audio) { c.audio = c.audio || {}; c.audio[who] = x.audio; } }
+        }
+      } catch (e) { if (e.name !== "NotFoundError") console.warn(e); }
+      return b;
+    },
+    splitBook(book) {
+      const people = {}, P = n => people[n] = people[n] || { person: n, chapters: {}, trackSet: null };
+      const shared = JSON.parse(JSON.stringify(book));
+      delete shared.folder;
+      for (const n in (shared.trackSet || {})) P(n).trackSet = shared.trackSet[n];
+      delete shared.trackSet;
+      for (const c of shared.chapters || []) {
+        for (const n in (c.prog || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).prog = c.prog[n];
+        for (const n in (c.audio || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).audio = c.audio[n];
+        delete c.prog; delete c.audio;
+      }
+      return { shared, people };
+    },
+    async writeIfChanged(dir, name, path, text) {
+      if (this._written[path] === text) return false;
+      await writeFile(dir, name, text); this._written[path] = text;
+      try { this._seen[path] = (await (await dir.getFileHandle(name)).getFile()).lastModified; } catch (e) {}
+      return true;
+    },
+    async writeBook(book) {
+      const d = await this.bookDir(book), { shared, people } = this.splitBook(book);
+      const sharedText = JSON.stringify(shared, null, 1);
+      // "updated" changes on every save; only count it as a change when something else did
+      const prev = this._written[book.folder + "/book.json"];
+      if (prev) { try { const o = JSON.parse(prev); o.updated = shared.updated; if (JSON.stringify(o, null, 1) === sharedText) { /* nothing shared changed */ } else await this.writeIfChanged(d, "book.json", book.folder + "/book.json", sharedText); } catch (e) { await this.writeIfChanged(d, "book.json", book.folder + "/book.json", sharedText); } }
+      else await this.writeIfChanged(d, "book.json", book.folder + "/book.json", sharedText);
+      const names = Object.keys(people);
+      if (names.length) {
+        const pd = await d.getDirectoryHandle("people", { create: true });
+        for (const n of names) await this.writeIfChanged(pd, safeFolder(n) + ".json", book.folder + "/people/" + safeFolder(n) + ".json", JSON.stringify(people[n], null, 1));
+      }
+    },
+    async saveSettings() { const t = JSON.stringify(this.settings, null, 2); await writeFile(this.root, "lamp-room.json", t); this._written["lamp-room.json"] = t; },
 
     async bookDir(book, sub) {
       const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
@@ -91,7 +154,7 @@
       book.updated = new Date().toISOString();
       clearTimeout(this._timers[book.id]);
       const run = async () => {
-        try { await writeFile(await this.bookDir(book), "book.json", JSON.stringify(book, null, 1)); this.lastError = null; document.dispatchEvent(new CustomEvent("lr-saved")); }
+        try { await this.writeBook(book); this.lastError = null; document.dispatchEvent(new CustomEvent("lr-saved")); }
         catch (e) { this.lastError = e; document.dispatchEvent(new CustomEvent("lr-save-error", { detail: e })); }
       };
       if (now) return run();
@@ -106,7 +169,7 @@
       for (const sub of ["manuscript", "audio", "exports"]) await dir.getDirectoryHandle(sub, { create: true });
       if (originalFile) { try { await writeFile(await dir.getDirectoryHandle("manuscript"), safeFolder(originalFile.name), originalFile); } catch (e) { console.warn(e); } }
       book.created = book.updated = new Date().toISOString();
-      await writeFile(dir, "book.json", JSON.stringify(book, null, 1));
+      await this.writeBook(book);
       this.books.unshift(book);
       return book;
     },
@@ -141,6 +204,112 @@
       const b = await this.studio.getDirectoryHandle(book.folder, { create: true });
       const a = await b.getDirectoryHandle("audio", { create: true });
       return a.getDirectoryHandle(chapter.id, { create: true });
+    },
+
+    // ---- the business side (Ledger & Lamp): <Library>/Ledger/<collection>/<id>.json and Ledger/config.json ----
+    LL_COLLS: ["titles", "logs", "fh", "bills", "daysoff", "pipeline", "deposits"],
+    ll: { titles: [], logs: [], fh: [], bills: [], daysoff: [], pipeline: [], deposits: [], config: null },
+    async ledgerDir(coll) { const l = await this.root.getDirectoryHandle("Ledger", { create: true }); return coll ? l.getDirectoryHandle(coll, { create: true }) : l; },
+    async loadLedger() {
+      for (const c of this.LL_COLLS) {
+        const d = await this.ledgerDir(c), list = [];
+        for await (const [n, h] of d.entries()) {
+          if (h.kind !== "file" || !n.endsWith(".json")) continue;
+          try { const t = await this.readText(d, n, "Ledger/" + c + "/" + n); if (t) list.push(Object.assign(JSON.parse(t), { id: n.slice(0, -5) })); } catch (e) { console.warn("Couldn't read", c, n, e); }
+        }
+        this.ll[c] = list;
+      }
+      const t = await this.readText(await this.ledgerDir(), "config.json", "Ledger/config.json");
+      this.ll.config = t ? JSON.parse(t) : null;
+    },
+    async llPut(coll, id, data) {
+      const rec = Object.assign({}, data); delete rec.id;
+      if (coll === "config") { this.ll.config = rec; await this.writeIfChanged(await this.ledgerDir(), "config.json", "Ledger/config.json", JSON.stringify(rec, null, 1)); return true; }
+      const list = this.ll[coll], i = list.findIndex(x => x.id === id), full = Object.assign({}, rec, { id });
+      if (i >= 0) list[i] = full; else list.push(full);
+      await this.writeIfChanged(await this.ledgerDir(coll), safeId(id) + ".json", "Ledger/" + coll + "/" + safeId(id) + ".json", JSON.stringify(rec, null, 1));
+      return true;
+    },
+    async llPatch(coll, id, data) {
+      if (coll === "config") return this.llPut("config", "main", Object.assign({}, this.ll.config || {}, data));
+      const cur = this.ll[coll].find(x => x.id === id) || {};
+      return this.llPut(coll, id, Object.assign({}, cur, data));
+    },
+    async llDel(coll, id) {
+      this.ll[coll] = this.ll[coll].filter(x => x.id !== id);
+      try { await (await this.ledgerDir(coll)).removeEntry(safeId(id) + ".json"); } catch (e) {}
+      delete this._written["Ledger/" + coll + "/" + safeId(id) + ".json"];
+    },
+
+    // ---- covers: <Library>/Covers/<title id>.jpg, resized on the way in ----
+    _covers: {},
+    async setCover(titleId, file) {
+      const img = await createImageBitmap(file), max = 800, k = Math.min(1, max / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas"); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      const blob = await new Promise(r => cv.toBlob(r, "image/jpeg", 0.86));
+      const d = await this.root.getDirectoryHandle("Covers", { create: true });
+      await writeFile(d, safeId(titleId) + ".jpg", blob);
+      if (this._covers[titleId]) URL.revokeObjectURL(this._covers[titleId].url);
+      this._covers[titleId] = { url: URL.createObjectURL(blob), at: Date.now() };
+      document.dispatchEvent(new CustomEvent("lr-cover", { detail: titleId }));
+    },
+    async removeCover(titleId) {
+      try { await (await this.root.getDirectoryHandle("Covers")).removeEntry(safeId(titleId) + ".jpg"); } catch (e) {}
+      if (this._covers[titleId]) URL.revokeObjectURL(this._covers[titleId].url);
+      this._covers[titleId] = { url: null, at: Date.now() };
+    },
+    // object URL for a title's cover, or null; cached, checked again now and then
+    async coverURL(titleId) {
+      if (!titleId) return null;
+      const c = this._covers[titleId]; if (c && Date.now() - c.at < 60000) return c.url;
+      try {
+        const f = await (await (await this.root.getDirectoryHandle("Covers", { create: true })).getFileHandle(safeId(titleId) + ".jpg")).getFile();
+        if (c && c.mod === f.lastModified) { c.at = Date.now(); return c.url; }
+        if (c && c.url) URL.revokeObjectURL(c.url);
+        this._covers[titleId] = { url: URL.createObjectURL(f), at: Date.now(), mod: f.lastModified };
+      } catch (e) { this._covers[titleId] = { url: null, at: Date.now() }; }
+      return this._covers[titleId].url;
+    },
+
+    // ---- changes arriving from the other computer (through Drive): look every 20 s and when the window comes back ----
+    async checkExternal() {
+      if (!this.root || this._checking) return [];
+      this._checking = true; const changed = [];
+      try {
+        const look = async (dir, name, path) => { try { const f = await (await dir.getFileHandle(name)).getFile(); if (this._seen[path] && f.lastModified > this._seen[path]) { const t = await f.text(); this._seen[path] = f.lastModified; if (t !== this._written[path]) { this._written[path] = t; return t; } } else if (!this._seen[path]) { this._seen[path] = f.lastModified; const t = await f.text(); if (t !== this._written[path]) { this._written[path] = t; return t; } } } catch (e) {} return null; };
+        // books (new folders too)
+        const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
+        for await (const [name, h] of booksDir.entries()) {
+          if (h.kind !== "directory") continue;
+          const known = this.books.find(b => b.folder === name);
+          if (!known) { const b = await this.readBook(h, name).catch(() => null); if (b) { this.books.push(b); changed.push("book:" + b.id); } continue; }
+          let dirty = !!(await look(h, "book.json", name + "/book.json"));
+          try { const pd = await h.getDirectoryHandle("people"); for await (const [n, f] of pd.entries()) if (f.kind === "file" && await look(pd, n, name + "/people/" + n)) dirty = true; } catch (e) {}
+          if (dirty && !(window.Booth && Booth.state && Booth.state.book && Booth.state.book.id === known.id)) {
+            const b = await this.readBook(h, name); if (b) { const i = this.books.indexOf(known); this.books[i] = b; changed.push("book:" + b.id); }
+          }
+        }
+        // ledger
+        for (const c of this.LL_COLLS) {
+          const d = await this.ledgerDir(c), names = new Set();
+          for await (const [n, h] of d.entries()) {
+            if (h.kind !== "file" || !n.endsWith(".json")) continue; names.add(n);
+            const t = await look(d, n, "Ledger/" + c + "/" + n);
+            if (t) { try { const rec = Object.assign(JSON.parse(t), { id: n.slice(0, -5) }), list = this.ll[c], i = list.findIndex(x => x.id === rec.id); if (i >= 0) list[i] = rec; else list.push(rec); changed.push(c); } catch (e) {} }
+          }
+          const before = this.ll[c].length; this.ll[c] = this.ll[c].filter(x => names.has(safeId(x.id) + ".json")); if (this.ll[c].length !== before) changed.push(c);
+        }
+        const t = await look(await this.ledgerDir(), "config.json", "Ledger/config.json"); if (t) { try { this.ll.config = JSON.parse(t); changed.push("config"); } catch (e) {} }
+        const st = await look(this.root, "lamp-room.json", "lamp-room.json"); if (st) { try { this.settings = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(st)); changed.push("settings"); } catch (e) {} }
+      } finally { this._checking = false; }
+      if (changed.length) document.dispatchEvent(new CustomEvent("lr-external", { detail: changed }));
+      return changed;
+    },
+    watch() {
+      if (this._watching) return; this._watching = true;
+      setInterval(() => { if (document.visibilityState === "visible") this.checkExternal().catch(() => {}); }, 20000);
+      window.addEventListener("focus", () => this.checkExternal().catch(() => {}));
     },
 
     // ---- duet lines: <Library>/Books/<book>/duet/<chapter id>/<reader>/ (lines.json + one WAV per line).

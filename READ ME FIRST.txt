@@ -1,4 +1,4 @@
-THE LAMP ROOM  (v0.6: Booth, Studio, Effects, Duet lines & Celebrations)
+THE LAMP ROOM  (v0.7: Booth, Studio, Effects, Duets, Celebrations & the Ledger & Lamp planner)
 ================================================
 
 Opening it
@@ -28,6 +28,29 @@ pale yellow = system voice). The Lamp Room asks who reads each part. In the Boot
 are lit, everyone else's are dimmed, and the line just before yours shows as a grey cue.
 Follow-along, word counts, pace and pay count only your parts.
 A whole chapter in someone else's POV: set the POV column on that chapter in the book view.
+
+Dashboard (the Today page)
+--------------------------
+Your focus today, straight from the planner: the title, the stage, the chapter and the hours.
+Click it and you're in that title's workspace (the Booth on the right chapter for recording).
+Below it: the rest of your day, your partner's day in one line, Heads up (late or amber titles,
+checks due, bills due, partner payouts, a missing log), today's rings, then all your projects.
+Covers: the 🖼 on any card (or click the cover on a book page). Square or 2:3 both fit.
+
+The planner (Ledger & Lamp, now inside)
+---------------------------------------
+Almanac   the calendar, each of your days, notices, "Today I…" and the year's reckoning
+Titles    the catalog cards (stages, money, star, check received) and the Pipeline of maybes
+Log       the daybook: Read my note (free writing), or Log by hand (title, stage, hours;
+          today's booth time is already filled in). Days off live here too.
+Ledger    money by month: checks, royalties, bills, partner payouts, the running balance, year CSV
+?         The Key: how the planner thinks
+Every book is a title on the schedule. Importing a manuscript makes its title (fill in client,
+pay and due date in the card that opens), or attaches it to a title the planner already has
+(the 📖 on a title card). Booth time and words go to the planner on their own, so recording
+estimates and paces learn from real sessions.
+Settings ▸ Planning & money holds the house rules; Settings ▸ Claude for the work log takes your
+own API key (kept on this computer only) so "Read my note" reads free writing properly.
 
 Duet lines (Tools ▸ Co-narrator)
 --------------------------------
