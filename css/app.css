@@ -526,3 +526,9 @@ nav .who i { font-style: normal; opacity: .7; font-weight: 400; }
 .pk-who { margin: 10px 0 4px; }
 .pk-who .fx-chips { margin-top: 4px; }
 .warn-t { color: var(--warn); font-weight: 600; }
+
+/* spacing tools */
+.pz-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin: 6px 0 8px; font-size: 12px; color: var(--muted); }
+.stu-in.pz { width: 62px; }
+.pz-sum { border-left: 2px solid var(--accent); padding-left: 8px; margin: 4px 0 8px; }
+.stu-in { background: var(--panel); color: var(--ink); border: 1px solid var(--line2); border-radius: 6px; padding: 3px 6px; font: 12px var(--mono); }
