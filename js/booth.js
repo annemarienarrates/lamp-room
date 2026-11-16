@@ -37,7 +37,7 @@
       window.addEventListener("beforeunload", flushSession);
       window.addEventListener("hashchange", onLeave);
     }
-    try { localStorage.setItem("lr-last-book", book.id); } catch (e) {}
+    try { localStorage.setItem("lr-last-book", book.id); const o = JSON.parse(localStorage.getItem("lr-opened") || "{}"); o[book.id] = Date.now(); localStorage.setItem("lr-opened", JSON.stringify(o)); } catch (e) {}
     if (ci == null || isNaN(ci)) ci = firstUnfinished(book);
     await openChapter(Math.max(0, Math.min(book.chapters.length - 1, ci)));
   }

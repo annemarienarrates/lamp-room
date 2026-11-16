@@ -114,26 +114,87 @@
 
   // ---------------- library ----------------
   function viewLibrary() {
-    const books = Store.books.filter(b => b.status !== "archived"), arch = Store.books.filter(b => b.status === "archived");
-    const card = b => {
-      const st = bookStats(b);
-      const doneW = st.words - st.byStatus.todo;
-      return `<div class="card book" style="--c:${esc(b.color)}" data-id="${esc(b.id)}">
-        <div class="t">${esc(b.title)}</div>
-        <div class="muted small">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div>
+    const ls = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+    const lset = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+    const opened = JSON.parse(ls("lr-opened", "{}")), mode = ls("lr-dash-mode", "cards"), sort = ls("lr-dash-sort", "opened");
+    const all = Store.books.map(b => ({ b, st: bookStats(b) }));
+    const sorters = {
+      opened: (x, y) => (opened[y.b.id] || 0) - (opened[x.b.id] || 0),
+      due: (x, y) => (x.b.due || "9999") < (y.b.due || "9999") ? -1 : 1,
+      words: (x, y) => y.st.words - x.st.words,
+      client: (x, y) => (x.b.client || "~").localeCompare(y.b.client || "~"),
+      title: (x, y) => x.b.title.localeCompare(y.b.title) };
+    all.sort(sorters[sort] || sorters.opened);
+    const active = all.filter(x => x.b.status !== "archived" && !x.st.delivered), done = all.filter(x => x.b.status !== "archived" && x.st.delivered), arch = all.filter(x => x.b.status === "archived");
+    const recW = st => st.words - st.byStatus.todo, pct = st => st.words ? Math.round(100 * recW(st) / st.words) : 0;
+    const earned = st => st.words ? st.est.mine * recW(st) / st.words : 0;
+    const doneCh = b => b.chapters.filter(c => c.included && c.status !== "todo").length;
+
+    const card = ({ b, st }) => {
+      const cur = !!b.star, p = pct(st), cls = st.delivered ? "completed" : cur ? "is-current" : "";
+      return `<div class="project-card ${cls}" style="--c:${esc(b.color)}" data-id="${esc(b.id)}">
+        <div class="pc-head"><div class="pc-spine">${esc((b.title || "?").trim()[0] || "?")}</div>
+          <div class="pc-title">${esc(b.title)}
+            <div class="project-meta" style="font-family:var(--sans);margin-top:3px">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div></div>
+          <div class="pc-icons"><button class="star" data-star="${esc(b.id)}" title="${cur ? "Unmark current" : "Mark as current project"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}/0" data-booth title="Open in the Booth">🎙</a></div></div>
         ${progressBar(st)}
-        <div class="row small" style="justify-content:space-between;align-items:center">
-          <span>${num(st.words)} words · ${fh(st.est.fh)} FH</span>
-          ${st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}" title="Due ${esc(prettyDate(b.due))}">${st.track.label}</span>` : ""}
-        </div>
-        <div class="muted small">${st.words ? Math.round(100 * doneW / st.words) : 0}% recorded${b.due ? " · due " + esc(prettyDate(b.due)) : ""}</div>
+        <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)</div>
+        ${st.toRecord && !st.delivered ? `<div class="project-meta">${num(st.toRecord)} words remaining · ${fh(st.left.fh)} FH</div>` : ""}
+        <div class="project-meta">${doneCh(b)} / ${st.chapters} chapters recorded</div>
+        ${st.est.mine ? `<div class="project-meta earn">${money(earned(st))} earned${st.delivered ? "" : " of " + money(st.est.mine)}</div>` : ""}
+        <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
       </div>`;
     };
+    const row = ({ b, st }) => `<div class="ptr ${st.delivered ? "completed" : ""}" data-id="${esc(b.id)}"><div class="ptr-title">${b.star ? "★ " : ""}${esc(b.title)}</div><div>${pct(st)}% · ${num(st.words)} w</div><div>${doneCh(b)} / ${st.chapters} ch</div><div>${st.est.mine ? money(earned(st)) : "—"}</div><div>${b.due ? esc(prettyDate(b.due)) : "—"}${st.track ? ` <span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div></div>`;
+    const list = xs => mode === "list"
+      ? `<div class="project-table"><div class="ptr head"><div>Title</div><div>Progress</div><div>Chapters</div><div>Earned</div><div>Due</div></div>${xs.map(row).join("")}</div>`
+      : `<div class="project-grid">${xs.map(card).join("")}</div>`;
+
+    // Today strip: Continue · Today rings · Waiting on
+    const cont = all.find(x => x.b.star && x.b.status !== "archived" && !x.st.delivered) || active[0];
+    const contCard = cont ? `<div class="dt-card"><div class="dt-label">Continue</div><div class="dt-title">${esc(cont.b.title)}</div>
+        <div class="dt-sub">${doneCh(cont.b)} of ${cont.st.chapters} chapters · ${pct(cont.st)}% read</div>
+        <div class="gpr-bar" style="margin:10px 0"><div class="gpr-fill" style="width:${pct(cont.st)}%"></div></div>
+        <a class="btn primary small" href="#/booth/${esc(cont.b.id)}/${Math.max(0, cont.b.chapters.findIndex(c => c.included && c.status === "todo"))}">Resume ▸</a></div>`
+      : `<div class="dt-card"><div class="dt-label">Continue</div><div class="dt-empty">Nothing in progress. <a href="#/import">Start a project</a>.</div></div>`;
+    const me = Store.me ? Store.me() : "", S = Store.settings;
+    const nar = (S.narrators || []).find(n => n.name === me) || (S.narrators || [])[0] || { pace: 4000 };
+    const hrsGoal = S.boothHoursPerDay || 6, wordsGoal = Math.round((nar.pace || 4000) * hrsGoal);
+    const today = todayYmd(), dueSoon = active.filter(x => x.b.due && Prep.workdaysUntil(x.b.due) <= 5);
+    const unpaid = done.filter(x => !x.b.paid && x.st.est.mine);
+    const ring = (id, label, sub) => `<div class="ring" id="${id}"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="trk" cx="32" cy="32" r="28.5" stroke-width="7"/><circle class="arc" cx="32" cy="32" r="28.5" stroke-width="7" transform="rotate(-90 32 32)" stroke-dasharray="179.07" stroke-dashoffset="179.07"/></svg><div class="ctr">—</div><div class="lbl">${label}</div><div class="sub">${sub}</div></div>`;
+    const todayCard = `<div class="dt-card"><div class="dt-label">Today${me ? " · " + esc(me) : ""}</div><div class="rings">
+        ${ring("r-words", "Words", "of " + num(wordsGoal))}${ring("r-booth", "Booth hrs", "of " + hrsGoal)}${ring("r-earn", "Earned", "today")}</div></div>`;
+    const waitCard = `<div class="dt-card"><div class="dt-label">Waiting on</div>
+        <div class="dt-row"><span>Unpaid (${unpaid.length} book${unpaid.length === 1 ? "" : "s"})</span><b>${money(unpaid.reduce((a, x) => a + x.st.est.mine, 0))}</b></div>
+        <div class="dt-row"><span>Due within a week</span><b>${dueSoon.length}</b></div>
+        <div class="dt-row"><span>Behind or overdue</span><b>${active.filter(x => x.st.track && x.st.track.cls !== "good").length}</b></div>
+        <div class="dt-row"><span>Awaiting proof / delivery</span><b>${active.filter(x => !x.st.toRecord && x.st.words).length}</b></div></div>`;
+
     main().innerHTML = `
-      <div class="row" style="align-items:center;margin-bottom:14px"><h1 style="margin:0">Dashboard</h1><div class="spacer"></div><a class="btn primary" href="#/import">+ New Project</a></div>
-      ${books.length ? `<div class="grid">${books.map(card).join("")}</div>` : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
-      ${arch.length ? `<details style="margin-top:28px"><summary>Archived (${arch.length})</summary><div class="grid" style="margin-top:12px">${arch.map(card).join("")}</div></details>` : ""}`;
-    $$(".book").forEach(el => el.onclick = () => location.hash = "#/book/" + el.dataset.id);
+      <div class="view-header"><h2>Your Projects</h2>
+        <div class="view-header-actions">
+          <div class="mode-toggle"><button class="mode-btn ${mode !== "list" ? "on" : ""}" data-mode="cards">▦ Thumbnails</button><button class="mode-btn ${mode === "list" ? "on" : ""}" data-mode="list">☰ List</button></div>
+          <select id="dash-sort">${[["opened", "Recently Opened"], ["due", "Due Date"], ["words", "Word Count"], ["client", "Client"], ["title", "Title"]].map(([k, l]) => `<option value="${k}" ${sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+          <a class="btn primary" href="#/import">+ New Project</a></div></div>
+      ${all.length ? `<div class="dash-today">${contCard}${todayCard}${waitCard}</div>` : ""}
+      ${active.length ? list(active) : all.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
+      ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
+      ${arch.length ? `<details style="margin-top:26px"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
+
+    $$("[data-id]").forEach(el => el.onclick = e => { if (e.target.closest("[data-star],[data-booth]")) return; location.hash = "#/book/" + el.dataset.id; });
+    $$("[data-star]").forEach(el => el.onclick = e => { e.stopPropagation(); const b = Store.byId(el.dataset.star), on = !b.star; Store.books.forEach(x => { if (x.star && x !== b) { x.star = false; Store.saveBook(x); } }); b.star = on; Store.saveBook(b); viewLibrary(); });
+    $$("[data-mode]").forEach(el => el.onclick = () => { lset("lr-dash-mode", el.dataset.mode); viewLibrary(); });
+    $("#dash-sort").onchange = e => { lset("lr-dash-sort", e.target.value); viewLibrary(); };
+
+    // fill the rings from today's booth sessions
+    const setRing = (id, frac, txt) => { const r = $("#" + id); if (!r) return; const arc = r.querySelector(".arc"); arc.style.strokeDashoffset = 179.07 * (1 - Math.min(1, frac)); arc.classList.toggle("done", frac >= 1); r.querySelector(".ctr").textContent = txt; };
+    if (me && Store.sessions) Store.sessions(me, 1).then(list => {
+      const t = list.filter(s => s.date === today), w = t.reduce((a, s) => a + (s.words || 0), 0), sec = t.reduce((a, s) => a + (s.boothSec || 0), 0), v = t.reduce((a, s) => a + (s.value || 0), 0);
+      setRing("r-words", w / wordsGoal, w >= 1000 ? (w / 1000).toFixed(1) + "k" : String(w));
+      setRing("r-booth", sec / 3600 / hrsGoal, (sec / 3600).toFixed(1));
+      setRing("r-earn", v ? 1 : 0, "$" + Math.round(v));
+    }).catch(() => {});
   }
 
   // ---------------- book ----------------
