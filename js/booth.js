@@ -210,7 +210,7 @@
   }
   // Every hotkey, like Finished Hour's: one table of actions, each with a default key you can change (stored per computer).
   const ACTIONS = {
-    rec: ["Record · pause / resume (on the selected track)", "R"], stop: ["Stop (finish take / stop playback)", "S"], play: ["Play / stop playback (plays the selection if there is one)", "Space"],
+    rec: ["Record from the end of the last clip, on the selected track · pause / resume", "R"], stop: ["Stop (finish take / stop playback)", "S"], play: ["Play / stop playback (plays the selection if there is one)", "Space"],
     punch: ["Punch in at the playhead", "Shift+R"], flub: ["Flub: back to the start of the sentence, pre-roll, record", "F"],
     fxLast: ["Apply the last effect you used (to the selection, or the take at the playhead)", "E"],
     marker: ["Drop a flub marker", "M"], custom: ["Drop a named marker (goes into your WAV export)", "N"], click: ["Co-narrator: drop their next line in now (or mark a slot if it hasn't arrived; not recording: at the playhead)", "C"],
@@ -243,7 +243,7 @@
     const ov = document.createElement("div"); ov.className = "overlay"; let capturing = null;
     const draw = () => { const K = keys();
       ov.innerHTML = `<div class="card reader" style="max-width:640px"><h2>⌨ Booth hotkeys</h2>
-        <p class="small muted">Click a key, then press the new combination (Esc cancels). Giving a key to a second action takes it off the first. Fixed: <b>1–6</b> select a track (while recording: carry the take onto it), <b>⌥1–6</b> record on that track.</p>
+        <p class="small muted">Click a key, then press the new combination (Esc cancels). Giving a key to a second action takes it off the first. Fixed: <b>1–6</b> select a track (while recording: carry the take onto it), <b>⌥1–6</b> record on that track (from the end of the last clip).</p>
         <div class="kg">${Object.keys(ACTIONS).map(a => `<div>${esc(ACTIONS[a][0])}</div><div><button class="stu-btn ${capturing === a ? "stu-rec" : ""}" data-k="${a}">${capturing === a ? "Press a key…" : esc(kl(a))}</button>${K[a] ? `<button class="stu-btn" data-clear="${a}" title="No key">✕</button>` : ""}</div>`).join("")}</div>
         <p class="small muted">On the waveform: drag to select, click to place the playhead, click a take's label strip to select the take, drag the strip (or hold ⌥) to move it.</p>
         <div class="row"><button class="btn quiet" data-reset>Reset to defaults</button><div class="spacer"></div><button class="btn primary" data-x>Done</button></div></div>`; };
@@ -808,21 +808,14 @@
     $("[data-x]", ov).onclick = () => ov.remove();
   }
 
-  // R: on track 1 carries on from the end of the chapter; on another track records from the playhead (or the end)
-  // Finished Hour's rules: R on track 1 carries on from the end of track 1 — or from the end of a take you just made
-  // on another track, if that's later. On any other track, recording is a punch at the playhead.
-  function nextRecStart0() {
-    const base = T().trackLen(B.audio.tracks[0]), le = B.lastRecEnd, all = len();
-    return (le && le.ci === B.ci && le.track > 0 && le.t > base && le.t <= all + 0.05) ? le.t : base;
-  }
+  // R always carries on from the end of the last clip in the chapter, whichever track that clip is on, and records onto
+  // the selected track. (Shift+R is the punch: it records from the playhead.) ⌥1–6 is R onto that track.
+  function nextRecStart0() { return len(); }
   async function recordToggle(onTrack) {
     if (B.rec && onTrack == null) { B.rec.paused = !B.rec.paused; if (!B.rec.paused) B.rec.lastW = null; renderTransport(); return; }
-    let at = B.playhead;
-    if (B.player.playing) { at = B.player.time; B.player.stop(); }
+    if (B.player.playing) B.player.stop();
     if (onTrack != null) B.track = onTrack;
-    if (B.track === 0 && onTrack == null) return startRecording(nextRecStart0(), false);
-    if (B.track === 0 && !T().hasAudio(B.audio)) return startRecording(0, false);
-    return startRecording(at != null ? at : (B.track === 0 ? nextRecStart0() : len()), true);
+    return startRecording(len(), false);
   }
   async function punchAt(t) {
     if (B.rec) await stopRecording();
