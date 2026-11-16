@@ -32,11 +32,11 @@
       ] },
     { id: "booth", icon: "🎙", title: "The Booth: recording", lead: "The manuscript fills the screen, your tracks sit at the bottom. Read, and it follows you.",
       items: [
-        ["Record / Pause", "R. Starts recording on the selected track. Press again to pause, again to resume. While recording, the voice wave glows across the bottom of the screen."],
+        ["Record / Pause", "R. Starts recording on the selected track, always from the end of the last clip in the chapter, whatever track that clip is on. Press again to pause, again to resume. While recording, the voice wave glows across the bottom of the screen."],
         ["Stop", "S. Finishes the take."],
         ["Follow-along", "With “with listening” ticked, the text lights up as you read and keeps your place. Your lines are bright; your partner's are dimmed, with the line before yours as a grey cue."],
         ["Flub", "F. Made a mistake? Press F: it jumps back to the start of the sentence, plays a little lead-in (pre-roll) and records again over it."],
-        ["Punch in", "Shift+R. Records from the playhead, with the pre-roll first. Set the pre-roll length in the bar at the top."],
+        ["Punch in", "Shift+R. Records from the playhead instead, with the pre-roll first. Set the pre-roll length in the bar at the top."],
         ["Markers", "M drops a flub marker to fix later. N drops a named marker (it goes into your WAV export)."],
         ["Two clocks", "Booth time counts the time you spend on the chapter (it pauses after a few idle minutes; click it to pause or start). FH is the finished length of the audio."],
         ["Level check", "🎚 Level: speak at narration volume and aim for the green band."],
