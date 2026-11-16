@@ -27,7 +27,9 @@
     for (const c of tr.clips) {
       if (t > c.at + EPS && t < c.at + c.dur - EPS) {
         const d1 = t - c.at;
-        out.push(Object.assign({}, c, { dur: d1 }), Object.assign({}, c, { off: c.off + d1, dur: c.dur - d1, at: t }));
+        const x = Object.assign({}, c, { dur: d1 }), y = Object.assign({}, c, { off: c.off + d1, dur: c.dur - d1, at: t });
+        delete x.fo; delete y.fi;                       // a fade-out belongs to the last piece, a fade-in to the first
+        out.push(x, y);
       } else out.push(c);
     }
     tr.clips = out;
@@ -37,7 +39,7 @@
     const res = [];
     for (const c of a.tracks[ti].clips) {
       const s = Math.max(x, c.at), e = Math.min(y, c.at + c.dur);
-      if (e - s > EPS) res.push({ file: c.file, off: c.off + (s - c.at), dur: e - s, at: s - x });
+      if (e - s > EPS) { const k = { file: c.file, off: c.off + (s - c.at), dur: e - s, at: s - x }; if (c.g) k.g = c.g; if (c.line) k.line = c.line; res.push(k); }
     }
     return res;
   }
@@ -95,10 +97,34 @@
     a.tracks[nti].clips.push(Object.assign({}, c, { at: nat }));
     sortTrack(a.tracks[nti]);
   }
+  // Drag one edge of a clip by d seconds. ripple: everything after moves too, on every track (so duet lines stay with
+  // the narration); otherwise the clip trims in place, stopping at its neighbours. An edge can only go as far as the
+  // recording goes (srcDur = the length of the clip's file). Returns the d actually applied.
+  function trimEdge(a, ti, ci, edge, d, ripple, srcDur) {
+    const tr = a.tracks[ti], c = tr && tr.clips[ci]; if (!c) return 0;
+    const o = { at: c.at, off: c.off, dur: c.dur }, end = o.at + o.dur, others = tr.clips.filter(x => x !== c);
+    const prevEnd = others.filter(x => x.at + x.dur <= o.at + EPS).reduce((m, x) => Math.max(m, x.at + x.dur), 0);
+    const nextStart = others.filter(x => x.at >= end - EPS).reduce((m, x) => Math.min(m, x.at), Infinity);
+    c._trim = 1;
+    if (edge === "end") {
+      const left = srcDur != null ? Math.max(0, srcDur - o.off - o.dur) : 0;
+      d = Math.max(0.05 - o.dur, Math.min(left, d));
+      if (!ripple && nextStart !== Infinity) d = Math.min(d, nextStart - end);
+      if (ripple) { if (d > EPS) insertGap(a, end, d); else if (d < -EPS) deleteRange(a, end + d, end); }
+      const k = tr.clips.find(x => x._trim); if (k) { k.dur = o.dur + d; delete k._trim; }
+    } else {
+      d = Math.max(-o.off, Math.min(o.dur - 0.05, d));
+      if (!ripple) d = Math.max(prevEnd - o.at, d);
+      if (ripple) { if (d > EPS) deleteRange(a, o.at, o.at + d); else if (d < -EPS) insertGap(a, o.at, -d); }
+      const k = tr.clips.find(x => x._trim); if (k) { k.at = ripple ? o.at : o.at + d; k.off = o.off + d; k.dur = o.dur - d; delete k._trim; }
+    }
+    tr.clips.forEach(x => delete x._trim); a.tracks.forEach(sortTrack);
+    return d;
+  }
   const clipAt = (a, ti, t) => { const tr = a.tracks[ti]; if (!tr) return -1; return tr.clips.findIndex(c => t >= c.at && t <= c.at + c.dur); };
   function timeOfWord(a, w) { const x = (a.anchors || []).find(p => p[1] >= w); return x ? x[0] : null; }
   function wordAt(a, t) { let w = null; for (const p of a.anchors || []) { if (p[0] > t) break; w = p[1]; } return w; }
 
-  const Timeline = { normalize, trackLen, length, hasAudio, splitAt, extract, clear, shiftAfter, deleteRange, insertGap, overwrite, insert, truncate, moveClip, clipAt, timeOfWord, wordAt, clone };
+  const Timeline = { normalize, trackLen, length, hasAudio, splitAt, extract, clear, shiftAfter, deleteRange, insertGap, overwrite, insert, truncate, moveClip, trimEdge, clipAt, timeOfWord, wordAt, clone };
   if (typeof module !== "undefined" && module.exports) module.exports = Timeline; else root.LRTimeline = Timeline;
 })(typeof window !== "undefined" ? window : globalThis);

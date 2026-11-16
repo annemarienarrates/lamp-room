@@ -55,6 +55,9 @@
         ["Zoom", "− and = zoom time out and in. [ and ] make tracks shorter or taller."],
         ["Flags", ", and . jump to the previous and next flag. The flag button lists them all."],
         ["Edit the text", "✎ Text editor fixes typos in the manuscript. Select words to change who reads them."],
+        ["Trim and space", "Drag either edge of a take. Everything after it moves along on every track: drag in to tighten a pause, out to open it. Hold ⌥ to trim just that take. Edges snap to other takes and markers."],
+        ["Fades", "Drag the small white dots at a take's bottom corners, or type fade lengths in Tools ▸ Levels, fades & spacing. Every cut already gets a tiny fade so it never clicks."],
+        ["Add space", "G adds half a second (or your length) at the playhead, filled with your room tone."],
         ["Export", "Export chapter: WAV, MP3, or raw for Auphonic. File names follow the pattern in Settings."]
       ] },
     { id: "tools", icon: "🎛", title: "Tools panel", lead: "Open it with the Tools tab on the right (or Shift+P). Pick a page from the menu at the top.",
@@ -64,7 +67,9 @@
         ["🎛 Effects", "Pitch, double, reverb, echo, chorus, robot and placement. Preview first, then Apply (Undo brings the original back). Arm keeps an effect on a track so every new take there gets it. E repeats the last effect."],
         ["Track sound", "A live tone chain (rumble cut, warmth, presence, air…). Your recordings aren't changed. Auphonic masters for you, so leave it off unless a track needs its own sound."],
         ["Takes", "Every take on the timeline, with play and delete."],
-        ["Levels & checks", "Gain up or down on a selection or take. ACX check measures the chapter: loudness, peaks and room noise."],
+        ["Levels, fades & spacing", "Fades, Add space, room tone, Even out pauses, gain, and the ACX check (loudness, peaks, room noise)."],
+        ["Room tone", "Learn it once per book: select a quiet pause, or let it find one. Gaps, added space and the tail then fill with your room instead of dead silence."],
+        ["Even out pauses", "Head 0.8 s, 2 s after the chapter heading, 1.5 s at scene breaks, 3.5 s tail, and any other pause over 0.7 s brought down to 0.7 (shorter ones left alone). Preview first, or tick it to happen when you mark a chapter complete. Change the lengths there too."],
         ["Mic & reading", "Choose the microphone, who you're reading as, the theme and the reading font."]
       ] },
     { id: "duets", icon: "👥", title: "Duets", lead: "Whoever narrates the chapter is the lead. The other person records only their lines and sends them over.",

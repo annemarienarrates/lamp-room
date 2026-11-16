@@ -105,17 +105,56 @@
   }
 
   // ---------------- reading the timeline back ----------------
+  // Fades: a clip's own fade-in / fade-out (fi, fo seconds, set with the dots or in Levels), and an 8 ms one at every
+  // cut so an edit never clicks — except where a clip simply carries on from the one before it in the same recording.
+  const AUTO_FADE = 0.008;
+  const fadeCurve = x => 0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, Math.min(1, x)));
+  const joins = (p, c) => !!(p && c) && p.file === c.file && Math.abs(p.at + p.dur - c.at) < 0.002 && Math.abs(p.off + p.dur - c.off) < 0.002;
   async function renderRange(dir, clips, from, dur) {
-    const out = new Float32Array(Math.round(dur * RATE));
-    for (const c of clips) {
+    const out = new Float32Array(Math.round(dur * RATE)), sorted = clips.slice().sort((x, y) => x.at - y.at);
+    for (let ci = 0; ci < sorted.length; ci++) {
+      const c = sorted[ci];
       const a = Math.max(from, c.at), b = Math.min(from + dur, c.at + c.dur);
       if (b <= a) continue;
       const f = await (await dir.getFileHandle(c.file)).getFile();
       const pcm = await readPCM(f, c.off + (a - c.at), b - a);
-      if (c.g) { const g = Math.pow(10, c.g / 20); for (let i = 0; i < pcm.length; i++) pcm[i] *= g; }      // clip gain (dB), from Levels
-      out.set(pcm.subarray(0, Math.min(pcm.length, out.length - Math.round((a - from) * RATE))), Math.round((a - from) * RATE));
+      const g = c.g ? Math.pow(10, c.g / 20) : 1;
+      let fi = Math.max(c.fi || 0, joins(sorted[ci - 1], c) ? 0 : AUTO_FADE), fo = Math.max(c.fo || 0, joins(c, sorted[ci + 1]) ? 0 : AUTO_FADE);
+      if (fi + fo > c.dur) { const k = c.dur / (fi + fo); fi *= k; fo *= k; }
+      const p0 = a - c.at, n = pcm.length;
+      if (g !== 1 || (fi > 0 && p0 < fi) || (fo > 0 && c.dur - (p0 + n / RATE) < fo)) {
+        for (let i = 0; i < n; i++) {
+          const p = p0 + i / RATE; let m = g;
+          if (fi > 0 && p < fi) m *= fadeCurve(p / fi);
+          const q = c.dur - p; if (fo > 0 && q < fo) m *= fadeCurve(q / fo);
+          pcm[i] *= m;
+        }
+      }
+      const o = Math.round((a - from) * RATE);
+      const src = pcm.subarray(0, Math.min(pcm.length, out.length - o));
+      for (let i = 0; i < src.length; i++) out[o + i] += src[i];         // add: overlapping fades cross-fade
     }
     return out;
+  }
+  // Room tone: a short recording of the room, looped seamlessly, fills every stretch where no track has a clip
+  // (between takes, added space, the chapter's tail), so a gap never drops to dead digital silence.
+  function loopTone(x) {
+    const X = Math.min(Math.round(RATE * 0.25), Math.floor(x.length / 3)), n = x.length - X, out = new Float32Array(n);
+    out.set(x.subarray(0, n));
+    for (let i = 0; i < X; i++) { const w = i / X; out[i] = x[n + i] * (1 - w) + x[i] * w; }   // the end flows into the start
+    return out;
+  }
+  function fillTone(out, from, cover, tone, endT) {
+    if (!tone || !tone.length) return;
+    const n = out.length, R = RATE, XF = Math.round(R * 0.02), mask = new Uint8Array(n);
+    for (const [a, b] of cover) { const i0 = Math.max(0, Math.round((a - from) * R)), i1 = Math.min(n, Math.round((b - from) * R)); for (let i = i0; i < i1; i++) mask[i] = 1; }
+    const last = Math.min(n, Math.round((endT - from) * R)); if (last <= 0) return;
+    // distance (in samples) to the nearest covered sample, both ways, capped at the crossfade length
+    const dist = new Uint16Array(last); let d = XF;
+    for (let i = 0; i < last; i++) { d = mask[i] ? 0 : Math.min(XF, d + 1); dist[i] = d; }
+    d = XF; for (let i = last - 1; i >= 0; i--) { d = mask[i] ? 0 : Math.min(XF, d + 1); if (d < dist[i]) dist[i] = d; }
+    const base = Math.round(from * R), L = tone.length;
+    for (let i = 0; i < last; i++) { if (mask[i]) continue; const v = tone[(((base + i) % L) + L) % L]; out[i] += dist[i] >= XF ? v : v * dist[i] / XF; }
   }
 
   // quietest 20 ms point in [t - before, t + after] — where a punch should land so it doesn't clip a word
@@ -279,7 +318,7 @@
   // Chains keep their state between calls that follow on from each other (playback, export); a jump starts them afresh
   // with a short run-in so the filters have settled by the first sample you hear.
   function mixer(dir, audio, trackSet, opts) {
-    const chains = [], bypass = opts && opts.bypass; let lastEnd = null;
+    const chains = [], bypass = opts && opts.bypass, tone = opts && opts.tone; let lastEnd = null;
     const RUNIN = 0.25;
     return async (from, dur) => {
       const out = new Float32Array(Math.round(dur * RATE));
@@ -298,9 +337,14 @@
         } else x = await renderRange(dir, tracks[i].clips, from, dur);
         for (let k = 0; k < out.length && k < x.length; k++) out[k] += x[k] * g;
       }
+      if (tone) {   // room tone under every stretch no audible track covers, up to the chapter's end (its tail included)
+        const cover = []; tracks.forEach((tr, i) => { const st = set[i] || {}; if (st.mute || (solo && !st.solo)) return; for (const c of tr.clips) if (c.at < from + dur && c.at + c.dur > from) cover.push([c.at, c.at + c.dur]); });
+        const endT = opts.end != null ? opts.end : tracks.reduce((m, tr) => tr.clips.reduce((mm, c) => Math.max(mm, c.at + c.dur), m), 0) + (audio.pad || 0);
+        fillTone(out, from, cover, tone, endT);
+      }
       return out;
     };
   }
 
-  window.LRAudio = { mixer, RATE, PEAKS_PER_SEC, WavWriter, readPCM, wavInfo, renderRange, quietPoint, lastPause, Player, Mic, loadPeaks };
+  window.LRAudio = { mixer, loopTone, fadeCurve, AUTO_FADE, RATE, PEAKS_PER_SEC, WavWriter, readPCM, wavInfo, renderRange, quietPoint, lastPause, Player, Mic, loadPeaks };
 })();
