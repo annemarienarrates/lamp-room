@@ -1110,30 +1110,44 @@
   }
 
   // ======================= the voice waveform over the page while you record (Finished Hour drew one too) =======================
+  // Full-width, like Finished Hour's: the live mic signal drawn as a line of electricity across the screen, near the bottom of
+  // the page. Three passes give the glow (a wide haze, the coloured line, a white-hot core); loud moments crackle and throw sparks.
   function drawVoice() {
     const cv = $("#voice-wave"), an = B.mic && B.mic.analyser;
     if (!cv) return;
     const on = !!(B.rec && !B.rec.paused && an);
     cv.classList.toggle("on", on); if (!on) { B.sparks = []; return; }
-    const wrap = $("#ms-wrap"), r = wrap.getBoundingClientRect(), W = Math.round(Math.min(r.width, 900)), H = 220, dpr = window.devicePixelRatio || 2;
-    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px"; }
-    cv.style.left = Math.round(r.left + r.width / 2 - W / 2) + "px"; cv.style.top = Math.round(r.top + r.height * 0.72 - H / 2) + "px";
+    const dock = $("#booth-dock"), dockTop = dock ? dock.getBoundingClientRect().top : innerHeight, W = innerWidth, H = 360, dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + "px"; cv.style.height = H + "px"; }
+    cv.style.top = Math.round(dockTop - 120 - H / 2) + "px";          // the centre line rides about 120 px above the dock
     const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
     const buf = B.vbuf = B.vbuf && B.vbuf.length === an.fftSize ? B.vbuf : new Float32Array(an.fftSize); an.getFloatTimeDomainData(buf);
-    let pk = 0, px = 0, py = H / 2; for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > pk) pk = a; }
-    const vol = Math.min(1, pk * 3.2), col = (getComputedStyle(document.body).getPropertyValue("--accent") || "#c9a45a").trim();
-    g.lineWidth = 4; g.lineJoin = "round"; g.strokeStyle = col; g.shadowColor = col; g.shadowBlur = 8 + vol * 24; g.beginPath();
-    for (let i = 0; i < buf.length; i++) {
-      const x = i / (buf.length - 1) * W, edge = Math.sin(Math.PI * i / (buf.length - 1)), y = H / 2 + buf[i] * H * 1.1 * edge;   // tapered at the ends
-      if (Math.abs(y - H / 2) > Math.abs(py - H / 2)) { px = x; py = y; }
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    let pk = 0; for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > pk) pk = a; }
+    const vol = Math.min(1, pk * 3), cs = getComputedStyle(document.body), col = (cs.getPropertyValue("--accent") || "#c9a45a").trim(), col2 = (cs.getPropertyValue("--accent2") || cs.getPropertyValue("--accent-hi") || "#fff").trim();
+    const N = buf.length, mid = H / 2;
+    const pts = new Array(N); let px = 0, py = mid;
+    for (let i = 0; i < N; i++) {
+      const x = i / (N - 1) * W, e = Math.min(1, i / (N * 0.03), (N - 1 - i) / (N * 0.03));   // ease in/out over the last 3% at each edge
+      const y = mid + H * 0.32 * Math.tanh(buf[i] * 2.4) * e; pts[i] = [x, y];   // soft-limited so loud lines never clip the frame
+      if (Math.abs(y - mid) > Math.abs(py - mid)) { px = x; py = y; }
     }
-    g.stroke(); g.shadowBlur = 0;
+    const line = (w, c, blur, alpha, jitter) => {
+      g.globalAlpha = alpha; g.lineWidth = w; g.strokeStyle = c; g.shadowColor = c; g.shadowBlur = blur; g.lineJoin = "round"; g.lineCap = "round"; g.beginPath();
+      for (let i = 0; i < N; i++) { const [x, y] = pts[i], j = jitter ? (Math.random() - 0.5) * jitter * Math.abs(y - mid) / 20 : 0; i ? g.lineTo(x, y + j) : g.moveTo(x, y + j); }
+      g.stroke();
+    };
+    line(12, col, 40 + vol * 40, 0.22, 0);                 // haze
+    line(4.5, col, 14 + vol * 26, 0.95, 0);                // the line
+    if (vol > 0.25) line(1.5, col2, 10, 0.5 * vol, 6 + vol * 10);   // crackle: a second arc that won't sit still
+    line(1.6, "#ffffff", 6, 0.85, 0);                      // white-hot core
+    g.shadowBlur = 0; g.globalAlpha = 1;
     const sp = B.sparks = B.sparks || [];
-    if (vol > 0.3 && Math.random() < vol * 0.5) for (let k = 0; k < 1 + Math.floor(Math.random() * 3); k++) sp.push({ x: px + (Math.random() - .5) * 30, y: py + (Math.random() - .5) * 20, vx: (Math.random() - .5) * 3, vy: -Math.random() * 2.2 - .4, life: 1, d: .02 + Math.random() * .025, s: 1.5 + Math.random() * 2.5 });
-    for (let k = sp.length - 1; k >= 0; k--) { const q = sp[k]; q.x += q.vx; q.y += q.vy; q.vy += .02; q.life -= q.d; if (q.life <= 0) { sp.splice(k, 1); continue; } g.globalAlpha = q.life; g.fillStyle = col; g.beginPath(); g.arc(q.x, q.y, q.s, 0, 7); g.fill(); }
-    g.globalAlpha = 1;
+    if (vol > 0.28 && Math.random() < vol * 0.6) for (let k = 0; k < 1 + Math.floor(Math.random() * 4); k++) sp.push({ x: px + (Math.random() - .5) * 40, y: py + (Math.random() - .5) * 24, vx: (Math.random() - .5) * 3.5, vy: -Math.random() * 2.6 - .4, life: 1, d: .018 + Math.random() * .025, s: 1.2 + Math.random() * 2.6, c: Math.random() < 0.3 ? col2 : col });
+    for (let k = sp.length - 1; k >= 0; k--) { const q = sp[k]; q.x += q.vx; q.y += q.vy; q.vy += .03; q.life -= q.d; if (q.life <= 0) { sp.splice(k, 1); continue; }
+      g.globalAlpha = q.life; g.fillStyle = q.c; g.shadowColor = q.c; g.shadowBlur = 10; g.beginPath(); g.arc(q.x, q.y, q.s, 0, 7); g.fill(); }
+    g.globalAlpha = 1; g.shadowBlur = 0;
   }
+
 
   // ======================= waveform: a zoomed window that follows the head, one lane per track =======================
   async function loadPeaks() {

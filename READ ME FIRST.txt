@@ -1,4 +1,4 @@
-THE LAMP ROOM  (v0.5: Booth, Studio & Effects)
+THE LAMP ROOM  (v0.5.1: Booth, Studio & Effects)
 ================================================
 
 Opening it
