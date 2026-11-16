@@ -15,6 +15,7 @@
   const IDLE_MIN = 5;              // Finished Hour: the chapter clock pauses after 5 idle minutes
   const MAX_TRACKS = 6;
   const RULER = 14;
+  const BASE_TEXT = 1.25;          // rem, before A− / A+
 
   let B = null;
 
@@ -28,7 +29,9 @@
       B = { book, readingAs: me, mic: new LRAudio.Mic(), player: new LRAudio.Player(), listening: false, rec: null, playhead: null,
         prerollSec: num0(localStorage.getItem("lr-preroll"), 3), follow: localStorage.getItem("lr-follow") !== "0",
         edit: false, sessions: [], session: null, peaks: {}, bRun: {}, clockPaused: false, lastAct: Date.now(),
-        track: 0, sel: null, laneH: num0(localStorage.getItem("lr-laneh"), 64), undo: [], redo: [] };
+        track: 0, sel: null, laneH: num0(localStorage.getItem("lr-laneh"), 72), undo: [], redo: [], fxOpen: {}, fxp: {} };
+      let fp = {}; try { fp = JSON.parse(localStorage.getItem("lr-fxp") || "{}") || {}; } catch (e) {}
+      for (const k in LRFx.KINDS) B.fxp[k] = Object.assign({}, LRFx.KINDS[k].def, fp[k] || {});
       try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (e) { B.sessions = []; }
       B.tick = setInterval(tick, 1000);
       B.anchorTimer = setInterval(sampleAnchor, 200);
@@ -50,7 +53,7 @@
   async function close() {
     if (!B) return;
     if (B.rec) await stopRecording();
-    stopListening(); B.player.stop(); B.mic.close();
+    stopListening(); B.player.stop(); stopPreview(); hidePartPop(); B.mic.close();
     clearInterval(B.tick); clearInterval(B.anchorTimer);
     document.removeEventListener("keydown", onKey);
     ["pointerdown", "keydown", "wheel"].forEach(ev => document.removeEventListener(ev, markActive, true));
@@ -102,7 +105,7 @@
     B.mine = B.toks.map(t => isMine(t, B.chap));
     B.f = Prep.makeFollower(B.toks, B.mine, prog().pos || 0);
     B.audio = audioOf(B.chap);
-    B.playhead = null; B.sel = null; B.view = null; B.undo = []; B.redo = [];
+    B.playhead = null; B.sel = null; B.selTake = null; B.view = null; B.undo = []; B.redo = []; hidePartPop();
     B.track = Math.min(B.track, B.audio.tracks.length - 1);
     bookCounts();
     B.peaks = {};
@@ -121,12 +124,29 @@
       <div id="booth-editbar" class="bbar"></div>
       <div id="stats-bar" class="bbar"></div>
       <div id="ms-wrap"><div id="ms-page"><div class="ms-head"><span class="ms-book">${esc(B.book.title)}</span>${c.pov ? `<span class="ms-pov">${esc(c.pov)}'s POV</span>` : ""}</div>
-        <div id="ms" class="ms ${B.edit ? "editing" : ""}" style="font-size:${(1.32 * zoom()).toFixed(2)}rem"></div></div></div>
-      <div id="booth-dock"><div class="bd-main" id="bd-main"></div>
+        <div id="ms" class="ms ${B.edit ? "editing" : ""}" style="font-size:${(BASE_TEXT * zoom()).toFixed(2)}rem"></div></div></div>
+      <canvas id="voice-wave"></canvas>
+      <div id="booth-dock"><div class="bd-grip" id="bd-grip" title="Drag to make the waveform taller or shorter"></div><div class="bd-main" id="bd-main"></div>
         <div class="bd-wavewrap"><div class="trk-heads" id="booth-heads"></div><div class="bd-wave"><canvas id="wave"></canvas></div></div>
       </div>
       <div id="bd-side"></div>`;
+    applyReadFont();
     renderEditBar(); renderManuscript(); renderTransport(); renderStats(); renderSide(); layout();
+    const ms = $("#ms"), wrap = $("#ms-wrap");
+    ms.addEventListener("mouseup", () => setTimeout(showPartPop, 0));
+    wrap.addEventListener("scroll", hidePartPop);
+    wrap.addEventListener("wheel", e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); textZoom(Math.max(-0.1, Math.min(0.1, -e.deltaY * 0.004))); }, { passive: false });
+    bindGrip();
+  }
+  function applyReadFont() { document.body.classList.toggle("read-serif", Store.settings.readFont === "serif"); }
+  // drag the top edge of the dock to resize the track lanes (like Finished Hour's split)
+  function bindGrip() {
+    const g = $("#bd-grip"); if (!g) return;
+    g.onpointerdown = e => {
+      g.setPointerCapture(e.pointerId); const y0 = e.clientY, h0 = B.laneH, n = B.audio.tracks.length;
+      g.onpointermove = ev => { const h = Math.max(34, Math.min(220, Math.round(h0 + (y0 - ev.clientY) / n))); if (h !== B.laneH) { B.laneH = h; renderTransport(); } };
+      g.onpointerup = () => { g.onpointermove = null; g.onpointerup = null; localStorage.setItem("lr-laneh", B.laneH); };
+    };
   }
   function renderEditBar() {
     const el = $("#booth-editbar"); if (!el) return;
@@ -135,15 +155,16 @@
     el.innerHTML = `
       <div class="bd-grp">${bt("menu", ICON.menu + " Menu ▾", { dis: rec })}</div>
       <div class="bd-grp">${bt("edit", "✎ " + (B.edit ? "Editing text" : "Text editor"), { cls: B.edit ? "on" : "", tip: "Edit the manuscript text", dis: rec })}</div>
-      <div class="bd-grp">${bt("cut", "✂ Cut", { dis: !sel, tip: "Cut the selection (⌘X)" })}${bt("copy", "⧉ Copy", { dis: !sel, tip: "Copy the selection (⌘C)" })}${bt("paste", "📋 Paste", { dis: rec || !B.clip, tip: "Paste at the playhead, pushing the rest along (⌘V)" })}${bt("pasteOver", "Paste over", { dis: rec || !B.clip, tip: "Paste over, replacing what's there (⌘⇧V)" })}${bt("del", "Delete", { dis: !sel, tip: "Delete the selection and close the gap (Delete)" })}</div>
+      <div class="bd-grp">${bt("cut", "✂ Cut", { dis: !sel, tip: "Cut the selection (⌘X)" })}${bt("copy", "⧉ Copy", { dis: !sel, tip: "Copy the selection (⌘C)" })}${bt("paste", "📋 Paste", { dis: rec || !B.clip, tip: "Paste at the playhead, pushing the rest along (⌘V)" })}${bt("pasteOver", "Paste over", { dis: rec || !B.clip, tip: "Paste over, replacing what's there (⌘⇧V)" })}${bt("del", "Delete", { dis: !sel, tip: "Delete the selection and close the gap (" + kl("del") + ")" })}${B.selTake && !rec ? bt("delTake", "🗑 Delete take", { tip: "Delete the selected take (" + kl("del") + ")" }) : ""}</div>
       <div class="bd-grp">${bt("track", ICON.rows + " Track " + (B.track + 1) + "/" + nt, { dis: rec, tip: "Next track (T)" })}${bt("addTrack", "+ Track", { dis: rec || nt >= MAX_TRACKS, tip: "Add a track to every chapter (Shift+T)" })}</div>
-      <div class="bd-grp bd-textzoom">${bt("tsm", "A−", { tip: "Smaller text" })}<span class="bd-zl">${Math.round(zoom() * 100)}%</span>${bt("tbg", "A+", { tip: "Larger text" })}</div>
+      <div class="bd-grp bd-textzoom">${bt("tsm", "A−", { tip: "Smaller text (" + kl("textSmaller") + ", or ⌘ + scroll over the text)" })}<span class="bd-zl">${Math.round(zoom() * 100)}%</span>${bt("tbg", "A+", { tip: "Larger text (" + kl("textBigger") + ")" })}</div>
       <div class="bd-grp">${bt("smaller", "▾", { tip: "Shorter tracks ([)" })}${bt("bigger", "▴", { tip: "Taller tracks (])" })}${bt("zout", "−", { tip: "Zoom out (−)" })}${bt("zin", "＋", { tip: "Zoom in (=)" })}</div>
       <div class="bd-grp">${bt("readHere", ICON.dl + " Read from here", { dis: rec, tip: "Move your reading position to the start of this chapter" })}${bt("resetCh", ICON.reset + " Reset Ch " + n, { dis: rec, tip: "Clear read marks, booth time and completion on this chapter (recordings are kept)" })}</div>
       <label class="bd-fld" title="How much of the lead-in plays before a punch-in starts recording"><span>Pre-roll</span><select class="stu-sel" data-b="pre">${[0, 1, 2, 3, 4, 5, 8, 10, 15, 20, 30].map(v => `<option value="${v}" ${v === B.prerollSec ? "selected" : ""}>${v ? v + " s" : "Off"}</option>`).join("")}</select></label>
       <span style="flex:1"></span>
       ${bt("chDone", ICON.check + " " + (done ? "Completed · reopen" : "Mark Ch " + n + " complete"), { cls: done ? "" : "bd-done", dis: rec, tip: done ? "This chapter is marked complete. Click to reopen it." : "Mark this chapter complete: stops its booth clock and offers to export it" })}
       ${bt("export", ICON.dl + " Export chapter", { cls: "stu-rec", dis: rec || !T().hasAudio(B.audio), tip: "Export as WAV, MP3, or raw for Auphonic" })}
+      <span class="stu-note" id="bd-busy">${esc(B.busyTxt || "")}</span>
       ${bt("keys", ICON.kbd + " Hotkeys", { cls: "bd-quiet" })}`;
     el.onclick = barClick; el.onchange = barChange;
   }
@@ -159,7 +180,8 @@
     const a = b.dataset.b; b.blur();
     if (a === "menu") return navMenu(b);
     if (a === "edit") { B.edit = !B.edit; render(); return; }
-    if (a === "tsm" || a === "tbg") { const z = Math.max(0.7, Math.min(1.8, zoom() + (a === "tbg" ? 0.1 : -0.1))); localStorage.setItem("lr-tzoom", z.toFixed(2)); render(); return; }
+    if (a === "tsm" || a === "tbg") return textZoom(a === "tbg" ? 0.1 : -0.1);
+    if (a === "delTake") return B.selTake && deleteTake(B.selTake.ti, B.selTake.ci);
     if (a === "zin" || a === "zout") return setZoom(a === "zin" ? 1.5 : 1 / 1.5);
     if (a === "bigger" || a === "smaller") return laneSize(a === "bigger" ? 1.3 : 1 / 1.3);
     if (a === "readHere") { B.f.set(0); prog().pos = B.f.pos; Store.saveBook(B.book); markPos(true); return; }
@@ -178,58 +200,255 @@
     document.body.appendChild(m);
     setTimeout(() => document.addEventListener("click", function off() { m.remove(); document.removeEventListener("click", off); }), 0);
   }
-  const HOTKEYS = [
-    ["R", "Record · pause / resume (on the selected track)"], ["S", "Stop"], ["Space", "Play / stop"], ["Shift+R", "Punch in at the playhead"], ["F", "Flub: back to the sentence start, pre-roll, record"],
-    ["1 – 6", "While recording: carry the take straight onto that track, no gap · otherwise: select the track"],
-    ["⌥1 – ⌥6", "Record on track 1–6 from the playhead"],
-    ["M / N", "Flub marker / named marker"], ["⌘X ⌘C ⌘V", "Cut / copy / paste (paste pushes the rest along)"], ["⌘⇧V", "Paste over (replaces)"], ["Delete", "Delete the selection and close the gap"],
-    ["⌘A", "Select the whole chapter"], ["B", "Split the take at the playhead"], ["T / Shift+T", "Next track / add a track"], ["[ / ]", "Shorter / taller tracks"], ["− / =", "Zoom out / in (⌘ + scroll too)"],
-    ["Home / End", "Playhead to start / end"], [", / .", "Previous / next flag"], ["⌘Z / ⌘⇧Z", "Undo / redo"], ["Esc", "Stop playback, clear the selection"]];
+  // Every hotkey, like Finished Hour's: one table of actions, each with a default key you can change (stored per computer).
+  const ACTIONS = {
+    rec: ["Record · pause / resume (on the selected track)", "R"], stop: ["Stop (finish take / stop playback)", "S"], play: ["Play / stop playback (plays the selection if there is one)", "Space"],
+    punch: ["Punch in at the playhead", "Shift+R"], flub: ["Flub: back to the start of the sentence, pre-roll, record", "F"],
+    fxLast: ["Apply the last effect you used (to the selection, or the take at the playhead)", "E"],
+    marker: ["Drop a flub marker", "M"], custom: ["Drop a named marker (goes into your WAV export)", "N"], click: ["Co-narrator: drop in their next line (arrives with duet clips)", "C"],
+    undo: ["Undo", "Ctrl+Z"], redo: ["Redo", "Ctrl+Shift+Z"], cut: ["Cut selection", "Ctrl+X"], copy: ["Copy selection", "Ctrl+C"], paste: ["Paste at the playhead (insert)", "Ctrl+V"],
+    pasteOver: ["Paste over (replace)", "Ctrl+Shift+V"], del: ["Delete the selection, or the selected take", "Delete"], selAll: ["Select the whole chapter", "Ctrl+A"],
+    selToStart: ["Select from the playhead to the start", "Shift+Home"], selToEnd: ["Select from the playhead to the end", "Shift+End"],
+    split: ["Split the take at the playhead", "B"], track: ["Next track", "T"], addTrack: ["Add a track", "Shift+T"],
+    smaller: ["Shorter tracks", "["], bigger: ["Taller tracks", "]"], zoomOut: ["Zoom out (time)", "-"], zoomIn: ["Zoom in (time)", "="],
+    textSmaller: ["Smaller manuscript text", "Ctrl+-"], textBigger: ["Larger manuscript text", "Ctrl+="],
+    home: ["Playhead to the start", "Home"], end: ["Playhead to the end", "End"], prevFlag: ["Previous flag", ","], nextFlag: ["Next flag", "."],
+    tools: ["Open / close the Tools panel", "Shift+P"], escape: ["Stop playback, clear the selection", "Escape"]
+  };
+  const KEY_ALIAS = { Equal: "=", Minus: "-", Comma: ",", Period: ".", BracketLeft: "[", BracketRight: "]", Space: "Space", Slash: "/", Semicolon: ";", Quote: "'", Backquote: "`", Backslash: "\\" };
+  let KEYS = null;
+  function keys() {
+    if (KEYS) return KEYS;
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem("lr-keys") || "{}") || {}; } catch (e) {}
+    KEYS = {}; for (const a in ACTIONS) KEYS[a] = saved[a] != null ? saved[a] : ACTIONS[a][1];
+    return KEYS;
+  }
+  const saveKeys = () => { try { localStorage.setItem("lr-keys", JSON.stringify(KEYS)); } catch (e) {} };
+  const kl = a => { const k = keys()[a]; return k ? k.replace("Ctrl+", "⌘").replace("Shift+", "⇧").replace("Alt+", "⌥") : "—"; };
+  function comboOf(e) {
+    let k = e.code || "";
+    if (/^Key[A-Z]$/.test(k)) k = k.slice(3); else if (/^Digit\d$/.test(k)) k = k.slice(5); else if (KEY_ALIAS[k]) k = KEY_ALIAS[k]; else if (k === "Backspace") k = "Delete"; else k = e.key;
+    if (["Control", "Shift", "Alt", "Meta"].includes(k)) return null;
+    return (e.ctrlKey || e.metaKey ? "Ctrl+" : "") + (e.altKey ? "Alt+" : "") + (e.shiftKey ? "Shift+" : "") + k;
+  }
   function hotkeys() {
-    const ov = document.createElement("div"); ov.className = "overlay";
-    ov.innerHTML = `<div class="card reader" style="max-width:600px"><h2>⌨ Booth hotkeys</h2><table class="ch">${HOTKEYS.map(([k, l]) => `<tr><td style="width:120px"><b>${k}</b></td><td>${l}</td></tr>`).join("")}</table>
-      <p class="small muted">On the waveform: drag to select, click to place the playhead, drag a take by its label strip (or hold ⌥) to move it along or onto another track.</p>
-      <div class="row"><div class="spacer"></div><button class="btn primary" data-x>Close</button></div></div>`;
-    document.body.appendChild(ov); $("[data-x]", ov).onclick = () => ov.remove();
+    const ov = document.createElement("div"); ov.className = "overlay"; let capturing = null;
+    const draw = () => { const K = keys();
+      ov.innerHTML = `<div class="card reader" style="max-width:640px"><h2>⌨ Booth hotkeys</h2>
+        <p class="small muted">Click a key, then press the new combination (Esc cancels). Giving a key to a second action takes it off the first. Fixed: <b>1–6</b> select a track (while recording: carry the take onto it), <b>⌥1–6</b> record on that track.</p>
+        <div class="kg">${Object.keys(ACTIONS).map(a => `<div>${esc(ACTIONS[a][0])}</div><div><button class="stu-btn ${capturing === a ? "stu-rec" : ""}" data-k="${a}">${capturing === a ? "Press a key…" : esc(kl(a))}</button>${K[a] ? `<button class="stu-btn" data-clear="${a}" title="No key">✕</button>` : ""}</div>`).join("")}</div>
+        <p class="small muted">On the waveform: drag to select, click to place the playhead, click a take's label strip to select the take, drag the strip (or hold ⌥) to move it.</p>
+        <div class="row"><button class="btn quiet" data-reset>Reset to defaults</button><div class="spacer"></div><button class="btn primary" data-x>Done</button></div></div>`; };
+    const cap = e => {
+      if (!capturing) { if (e.key === "Escape") { ov.remove(); document.removeEventListener("keydown", cap, true); } return; }
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.key === "Escape") { capturing = null; draw(); return; }
+      const c = comboOf(e); if (!c) return; const K = keys();
+      for (const a in K) if (K[a] === c && a !== capturing) K[a] = "";
+      K[capturing] = c; capturing = null; saveKeys(); draw();
+    };
+    document.addEventListener("keydown", cap, true);
+    ov.onclick = e => {
+      if (e.target.closest("[data-x]") || e.target === ov) { ov.remove(); document.removeEventListener("keydown", cap, true); renderEditBar(); renderTransport(); return; }
+      if (e.target.closest("[data-reset]")) { KEYS = null; localStorage.removeItem("lr-keys"); draw(); return; }
+      const c = e.target.closest("[data-clear]"); if (c) { keys()[c.dataset.clear] = ""; saveKeys(); draw(); return; }
+      const k = e.target.closest("[data-k]"); if (k) { capturing = k.dataset.k; draw(); }
+    };
+    draw(); document.body.appendChild(ov);
+  }
+  function act(name) {
+    const playhead = () => B.playhead != null ? B.playhead : len();
+    switch (name) {
+      case "rec": return recordToggle();
+      case "stop": return B.rec ? stopRecording() : (B.player.stop(), stopPreview(), renderTransport());
+      case "play": return togglePlay();
+      case "punch": return punchAt(playhead());
+      case "flub": return flub();
+      case "fxLast": return fxLast();
+      case "marker": return addMarker();
+      case "custom": return customMarker();
+      case "click": return toast("Co-narrator lines arrive with duet clips, the next phase of the Studio.");
+      case "undo": return undo();
+      case "redo": return redo();
+      case "cut": return cut();
+      case "copy": return copy();
+      case "paste": return paste(false);
+      case "pasteOver": return paste(true);
+      case "del": return B.selTake ? deleteTake(B.selTake.ti, B.selTake.ci) : deleteSel();
+      case "selAll": return selectAll();
+      case "selToStart": if (!B.rec && len()) { B.sel = { a: 0, b: playhead() }; B.selTake = null; renderEditBar(); renderTransport(); } return;
+      case "selToEnd": if (!B.rec && len()) { B.sel = { a: playhead(), b: len() }; B.selTake = null; renderEditBar(); renderTransport(); } return;
+      case "split": return splitHere();
+      case "track": return nextTrack();
+      case "addTrack": return addTrack();
+      case "smaller": return laneSize(1 / 1.3);
+      case "bigger": return laneSize(1.3);
+      case "zoomOut": return setZoom(1 / 1.5);
+      case "zoomIn": return setZoom(1.5);
+      case "textSmaller": return textZoom(-0.1);
+      case "textBigger": return textZoom(0.1);
+      case "home": return seek(0);
+      case "end": return seek(len());
+      case "prevFlag": return jumpFlag(-1);
+      case "nextFlag": return jumpFlag(1);
+      case "tools": B.side = B.side === "tools" ? null : "tools"; return renderSide();
+      case "escape": B.player.stop(); stopPreview(); B.sel = null; B.selTake = null; hidePartPop(); renderEditBar(); renderTransport(); return;
+    }
+  }
+  function textZoom(d) {
+    const z = Math.max(0.7, Math.min(2.2, zoom() + d)); localStorage.setItem("lr-tzoom", z.toFixed(2));
+    const ms = $("#ms"); if (ms) ms.style.fontSize = (BASE_TEXT * z).toFixed(2) + "rem";
+    $$(".bd-zl").forEach(x => x.textContent = Math.round(z * 100) + "%");
+    markPos(true);
   }
 
   // ---------------- side panels: Chapters & Tools ----------------
+  const TOOL_TABS = [["fx", "🎛 Effects"], ["chain", "Track sound"], ["takes", "Takes"], ["levels", "Levels & checks"], ["mic", "Mic & reading"]];
   function renderSide() {
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
+    document.body.classList.toggle("booth-side-open", !!which);
     if (!which) el.innerHTML = `<button class="bd-tools-tab" data-s="tools">${ICON.sliders} Tools ${ICON.chevR}</button><button class="bd-tools-tab bd-ch-tab" data-s="chapters">${ICON.rows} Chapters ${ICON.chevR}</button>`;
     else {
-      const S = Store.settings, readers = [...new Set([B.readingAs, ...S.narrators.map(n => n.name)])];
-      const head = `<div class="bd-tools-head"><div class="bd-lt"><button class="${which === "tools" ? "on" : ""}" data-s="tools">Tools</button><button class="${which === "chapters" ? "on" : ""}" data-s="chapters">Chapters</button></div><button class="stu-btn" data-s="close">‹</button></div>`;
-      const body = which === "chapters"
-        ? `<div class="bch">${B.book.chapters.map((x, i) => { if (!x.included) return ""; const k = B.counts[i], fin = k.mine && k.done >= k.mine, bs = progOf(x, B.readingAs).boothSec || 0;
-            return `<button class="bd-ch ${i === B.ci ? "on" : ""} ${k.mine ? "" : "none"}" data-ci="${i}"><span>${fin ? "✓ " : ""}${esc(x.title)}${x.pov ? `<i class="pov">${esc(x.pov)}'s POV</i>` : ""}</span><em>${k.mine ? num(k.mine - k.done) : "—"}${bs ? " · " + hm(bs) : ""}</em></button>`; }).join("")}</div>`
-        : `<div class="bd-toolbody">
-            <label class="bd-fld">Reading as<select class="stu-sel" id="b-as" ${B.rec ? "disabled" : ""}>${readers.map(nm => `<option ${nm === B.readingAs ? "selected" : ""}>${esc(nm)}</option>`).join("")}</select></label>
-            <button class="stu-btn" data-s="mic">🎙 ${esc(B.mic.label ? B.mic.label.slice(0, 28) : "Choose microphone")}</button>
-            ${altsHtml()}
-            <p class="stu-note">Your lines are lit; other readers' lines are dimmed, with the line before yours as a grey cue.${B.book.parts ? " Change who reads what on the book's page." : ""}</p>
-            <a class="stu-btn" href="#/book/${esc(B.book.id)}">Book page →</a></div>`;
+      const keep = $(".bd-tools", el), top = keep ? keep.scrollTop : 0;
+      const head = `<div class="bd-tools-head"><div class="bd-lt"><button class="${which === "tools" ? "on" : ""}" data-s="tools">Tools</button><button class="${which === "chapters" ? "on" : ""}" data-s="chapters">Chapters</button></div><button class="stu-btn" data-s="close" title="Close (${esc(kl("tools"))})">‹</button></div>`;
+      let body;
+      if (which === "chapters") body = `<div class="bch">${B.book.chapters.map((x, i) => { if (!x.included) return ""; const k = B.counts[i], fin = k.mine && k.done >= k.mine, bs = progOf(x, B.readingAs).boothSec || 0;
+            return `<button class="bd-ch ${i === B.ci ? "on" : ""} ${k.mine ? "" : "none"}" data-ci="${i}"><span>${fin ? "✓ " : ""}${esc(x.title)}${x.pov ? `<i class="pov">${esc(x.pov)}'s POV</i>` : ""}</span><em>${k.mine ? num(k.mine - k.done) : "—"}${bs ? " · " + hm(bs) : ""}</em></button>`; }).join("")}</div>`;
+      else {
+        const tab = B.tab = B.tab || "fx";
+        body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}</option>`).join("")}</select>
+          <div class="bd-toolbody">${({ fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
+      }
       el.innerHTML = `<div class="bd-tools">${head}${body}</div>`;
+      const nt = $(".bd-tools", el); if (nt && keep && which === "tools") nt.scrollTop = top;
       if (which === "chapters") { const on = $(".bd-ch.on", el); if (on) on.scrollIntoView({ block: "center" }); }
     }
-    el.onclick = e => {
-      const al = e.target.closest("[data-alt]"); if (al) { swapAlt(al.dataset.alt); return; }
-      const s = e.target.closest("[data-s]"), ch = e.target.closest("[data-ci]");
-      if (ch) { if (!B.rec) openChapter(+ch.dataset.ci); return; }
-      if (!s) return;
-      if (s.dataset.s === "close") B.side = null; else if (s.dataset.s === "mic") return chooseMic(); else B.side = s.dataset.s;
-      renderSide();
-    };
-    const as = $("#b-as", el); if (as) as.onchange = async e => { await flushSession(); B.session = null; B.readingAs = e.target.value; try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (er) { B.sessions = []; } openChapter(B.ci); };
+    el.onclick = sideClick; el.onchange = sideChange; el.oninput = sideInput;
   }
-
-  function altsHtml() {
+  async function sideClick(e) {
+    const b = e.target.closest("[data-s],[data-ci],[data-p]"); if (!b || b.disabled) return;
+    if (b.blur && b.tagName === "BUTTON") b.blur();
+    if (b.dataset.ci != null) { if (!B.rec) openChapter(+b.dataset.ci); return; }
+    if (b.dataset.s) { if (b.dataset.s === "close") B.side = null; else B.side = b.dataset.s; renderSide(); layout(); return; }
+    const [cmd, x, y] = b.dataset.p.split(":");
+    const P = B.fxp, kind = x;
+    switch (cmd) {
+      case "open": B.fxOpen[x] = !B.fxOpen[x]; return renderSide();
+      case "preset": Object.assign(P[kind], LRFx.KINDS[kind].presets[y]); saveFxp(); return renderSide();
+      case "preview": return previewFx(kind);
+      case "apply": return applyFx([{ k: kind, p: Object.assign({}, P[kind]) }]);
+      case "arm": return armFx(kind, true);
+      case "disarm": return armFx(kind, false);
+      case "fxtrack": B.fxTrack = +x; return renderSide();
+      case "chainpreset": { const st = trackSet()[B.fxTrack]; st.chain = x === "voice" ? LRFx.CHAIN_VOICE() : LRFx.CHAIN_DEFAULT(); Store.saveBook(B.book); chainChanged(); return renderSide(); }
+      case "savepreset": return savePreset();
+      case "loadpreset": return loadPreset(x);
+      case "delpreset": { const ps = Store.settings.fxPresets || {}; if (!confirm("Delete the preset “" + x + "”?")) return; delete ps[x]; Store.saveSettings(); return renderSide(); }
+      case "altswap": return swapAlt(x);
+      case "altdel": { pushUndo(); B.audio.alts = B.audio.alts.filter(a => a.id !== x); Store.saveBook(B.book); toast("That kept take is gone (Undo brings it back)."); return renderSide(); }
+      case "takego": { const tr = B.audio.tracks[+x], c = tr && tr.clips[+y]; if (!c) return; selectTake(+x, +y); return seek(c.at); }
+      case "takeplay": { const c = B.audio.tracks[+x].clips[+y]; B.sel = { a: c.at, b: c.at + c.dur }; B.track = +x; return togglePlay(true); }
+      case "takedel": return deleteTake(+x, +y);
+      case "gain": return gainSel(+x);
+      case "gainReset": return gainSel(null);
+      case "acx": return acxCheck();
+      case "mic": return chooseMic();
+    }
+  }
+  function sideChange(e) {
+    const t = e.target;
+    if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
+    if (t.id === "b-as") return switchReader(t.value);
+    if (t.dataset.pk) { const [k, f] = t.dataset.pk.split("."); B.fxp[k][f] = t.value; saveFxp(); renderSide(); return; }
+    if (t.dataset.ch) { const st = trackSet()[B.fxTrack]; st.chain = LRFx.chainOf(st); const [g, f] = t.dataset.ch.split("."); if (f) st.chain[g][f] = t.type === "checkbox" ? t.checked : +t.value; else st.chain[g] = t.checked; Store.saveBook(B.book); chainChanged(); renderSide(); return; }
+    if (t.dataset.pref) { Store.settings[t.dataset.pref] = t.value; Store.saveSettings(); applyReadFont(); if (t.dataset.pref === "theme") { document.documentElement.dataset.theme = t.value; B.col = null; drawWave(); } return; }
+  }
+  function sideInput(e) {
+    const t = e.target;
+    if (t.dataset.pv) { const [k, f] = t.dataset.pv.split("."); B.fxp[k][f] = +t.value; const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); saveFxp(); return; }
+    if (t.dataset.ch && t.type === "range") { const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); }
+  }
+  const fmtV = (v, step) => (+v).toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0);
+  const rng = (attr, label, min, max, step, val, unit) => `<label class="fxr"><span>${label}</span><input type="range" ${attr} min="${min}" max="${max}" step="${step}" value="${val}" data-u="${esc(unit || "")}"><b class="fxv">${fmtV(val, step)}${esc(unit || "")}</b></label>`;
+  function saveFxp() { try { localStorage.setItem("lr-fxp", JSON.stringify(B.fxp)); } catch (e) {} }
+  function trackPicker() {
+    const ts = trackSet(); B.fxTrack = Math.min(B.fxTrack != null ? B.fxTrack : B.track, B.audio.tracks.length - 1);
+    return `<div class="fx-tracks">${B.audio.tracks.map((_, i) => `<button class="stu-btn ${i === B.fxTrack ? "on" : ""}" data-p="fxtrack:${i}" title="${esc((ts[i] || {}).name || "")}">${i + 1}${(ts[i] || {}).armed && ts[i].armed.length ? " ●" : ""}</button>`).join("")}<span class="stu-note">${esc((ts[B.fxTrack] || {}).name || "Track " + (B.fxTrack + 1))}</span></div>`;
+  }
+  function fxTabHtml() {
+    const st = trackSet()[B.fxTrack != null ? Math.min(B.fxTrack, B.audio.tracks.length - 1) : B.track] || {}, busy = B.rec || B.busy ? "disabled" : "";
+    const armed = st.armed || [], target = B.sel ? "your selection (" + clock(B.sel.b - B.sel.a) + ")" : B.selTake ? "the selected take" : "the whole track";
+    let h = `<div class="bd-sec"><b>Effects on a track</b>${trackPicker()}
+      <div class="stu-note"><b>Apply</b> changes audio already here (Undo brings the original back). <b>Arm</b> keeps an effect on the track so every new take recorded there gets it when you press Stop, in every chapter.</div>
+      ${armed.length ? `<div class="fx-armed"><b>Armed:</b> ${armed.map(e => esc(LRFx.KINDS[e.k].name) + " <i>" + esc(LRFx.KINDS[e.k].sum(e.p)) + "</i>").join(" → ")}</div>` : ""}
+      <div class="stu-note">Preview and Apply act on <b>${target}</b>.${B.lastFx ? ` <b>${esc(kl("fxLast"))}</b> repeats ${esc(LRFx.KINDS[B.lastFx[0].k].name.toLowerCase())}.` : ""}</div></div>`;
+    h += Object.keys(LRFx.KINDS).map(k => {
+      const K = LRFx.KINDS[k], p = B.fxp[k], o = B.fxOpen[k], on = armed.find(e => e.k === k);
+      const ctl = K.ctl.map(c => typeof c[2] === "object"
+        ? `<label class="fxr"><span>${c[1]}</span><select class="stu-sel" data-pk="${k}.${c[0]}">${Object.keys(c[2]).map(v => `<option value="${v}" ${p[c[0]] === v ? "selected" : ""}>${esc(c[2][v][0])}</option>`).join("")}</select></label>`
+        : rng(`data-pv="${k}.${c[0]}"`, c[1], c[2], c[3], c[4], p[c[0]], c[5])).join("");
+      return `<div class="fx-card ${on ? "armed" : ""}"><button class="fx-name" data-p="open:${k}"><span>${o ? "▾" : "▸"}</span><b>${K.name}</b><small>${on ? "● armed · " + esc(K.sum(on.p)) : esc(K.note)}</small></button>
+        ${o ? `<div class="fx-body">${Object.keys(K.presets).length ? `<div class="fx-chips">${Object.keys(K.presets).map(n => `<button class="stu-btn" data-p="preset:${k}:${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}${ctl}
+          <div class="fx-chips"><button class="stu-btn" data-p="preview:${k}" ${busy}>${B.preview && B.preview.k === k ? "■ Stop preview" : "▶ Preview"}</button><button class="stu-btn stu-rec" data-p="apply:${k}" ${busy}>Apply</button>
+          <button class="stu-btn" data-p="arm:${k}" ${B.rec ? "disabled" : ""}>${on ? "↻ Update armed" : "⏻ Arm for new takes"}</button>${on ? `<button class="stu-btn" data-p="disarm:${k}">Disarm</button>` : ""}</div></div>` : ""}</div>`;
+    }).join("");
+    const ps = Store.settings.fxPresets || {};
+    h += `<div class="bd-sec"><b>Voice presets</b><div class="stu-note">Save this track's armed effects and track sound as a named voice, then put it on any track or book.</div>
+      <div class="fx-chips">${Object.keys(ps).map(n => `<span class="fx-pre"><button class="stu-btn" data-p="loadpreset:${esc(n)}" title="Put this voice on the track">${esc(n)}</button><button class="stu-btn" data-p="delpreset:${esc(n)}" title="Delete">✕</button></span>`).join("")}<button class="stu-btn" data-p="savepreset">＋ Save as preset</button></div></div>`;
+    return h;
+  }
+  function chainTabHtml() {
+    const ti = B.fxTrack != null ? Math.min(B.fxTrack, B.audio.tracks.length - 1) : B.track, st = trackSet()[ti] || {}, c = LRFx.chainOf(st);
+    const chk = (path, on) => `<label class="check"><input type="checkbox" data-ch="${path}" ${on ? "checked" : ""}> On</label>`;
+    const r = (path, l, a, b, s, v, u) => rng(`data-ch="${path}"`, l, a, b, s, v, u);
+    return `<div class="bd-sec"><b>Track sound</b>${trackPicker()}
+        <div class="stu-note">Plays live and goes into your exports. Your recordings are never altered. Since Auphonic masters for you, leave this off unless you want a voice shaped differently, like a character track.</div>
+        <div class="fx-chips"><label class="check"><input type="checkbox" data-ch="on" ${c.on ? "checked" : ""}> <b>Chain on</b></label><button class="stu-btn" data-p="chainpreset:voice">Voice preset</button><button class="stu-btn" data-p="chainpreset:reset">Reset</button></div></div>
+      <div class="fx-card"><div class="fx-body"><b>High-pass</b> <small class="muted">rumble below the voice</small>${chk("hpf.on", c.hpf.on)}${r("hpf.f", "Cutoff", 40, 160, 5, c.hpf.f, " Hz")}</div></div>
+      <div class="fx-card"><div class="fx-body"><b>Tone EQ</b>${chk("eq.on", c.eq.on)}${r("eq.lo", "Warmth", -6, 6, 0.5, c.eq.lo, " dB")}${r("eq.mud", "Body (300 Hz)", -6, 6, 0.5, c.eq.mud, " dB")}${r("eq.mid", "Presence", -6, 6, 0.5, c.eq.mid, " dB")}${r("eq.hi", "Air", -6, 6, 0.5, c.eq.hi, " dB")}</div></div>
+      <div class="fx-card"><div class="fx-body"><b>De-esser</b> <small class="muted">tames harsh “s” sounds</small>${chk("ds.on", c.ds.on)}${r("ds.amt", "Strength", 0, 1, 0.05, c.ds.amt, "")}</div></div>
+      <div class="fx-card"><div class="fx-body"><b>Compressor</b>${chk("comp.on", c.comp.on)}${r("comp.thr", "Threshold", -40, -6, 1, c.comp.thr, " dB")}${r("comp.ratio", "Ratio", 1.5, 8, 0.5, c.comp.ratio, ":1")}${r("comp.att", "Attack", 1, 50, 1, c.comp.att, " ms")}${r("comp.rel", "Release", 40, 500, 10, c.comp.rel, " ms")}${r("comp.mk", "Make-up", 0, 12, 0.5, c.comp.mk, " dB")}</div></div>
+      <div class="fx-card"><div class="fx-body"><b>Peak limiter</b>${chk("lim.on", c.lim.on)}${r("lim.ceil", "Ceiling", -6, -1, 0.1, c.lim.ceil, " dB")}<div class="stu-note">ACX wants peaks at or under −3 dB.</div></div></div>`;
+  }
+  function takesTabHtml() {
+    const dis = B.rec ? "disabled" : "", ts = trackSet();
+    let h = `<div class="bd-sec"><b>Takes in this chapter</b><div class="stu-note">Every take on the timeline. Delete removes just that take: if nothing else is playing under it, the gap closes; otherwise it leaves silence so the other tracks stay in sync. Undo brings it back.</div>`;
+    let any = false;
+    B.audio.tracks.forEach((tr, ti) => tr.clips.forEach((c, ci) => { any = true; const w = T().wordAt(B.audio, c.at + 0.2), txt = w != null ? B.toks.slice(w, w + 6).map(x => x.w).join(" ") : "";
+      h += `<div class="alt-row ${B.selTake && B.selTake.ti === ti && B.selTake.ci === ci ? "on" : ""}"><span><b data-p="takego:${ti}:${ci}" class="lnk">${clock(c.at)}</b> · T${ti + 1} ${esc((ts[ti] || {}).name || "")} · ${clock(c.dur)}${c.fx ? " · 🎛" : ""}${c.g ? " · " + (c.g > 0 ? "+" : "") + c.g + " dB" : ""}<br><i class="muted">${esc(txt)}</i></span>
+        <span class="fx-chips"><button class="stu-btn" data-p="takeplay:${ti}:${ci}" ${dis} title="Play this take">▶</button><button class="stu-btn" data-p="takedel:${ti}:${ci}" ${dis} title="Delete this take">🗑</button></span></div>`; }));
+    if (!any) h += `<div class="stu-note">No takes yet. Press ${esc(kl("rec"))} to record.</div>`;
+    h += `</div><div class="bd-sec"><b>Kept takes</b>`;
     const alts = (B.audio.alts || []).slice().reverse();
-    if (!alts.length) return `<div class="stu-note"><b>Previous takes</b><br>When a punch replaces audio, the old take is kept here so you can swap back.</div>`;
-    return `<div style="width:100%"><b class="small">Previous takes</b>${alts.map(a => { const w = T().wordAt(B.audio, a.a + 0.2), txt = w != null ? B.toks.slice(w, w + 7).map(x => x.w).join(" ") : "";
-      return `<div class="alt-row"><span><b>${clock(a.a)}</b> · T${a.track + 1} · ${clock(a.len)}<br><i class="muted">${esc(txt)}</i></span><button class="stu-btn" data-alt="${a.id}" ${B.rec ? "disabled" : ""}>🔁 Swap</button></div>`; }).join("")}</div>`;
+    if (!alts.length) h += `<div class="stu-note">When a punch replaces audio, the old take is kept here so you can swap back. The last 14 are kept.</div>`;
+    else h += alts.map(a => { const w = T().wordAt(B.audio, a.a + 0.2), txt = w != null ? B.toks.slice(w, w + 6).map(x => x.w).join(" ") : "";
+      return `<div class="alt-row"><span><b>${clock(a.a)}</b> · T${a.track + 1} · ${clock(a.len)}<br><i class="muted">${esc(txt)}</i></span><span class="fx-chips"><button class="stu-btn" data-p="altswap:${a.id}" ${dis}>🔁 Swap</button><button class="stu-btn" data-p="altdel:${a.id}" ${dis} title="Forget this kept take">✕</button></span></div>`; }).join("");
+    return h + `</div>`;
   }
+  function levelsTabHtml() {
+    const dis = B.rec || B.busy ? "disabled" : "", a = B.acx && B.acx.ci === B.ci ? B.acx : null;
+    const chip = (ok, label, val) => `<span class="acx ${ok ? "ok" : "bad"}">${ok ? "✓" : "✕"} ${label} <b>${val}</b></span>`;
+    return `<div class="bd-sec"><b>Gain</b><div class="stu-note">Raises or lowers ${B.sel ? "the selection" : B.selTake ? "the selected take" : "a selection or take (select one first)"} on track ${B.track + 1}. Nothing is re-recorded or rewritten.</div>
+        <div class="fx-chips">${[-6, -3, -1, 1, 3, 6].map(v => `<button class="stu-btn" data-p="gain:${v}" ${dis} ${B.sel || B.selTake ? "" : "disabled"}>${v > 0 ? "+" : ""}${v} dB</button>`).join("")}<button class="stu-btn" data-p="gainReset" ${dis} ${B.sel || B.selTake ? "" : "disabled"}>Reset</button></div></div>
+      <div class="bd-sec"><b>ACX check</b><div class="stu-note">Measures this chapter as it will export (all tracks, track sound included): loudness between −23 and −18 dB RMS, peaks at or under −3 dB, room tone at or under −60 dB.</div>
+        ${a ? `<div class="fx-chips">${chip(a.rms >= -23 && a.rms <= -18, "RMS", a.rms.toFixed(1) + " dB")}${chip(a.peak <= -3, "Peak", a.peak.toFixed(1) + " dB")}${chip(a.floor <= -60, "Noise floor", a.floor.toFixed(1) + " dB")}</div>
+          <div class="stu-note">${a.rms < -23 ? "Too quiet overall — Auphonic will level it, or raise the gain. " : a.rms > -18 ? "Louder than ACX allows on average. " : ""}${a.peak > -3 ? "Some peaks are too hot. " : ""}${a.floor > -60 ? "The room tone is noisy; check the room and gain. " : ""}${a.rms >= -23 && a.rms <= -18 && a.peak <= -3 && a.floor <= -60 ? "Passes." : ""}</div>` : ""}
+        <div class="fx-chips"><button class="stu-btn" data-p="acx" ${dis} ${len() ? "" : "disabled"}>${B.busy === "acx" ? "Checking…" : "Check this chapter"}</button></div></div>`;
+  }
+  function micTabHtml() {
+    const S = Store.settings, readers = [...new Set([B.readingAs, ...S.narrators.map(n => n.name)])];
+    return `<div class="bd-sec"><b>Reading as</b><select class="stu-sel" id="b-as" ${B.rec ? "disabled" : ""}>${readers.map(nm => `<option ${nm === B.readingAs ? "selected" : ""}>${esc(nm)}</option>`).join("")}</select>
+        <div class="stu-note">Your lines are lit; other readers' lines are dimmed, with the line before yours as a grey cue. Select words in the text to change who reads them.</div></div>
+      <div class="bd-sec"><b>Microphone</b><button class="stu-btn" data-p="mic">🎙 ${esc(B.mic.label ? B.mic.label.slice(0, 34) : "Choose microphone")}</button></div>
+      <div class="bd-sec"><b>Look</b><label class="fxr"><span>Theme</span><select class="stu-sel" data-pref="theme">${[["ledger", "Ledger"], ["archive", "Archive"], ["lamp", "Lamp"], ["nocturne", "Nocturne"], ["foundry", "Foundry"], ["afterglow", "Afterglow"], ["velvet", "Velvet"], ["signal", "Signal"]].map(([k, l]) => `<option value="${k}" ${(S.theme || "ledger") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="fxr"><span>Reading font</span><select class="stu-sel" data-pref="readFont"><option value="sans" ${S.readFont !== "serif" ? "selected" : ""}>Sans (clean)</option><option value="serif" ${S.readFont === "serif" ? "selected" : ""}>Serif (book)</option></select></label>
+        <div class="stu-note">Text size: A− / A+ in the bar above, ${esc(kl("textSmaller"))} / ${esc(kl("textBigger"))}, or ⌘ + scroll over the text.</div></div>
+      <a class="stu-btn" href="#/book/${esc(B.book.id)}">Book page →</a>`;
+  }
+  async function switchReader(name) { await flushSession(); B.session = null; B.readingAs = name; try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (er) { B.sessions = []; } openChapter(B.ci); }
+
+  function altsHtml() { return ""; }
   function swapAlt(id) {
     const al = (B.audio.alts || []).find(x => x.id === id); if (!al || B.rec) return;
     pushUndo();
@@ -268,7 +487,7 @@
       html += `<p>` + ids.map(i => `<span class="${B.mine[i] ? "w mine" : cueFrom.has(i) ? "w cue" : "w other"}${i < B.f.pos && B.mine[i] ? " read" : ""}" data-i="${i}">${esc(B.toks[i].w)}</span>`).join(" ") + `</p>`;
     });
     ms.innerHTML = html;
-    ms.onclick = e => { const w = e.target.closest(".w"); if (!w) return; clickWord(+w.dataset.i); };
+    ms.onclick = e => { const w = e.target.closest(".w"), sel = window.getSelection(); if (!w || (sel && !sel.isCollapsed)) return; clickWord(+w.dataset.i); };
     markPos(true);
   }
   function markPos(scroll) {
@@ -288,12 +507,12 @@
     const G = (cls, inner) => `<div class="bd-grp ${cls || ""}">${inner}</div>`;
     const cs = clockState();
     tp.innerHTML = `<div class="bd-row bd-r1">` +
-      G("bd-transport", bt("rec", rec ? (rec.paused ? ICON.play + " Resume" : ICON.pause + " Pause") : ICON.rec + " Record" + (B.track > 0 ? " T" + (B.track + 1) : ""), { cls: "bd-rec" + (rec && !rec.paused ? " live" : ""), tip: "Record · pause / resume (R)", dis: playing }) +
-        bt("stop", ICON.stop + " Stop", { tip: "Stop (S)", dis: !rec && !playing }) +
-        bt("play", playing ? ICON.stop + " Playing" : ICON.play + " Play", { tip: "Play / stop (Space)", dis: rec || !has }) +
-        bt("punch", ICON.punch + " Punch " + clock(head), { cls: "bd-punch", tip: "Punch in at the playhead (Shift+R)", dis: rec || !has }) +
-        bt("flub", "↺ Flub", { tip: "Back to the sentence start, pre-roll, record (F)", dis: !has && !rec })) +
-      G("", bt("marker", ICON.flag + " Marker", { tip: "Flub marker (M)" }) + bt("custom", ICON.pin + " Custom", { tip: "Named marker (N) — goes into your WAV export" }) + bt("click", ICON.users + " Click", { tip: "Co-narrator lines: next step of the Studio", dis: true })) +
+      G("bd-transport", bt("rec", rec ? (rec.paused ? ICON.play + " Resume" : ICON.pause + " Pause") : ICON.rec + " Record" + (B.track > 0 ? " T" + (B.track + 1) : ""), { cls: "bd-rec" + (rec && !rec.paused ? " live" : ""), tip: "Record · pause / resume (" + kl("rec") + ")", dis: playing }) +
+        bt("stop", ICON.stop + " Stop", { tip: "Stop (" + kl("stop") + ")", dis: !rec && !playing }) +
+        bt("play", playing ? ICON.stop + " Playing" : ICON.play + " Play", { tip: "Play / stop (" + kl("play") + ")", dis: rec || !has }) +
+        bt("punch", ICON.punch + " Punch " + clock(head), { cls: "bd-punch", tip: "Punch in at the playhead (" + kl("punch") + ")", dis: rec || !has }) +
+        bt("flub", "↺ Flub", { tip: "Back to the sentence start, pre-roll, record (" + kl("flub") + ")", dis: !has && !rec })) +
+      G("", bt("marker", ICON.flag + " Marker", { tip: "Flub marker (" + kl("marker") + ")" }) + bt("custom", ICON.pin + " Custom", { tip: "Named marker (" + kl("custom") + ") — goes into your WAV export" }) + bt("click", ICON.users + " Click", { tip: "Co-narrator: drop in their next line (" + kl("click") + ") — arrives with duet clips" })) +
       `<div class="bd-lcd bd-booth ${cs.on ? "" : "paused"}" data-b="clock" role="button" tabindex="0" title="Booth time on this chapter: starts the first time you press Record on it and stops when you mark the chapter complete. It keeps running when you press Stop (playing back, punching in) and pauses after ${IDLE_MIN} idle minutes. Click to ${cs.label === "booth" ? "pause" : "start"} the clock."><span class="bd-time" id="bd-booth">${clock(prog().boothSec)}</span><span class="bd-bl" id="bd-bl">${cs.label}</span></div>` +
       `<div class="bd-lcd" title="Finished time of this chapter (what you've recorded; the take in progress while recording)"><i class="bd-recdot ${rec && !rec.paused ? "on" : ""}"></i><span class="bd-bl">FH</span><span class="bd-time" id="bd-time">${clock(L)}</span><span class="stu-bar"><i id="bd-lvl"></i></span></div>` +
       `<div class="bd-lcd bd-lm" title="Raw-audio level check. Speak at narration volume: aim for the green band (peaks between −12 and −6 dB)."><button class="stu-btn ${B.lmOn ? "stu-rec" : ""}" data-b="level" ${rec ? "disabled" : ""}>🎚 ${B.lmOn ? "Level on" : "Level"}</button><span class="lm-track"><i class="lm-fill" id="lm-fill"></i><b class="lm-band"></b></span><span class="stu-chip" id="lm-msg">${B.lmOn || rec ? "Say a line…" : "Meter off"}</span></div>` +
@@ -318,7 +537,7 @@
     hd.innerHTML = B.audio.tracks.map((tr, i) => {
       const s = ts[i] || {}, on = i === B.track;
       return `<div class="trk-head ${on ? "sel" : ""} ${s.mute ? "dim" : ""}" data-t="${i}" style="height:${B.laneH - 2}px">
-        <div class="th-r1"><b>${i + 1}</b><input class="th-name" data-tn="${i}" value="${esc(s.name || "Track " + (i + 1))}" ${rec ? "disabled" : ""}>${B.audio.tracks.length > 1 ? `<button data-tx="${i}" title="Remove this track from every chapter" ${rec ? "disabled" : ""}>✕</button>` : ""}</div>
+        <div class="th-r1"><b>${i + 1}</b><input class="th-name" data-tn="${i}" value="${esc(s.name || "Track " + (i + 1))}" ${rec ? "disabled" : ""}><button class="th-fx ${(s.armed || []).length || LRFx.chainActive(LRFx.chainOf(s)) ? "on" : ""}" data-tf="${i}" title="Effects on this track${(s.armed || []).length ? ": " + esc(s.armed.map(e => LRFx.KINDS[e.k].name).join(", ")) + " armed" : ""}">FX</button>${B.audio.tracks.length > 1 ? `<button data-tx="${i}" title="Remove this track from every chapter" ${rec ? "disabled" : ""}>✕</button>` : ""}</div>
         ${B.laneH >= 46 ? `<div class="th-r2"><button class="${s.mute ? "m-on" : ""}" data-tm="${i}" title="Mute">M</button><button class="${s.solo ? "s-on" : ""}" data-ts="${i}" title="Solo">S</button><input type="range" class="th-vol" min="-24" max="12" step="0.5" value="${s.vol || 0}" data-tv="${i}" title="Volume ${(s.vol || 0) > 0 ? "+" : ""}${s.vol || 0} dB"></div>` : ""}
         ${B.laneH >= 60 ? `<div class="th-sub">${rec && rec.track === i ? (rec.paused ? "paused" : "● recording") : clock(T().trackLen(tr))}</div>` : ""}</div>`;
     }).join("");
@@ -327,6 +546,7 @@
       if (t.dataset.tm != null) { const s = ts2[+t.dataset.tm]; s.mute = !s.mute; saveTracks(); return; }
       if (t.dataset.ts != null) { const s = ts2[+t.dataset.ts]; s.solo = !s.solo; saveTracks(); return; }
       if (t.dataset.tx != null) { removeTrack(+t.dataset.tx); return; }
+      if (t.dataset.tf != null) { B.side = "tools"; B.tab = "fx"; B.fxTrack = +t.dataset.tf; renderSide(); return; }
       const h = t.closest("[data-t]"); if (h && !B.rec && t.tagName !== "INPUT") { B.track = +h.dataset.t; renderEditBar(); renderTransport(); }
     };
     hd.oninput = e => { const t = e.target; if (t.dataset.tv != null) { trackSet()[+t.dataset.tv].vol = +t.value; t.title = "Volume " + t.value + " dB"; Store.saveBook(B.book); } };
@@ -339,7 +559,7 @@
     const a = b.dataset.b;
     ({ rec: () => recordToggle(), stop: () => B.rec ? stopRecording() : (B.player.stop(), renderTransport()), play: () => togglePlay(), flub,
       punch: () => punchAt(B.playhead != null ? B.playhead : len()), marker: () => addMarker(), custom: customMarker,
-      clock: clockClick, level: levelToggle, split: splitHere,
+      clock: clockClick, level: levelToggle, split: splitHere, click: () => act("click"),
       home: () => seek(0), end: () => seek(len()), undo, redo, prevFlag: () => jumpFlag(-1), nextFlag: () => jumpFlag(1), flags: flagList }[a] || (() => {}))();
   }
   async function levelToggle() {
@@ -594,7 +814,7 @@
   }
   async function stopRecording() {
     if (!B || !B.rec) return;
-    const r = B.rec; B.rec = null; B.mic.onFrames = null; document.body.classList.remove("booth-recording");
+    const r = B.rec; B.rec = null; B.mic.onFrames = null; document.body.classList.remove("booth-recording"); drawVoice();
     try { await r.writer.close(); } catch (e) { toast("Saving the take failed: " + e.message); }
     r.clip.dur = r.writer.duration - r.clip.off;
     B.audio.alts = B.audio.alts || [];
@@ -618,9 +838,15 @@
     if (r.punch && end < len() - 0.05) B.playhead = end;     // Finished Hour: after a punch the playhead sits at the end of it
     if (r.clipFlags) toast("⚠️ That take clipped (" + r.clipFlags + " samples at full scale). The spots are flagged — consider lowering the gain and re-reading them.");
     stopListening();
+    renderEditBar(); renderTransport();
+    if (trackSet().some(t => t && t.armed && t.armed.length)) {
+      B.busy = "armed";
+      try { if (await processArmed(r.file)) toast("🎛 Armed effects applied to the new take. Undo takes the take away; the dry recording is kept in your Studio folder."); }
+      catch (e) { console.error(e); toast("Armed effects failed: " + e.message + ". The take is kept dry."); }
+      B.busy = null; renderTransport();
+    }
     Store.saveBook(B.book, true);
     flushSession();
-    renderEditBar(); renderTransport();
   }
   async function flub() {
     if (!T().hasAudio(B.audio) && !B.rec) return;
@@ -679,12 +905,12 @@
     const x = JSON.parse(json);
     B.chap.audio[B.readingAs] = B.audio = T().normalize(x.a);
     if (x.ts) B.book.trackSet[B.readingAs] = x.ts;
-    B.f.set(x.pos); prog().pos = B.f.pos; B.sel = null; B.track = Math.min(B.track, B.audio.tracks.length - 1);
+    B.f.set(x.pos); prog().pos = B.f.pos; B.sel = null; B.selTake = null; B.track = Math.min(B.track, B.audio.tracks.length - 1);
     Store.saveBook(B.book); markPos(true); loadPeaks(); renderEditBar(); renderTransport();
   }
   async function undo() { if (B.rec) await stopRecording(); B.player.stop(); if (!B.undo.length) { toast("Nothing to undo."); return; } B.redo.push(snap()); restore(B.undo.pop()); }
   async function redo() { if (B.rec) return; if (!B.redo.length) { toast("Nothing to redo."); return; } B.undo.push(snap()); restore(B.redo.pop()); }
-  function edited() { Store.saveBook(B.book); renderEditBar(); renderTransport(); }
+  function edited() { B.selTake = null; Store.saveBook(B.book); renderEditBar(); renderTransport(); if (B.side === "tools") renderSide(); }
   // the clipboard holds every track's audio in the selected range, so duet lines stay with their narration
   function copy() { if (!B.sel || B.rec) return false; B.clip = B.audio.tracks.map((_, ti) => T().extract(B.audio, ti, B.sel.a, B.sel.b)); B.clipLen = B.sel.b - B.sel.a; toast("Copied " + clock(B.clipLen) + "."); renderEditBar(); return true; }
   function cut() { if (!copy()) return; pushUndo(); T().deleteRange(B.audio, B.sel.a, B.sel.b); B.playhead = B.sel.a; B.sel = null; edited(); }
@@ -721,6 +947,194 @@
     B.track = Math.min(B.track, ts.length - 1); edited();
   }
 
+  // ======================= effects: apply, preview, arm, repeat =======================
+  const RATE = () => LRAudio.RATE;
+  function fxTarget(ti) {
+    if (B.sel) return { ti, a: B.sel.a, b: B.sel.b };
+    if (B.selTake) { const c = B.audio.tracks[B.selTake.ti].clips[B.selTake.ci]; if (c) return { ti: B.selTake.ti, a: c.at, b: c.at + c.dur }; }
+    const L = T().trackLen(B.audio.tracks[ti]); return L ? { ti, a: 0, b: L } : null;
+  }
+  const fxTi = () => Math.min(B.fxTrack != null ? B.fxTrack : B.track, B.audio.tracks.length - 1);
+  function busyNote(txt) { B.busyTxt = txt; const n = $("#bd-busy"); if (n) n.textContent = txt || ""; }
+  // process [a, b) of one track and lay the result over it as a new file; tails ring on into silence, never over the next take
+  async function processRegion(list, tgt) {
+    const d = await dir(), tr = B.audio.tracks[tgt.ti], dur = tgt.b - tgt.a, R = RATE();
+    const dry = await LRAudio.renderRange(d, tr.clips, tgt.a, dur);
+    const y = await LRFx.runList(list, dry, R, q => busyNote(LRFx.KINDS[list[0].k].name + "… " + Math.round(q * 100) + "%"));
+    // the tail may only ring into silence: stop at the next audio on this track after the passage (including a take that runs past it)
+    const next = tr.clips.filter(c => c.at + c.dur > tgt.b + 1e-3).reduce((m, c) => Math.min(m, Math.max(c.at, tgt.b)), Infinity);
+    const room = Math.max(0, Math.min(LRFx.tailOf(list), next - tgt.b)), n = Math.min(y.length, Math.round((dur + room) * R));
+    const fade = Math.min(n, Math.round(R * 0.03)); for (let i = 0; i < fade; i++) y[n - 1 - i] *= i / fade;   // no click where a tail is cut
+    const name = "fx-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "-" + Math.random().toString(36).slice(2, 5) + ".wav";
+    const w = await LRAudio.WavWriter.create(d, name, R);
+    for (let o = 0; o < n; o += R * 2) w.push(y.slice(o, Math.min(n, o + R * 2)));
+    await w.close(); B.peaks[name] = { mm: w.mm };
+    return { file: name, off: 0, dur: n / R, at: 0, fx: list.map(e => e.k) };
+  }
+  async function applyFx(list, tgt) {
+    if (B.rec || B.busy) return;
+    tgt = tgt || fxTarget(fxTi());
+    if (!tgt || !T().extract(B.audio, tgt.ti, tgt.a, tgt.b).length) { toast("There's no audio there on track " + ((tgt ? tgt.ti : fxTi()) + 1) + " to change."); return; }
+    stopPreview(); B.player.stop(); B.busy = "fx"; renderSide();
+    try {
+      const clip = await processRegion(list, tgt);
+      pushUndo(); T().overwrite(B.audio, tgt.ti, [clip], tgt.a);
+      B.lastFx = list.map(e => ({ k: e.k, p: Object.assign({}, e.p) })); B.sel = { a: tgt.a, b: tgt.a + clip.dur }; B.track = tgt.ti;
+      toast("🎛 " + list.map(e => LRFx.KINDS[e.k].name).join(" + ") + " applied. Undo brings the original back.");
+    } catch (e) { console.error(e); toast("That effect failed: " + e.message); }
+    B.busy = null; busyNote(""); edited(); renderSide();
+  }
+  function fxLast() {
+    if (!B.lastFx) { toast("Apply an effect from Tools → Effects first; then " + kl("fxLast") + " repeats it."); return; }
+    let tgt = null; const ti = B.track;
+    if (B.sel || B.selTake) tgt = fxTarget(ti);
+    else { const ci = T().clipAt(B.audio, ti, B.playhead != null ? B.playhead : -1); if (ci >= 0) { const c = B.audio.tracks[ti].clips[ci]; tgt = { ti, a: c.at, b: c.at + c.dur }; } }
+    if (!tgt) { toast("Select a passage, or put the playhead on a take, then press " + kl("fxLast") + "."); return; }
+    applyFx(B.lastFx, tgt);
+  }
+  function armFx(kind, on) {
+    const st = trackSet()[fxTi()]; st.armed = (st.armed || []).filter(e => e.k !== kind);
+    if (on) { st.armed.push({ k: kind, p: Object.assign({}, B.fxp[kind]) }); toast("⏻ " + LRFx.KINDS[kind].name + " armed on " + (st.name || "track " + (fxTi() + 1)) + ": new takes there get it when you press Stop."); }
+    Store.saveBook(B.book); renderSide(); renderHeads();
+  }
+  async function previewFx(kind) {
+    if (B.preview) { const was = B.preview.k; stopPreview(); renderSide(); if (was === kind) return; }
+    const tgt = fxTarget(fxTi()); if (!tgt) { toast("There's no audio on track " + (fxTi() + 1) + " to preview."); return; }
+    B.player.stop(); B.busy = "preview"; renderSide();
+    try {
+      const a = tgt.a, b = Math.min(tgt.b, tgt.a + 20), list = [{ k: kind, p: Object.assign({}, B.fxp[kind]) }];
+      const dry = await LRAudio.renderRange(await dir(), B.audio.tracks[tgt.ti].clips, a, b - a);
+      const y = await LRFx.runList(list, dry, RATE(), q => busyNote("Preparing preview… " + Math.round(q * 100) + "%"));
+      const ctx = new AudioContext({ sampleRate: RATE() }), buf = ctx.createBuffer(1, y.length, RATE()); buf.copyToChannel(y, 0);
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start();
+      B.preview = { k: kind, ctx }; src.onended = () => { if (B && B.preview && B.preview.ctx === ctx) { stopPreview(); renderSide(); } };
+    } catch (e) { toast("Preview failed: " + e.message); }
+    B.busy = null; busyNote(""); renderSide();
+  }
+  function stopPreview() { if (B && B.preview) { B.preview.ctx.close().catch(() => {}); B.preview = null; } }
+  // armed effects run on each new take when you press Stop
+  async function processArmed(file) {
+    const ts = trackSet(); let done = 0;
+    for (let ti = 0; ti < B.audio.tracks.length; ti++) {
+      const list = (ts[ti] || {}).armed || []; if (!list.length) continue;
+      const tr = B.audio.tracks[ti];
+      for (const c of tr.clips.filter(c => c.file === file)) {
+        busyNote("Armed effects on track " + (ti + 1) + "…"); toast("🎛 Applying armed effects to the take on track " + (ti + 1) + "…");
+        const nc = await processRegion(list, { ti, a: c.at, b: c.at + c.dur });
+        Object.assign(c, { file: nc.file, off: 0, dur: nc.dur, fx: nc.fx, src: { file: file, off: c.off, dur: c.dur } });
+        done++;
+      }
+    }
+    busyNote("");
+    return done;
+  }
+  function chainChanged() { if (B.player.playing) { B.playhead = B.player.time; togglePlay(true); } }
+  function savePreset() {
+    const st = trackSet()[fxTi()], name = (prompt("Name this voice preset (it saves the track's armed effects and track sound):", st.name || "") || "").trim(); if (!name) return;
+    const ps = Store.settings.fxPresets = Store.settings.fxPresets || {};
+    ps[name] = { armed: JSON.parse(JSON.stringify(st.armed || [])), chain: JSON.parse(JSON.stringify(LRFx.chainOf(st))) };
+    Store.saveSettings(); renderSide(); toast("Saved the voice preset “" + name + "”.");
+  }
+  function loadPreset(name) {
+    const pr = (Store.settings.fxPresets || {})[name]; if (!pr) return;
+    const st = trackSet()[fxTi()]; st.armed = JSON.parse(JSON.stringify(pr.armed || [])); st.chain = JSON.parse(JSON.stringify(pr.chain || LRFx.CHAIN_DEFAULT()));
+    Store.saveBook(B.book); chainChanged(); renderSide(); renderHeads(); toast("“" + name + "” is on " + (st.name || "track " + (fxTi() + 1)) + ".");
+  }
+
+  // ======================= takes, gain, checks =======================
+  function selectTake(ti, ci) { B.selTake = { ti, ci }; B.sel = null; B.track = ti; renderEditBar(); renderTransport(); if (B.side === "tools" && B.tab === "takes") renderSide(); }
+  function deleteTake(ti, ci) {
+    if (B.rec) return; const c = B.audio.tracks[ti] && B.audio.tracks[ti].clips[ci]; if (!c) return;
+    pushUndo();
+    B.audio.tracks[ti].clips.splice(ci, 1);
+    const shared = B.audio.tracks.some((_, k) => T().extract(B.audio, k, c.at, c.at + c.dur).length);
+    if (!shared) T().deleteRange(B.audio, c.at, c.at + c.dur);
+    B.selTake = null; B.sel = null; B.playhead = c.at;
+    edited(); renderSide();
+    toast("🗑 Take deleted" + (shared ? " (left as silence so the other tracks stay in sync)" : "") + ". Undo brings it back.");
+  }
+  function gainSel(db) {
+    if (B.rec) return; let ti = B.track, a, b;
+    if (B.sel) { a = B.sel.a; b = B.sel.b; } else if (B.selTake) { const c = B.audio.tracks[B.selTake.ti].clips[B.selTake.ci]; ti = B.selTake.ti; a = c.at; b = c.at + c.dur; } else return;
+    pushUndo(); T().splitAt(B.audio, ti, a); T().splitAt(B.audio, ti, b);
+    for (const c of B.audio.tracks[ti].clips) if (c.at >= a - 1e-6 && c.at + c.dur <= b + 1e-6) { const g = db == null ? 0 : Math.max(-30, Math.min(24, (c.g || 0) + db)); if (g) c.g = g; else delete c.g; }
+    const keep = B.sel; edited(); B.sel = keep; renderTransport(); renderSide();
+    if (B.player.playing) chainChanged();
+  }
+  async function acxCheck() {
+    if (B.busy || !len()) return; B.busy = "acx"; renderSide();
+    try {
+      const render = await mix(), L = len(), R = RATE(), CH = 10, win = Math.round(R * 0.5);
+      let ss = 0, n = 0, pk = 0, wss = 0, wn = 0; const wins = [];
+      for (let t = 0; t < L; t += CH) {
+        const x = await render(t, Math.min(CH, L - t));
+        for (let i = 0; i < x.length; i++) { const v = x[i], a = v < 0 ? -v : v; ss += v * v; if (a > pk) pk = a; wss += v * v; if (++wn === win) { wins.push(Math.sqrt(wss / win)); wss = 0; wn = 0; } }
+        n += x.length; busyNote("Checking… " + Math.round(100 * Math.min(1, (t + CH) / L)) + "%");
+      }
+      const db = v => 20 * Math.log10(Math.max(v, 1e-9)), live = wins.filter(v => v > 1e-6).sort((x, y) => x - y);
+      B.acx = { ci: B.ci, rms: db(Math.sqrt(ss / Math.max(1, n))), peak: db(pk), floor: live.length ? db(live[0]) : -120 };
+    } catch (e) { toast("Check failed: " + e.message); }
+    B.busy = null; busyNote(""); renderSide();
+  }
+
+  // ======================= who reads what: select words, pick a reader =======================
+  function readersForPop() {
+    const S = Store.settings, set = new Set(S.narrators.map(n => n.name)); Object.values(B.book.parts || {}).forEach(r => r && set.add(r)); set.add(B.readingAs);
+    return [...set];
+  }
+  function showPartPop() {
+    if (B.edit) return;
+    const sel = window.getSelection(); if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const ms = $("#ms"), r = sel.getRangeAt(0); if (!ms || !ms.contains(r.commonAncestorContainer)) return;
+    const ws = $$(".w", ms).filter(w => r.intersectsNode(w)); if (!ws.length) return;
+    const from = +ws[0].dataset.i, to = +ws[ws.length - 1].dataset.i, rect = r.getBoundingClientRect();
+    hidePartPop();
+    const pop = document.createElement("div"); pop.className = "part-pop"; pop.id = "part-pop";
+    const words = B.toks.slice(from, to + 1).map(t => t.w), txt = words.length > 6 ? words.slice(0, 3).join(" ") + " … " + words.slice(-2).join(" ") : words.join(" ");
+    pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    document.body.appendChild(pop);
+    pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
+    pop.style.top = Math.max(8, rect.top - pop.offsetHeight - 8) + "px";
+    pop.onmousedown = e => e.preventDefault();
+    pop.onclick = e => { const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+  }
+  function hidePartPop() { const p = $("#part-pop"); if (p) p.remove(); }
+  function setReader(from, to, who) {
+    const parts = B.book.parts = B.book.parts || {};
+    let part = "n";
+    if (who !== "__n") { part = Object.keys(parts).find(k => k !== "n" && parts[k] === who); if (!part) { part = "r:" + who; parts[part] = who; } }
+    Prep.setPart(B.chap, from, to, part);
+    const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos);
+    Store.saveBook(B.book); bookCounts(); renderManuscript(); renderStats();
+    toast((to - from + 1) + " word" + (to > from ? "s" : "") + " now read by " + (who === "__n" ? "the narrator" : who) + ". Select them again to change it.");
+  }
+
+  // ======================= the voice waveform over the page while you record (Finished Hour drew one too) =======================
+  function drawVoice() {
+    const cv = $("#voice-wave"), an = B.mic && B.mic.analyser;
+    if (!cv) return;
+    const on = !!(B.rec && !B.rec.paused && an);
+    cv.classList.toggle("on", on); if (!on) { B.sparks = []; return; }
+    const wrap = $("#ms-wrap"), r = wrap.getBoundingClientRect(), W = Math.round(Math.min(r.width, 900)), H = 220, dpr = window.devicePixelRatio || 2;
+    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px"; }
+    cv.style.left = Math.round(r.left + r.width / 2 - W / 2) + "px"; cv.style.top = Math.round(r.top + r.height * 0.72 - H / 2) + "px";
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const buf = B.vbuf = B.vbuf && B.vbuf.length === an.fftSize ? B.vbuf : new Float32Array(an.fftSize); an.getFloatTimeDomainData(buf);
+    let pk = 0, px = 0, py = H / 2; for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > pk) pk = a; }
+    const vol = Math.min(1, pk * 3.2), col = (getComputedStyle(document.body).getPropertyValue("--accent") || "#c9a45a").trim();
+    g.lineWidth = 4; g.lineJoin = "round"; g.strokeStyle = col; g.shadowColor = col; g.shadowBlur = 8 + vol * 24; g.beginPath();
+    for (let i = 0; i < buf.length; i++) {
+      const x = i / (buf.length - 1) * W, edge = Math.sin(Math.PI * i / (buf.length - 1)), y = H / 2 + buf[i] * H * 1.1 * edge;   // tapered at the ends
+      if (Math.abs(y - H / 2) > Math.abs(py - H / 2)) { px = x; py = y; }
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke(); g.shadowBlur = 0;
+    const sp = B.sparks = B.sparks || [];
+    if (vol > 0.3 && Math.random() < vol * 0.5) for (let k = 0; k < 1 + Math.floor(Math.random() * 3); k++) sp.push({ x: px + (Math.random() - .5) * 30, y: py + (Math.random() - .5) * 20, vx: (Math.random() - .5) * 3, vy: -Math.random() * 2.2 - .4, life: 1, d: .02 + Math.random() * .025, s: 1.5 + Math.random() * 2.5 });
+    for (let k = sp.length - 1; k >= 0; k--) { const q = sp[k]; q.x += q.vx; q.y += q.vy; q.vy += .02; q.life -= q.d; if (q.life <= 0) { sp.splice(k, 1); continue; } g.globalAlpha = q.life; g.fillStyle = col; g.beginPath(); g.arc(q.x, q.y, q.s, 0, 7); g.fill(); }
+    g.globalAlpha = 1;
+  }
+
   // ======================= waveform: a zoomed window that follows the head, one lane per track =======================
   async function loadPeaks() {
     if (!T().hasAudio(B.audio) || (await Store.studioStatus()) !== "ready") { drawWave(); return; }
@@ -745,28 +1159,28 @@
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     follow(W);
-    const v = view(), t0 = v.t0, pps = v.pps, X = t => (t - t0) * pps, n = B.audio.tracks.length, LH = (H - RULER) / n;
-    g.fillStyle = "#1d1810"; g.fillRect(0, 0, W, H);
-    g.fillStyle = "#241d14"; g.fillRect(0, 0, W, RULER);
+    const v = view(), t0 = v.t0, pps = v.pps, X = t => (t - t0) * pps, n = B.audio.tracks.length, LH = (H - RULER) / n, C = colors();
+    g.fillStyle = C.lane; g.fillRect(0, 0, W, H);
+    g.fillStyle = C.lane2; g.fillRect(0, 0, W, RULER);
     const { major, minor } = ticks(pps); g.font = "600 9px system-ui"; g.textBaseline = "middle";
     for (let t = Math.floor(t0 / minor) * minor; t <= t0 + W / pps; t += minor) {
       const x = X(t); if (x < 0) continue; const isMaj = Math.abs(t / major - Math.round(t / major)) < 1e-6;
-      g.fillStyle = isMaj ? "#6b5a44" : "#3f3426"; g.fillRect(Math.round(x), isMaj ? RULER - 6 : RULER - 3, 1, isMaj ? 6 : 3);
-      if (isMaj) { g.fillStyle = "#b8a98c"; g.fillText(rulerLabel(t), x + 3, RULER / 2); }
+      g.fillStyle = C.tick; g.globalAlpha = isMaj ? 1 : 0.55; g.fillRect(Math.round(x), isMaj ? RULER - 6 : RULER - 3, 1, isMaj ? 6 : 3); g.globalAlpha = 1;
+      if (isMaj) { g.fillStyle = C.tickInk; g.fillText(rulerLabel(t), x + 3, RULER / 2); }
     }
     const ts = trackSet(), solo = ts.some(s => s && s.solo);
     B.audio.tracks.forEach((tr, ti) => {
       const top = RULER + ti * LH, mid = top + LH / 2, amp = LH / 2 * 0.88, st = ts[ti] || {}, audible = !st.mute && (!solo || st.solo);
-      if (ti === B.track && n > 1) { g.fillStyle = "rgba(201,164,90,.08)"; g.fillRect(0, top, W, LH); }
+      if (ti === B.track && n > 1) { g.fillStyle = `rgba(${C.w1.join(",")},.08)`; g.fillRect(0, top, W, LH); }
       if (ti > 0) { g.fillStyle = "rgba(255,255,255,.18)"; g.fillRect(0, top, W, 1); }
       g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(0, mid, W, 1);
-      const base = ti === 0 ? [201, 164, 90] : [111, 168, 201], col = `rgb(${base.join(",")})`;
+      const base = ti === 0 ? C.w1 : C.w2, col = `rgb(${base.join(",")})`;
       g.save(); g.beginPath(); g.rect(0, top, W, LH); g.clip();
       const order = tr.clips.map((c, ci) => [c, ci]).sort((x, y) => (B.rec && B.rec.file === x[0].file ? 1 : 0) - (B.rec && B.rec.file === y[0].file ? 1 : 0));
       order.forEach(([c, ci]) => {
         const live = B.rec && B.rec.clip === c;
         const x0 = Math.max(0, Math.floor(X(c.at))), x1 = Math.min(W, Math.ceil(X(c.at + c.dur))); if (x1 <= x0) return;
-        if (live) { g.fillStyle = "#1d1810"; g.fillRect(x0, top + 1, x1 - x0, LH - 1); }
+        if (live) { g.fillStyle = C.lane; g.fillRect(x0, top + 1, x1 - x0, LH - 1); }
         const pk = (B.rec && B.rec.file === c.file) ? { mm: B.rec.writer.mm } : B.peaks[c.file];
         g.fillStyle = live ? "#e5473b" : !audible ? "#7a7568" : col;
         if (!pk) { g.globalAlpha = .3; g.fillRect(x0, mid - 2, x1 - x0, 4); g.globalAlpha = 1; }
@@ -775,14 +1189,16 @@
           let mn = 0, mx = 0;
           if (pk.mm) { const nn = pk.mm.length / 2; for (let k = a; k < Math.min(b, nn); k++) { const lo = pk.mm[2 * k] / 127, hi = pk.mm[2 * k + 1] / 127; if (lo < mn) mn = lo; if (hi > mx) mx = hi; } }
           else { for (let k = a; k < Math.min(b, pk.abs.length); k++) { const m = pk.abs[k] / 255; if (m > mx) mx = m; } mn = -mx; }
+          if (c.g) { const gg = Math.pow(10, c.g / 20); mx = Math.min(1, mx * gg); mn = Math.max(-1, mn * gg); }
           if (mx - mn < 0.004) continue;
           g.fillRect(x, mid - mx * amp, 1, Math.max(1, (mx - mn) * amp));
         }
         if (live) { const tw = Math.min(110, x1 - x0), tg = g.createLinearGradient(x1 - tw, 0, x1, 0); tg.addColorStop(0, "rgba(255,59,87,0)"); tg.addColorStop(1, "rgba(255,59,87,.32)"); g.fillStyle = tg; g.fillRect(x1 - tw, top, tw, LH); }
-        const xa = X(c.at), xb = X(c.at + c.dur), frame = live ? "255,59,87" : base.join(",");
+        const xa = X(c.at), xb = X(c.at + c.dur), picked = B.selTake && B.selTake.ti === ti && B.selTake.ci === ci, frame = live ? "255,59,87" : picked ? "255,244,214" : base.join(",");
+        if (picked) { g.fillStyle = "rgba(255,244,214,.10)"; g.fillRect(xa, top + 1, xb - xa, LH - 2); }
         g.strokeStyle = `rgba(${frame},.7)`; g.lineWidth = 1; g.strokeRect(Math.round(xa) + .5, top + 1.5, Math.max(2, Math.round(xb - xa)), LH - 3);
         g.fillStyle = `rgba(${frame},.55)`; g.fillRect(Math.round(xa), top + 2, 3, LH - 4); g.fillRect(Math.round(xb) - 2, top + 2, 3, LH - 4);
-        if (LH >= 30 && xb - xa > 46) { g.fillStyle = "rgba(255,255,255,.55)"; g.font = "10px system-ui"; g.fillText(live ? "● Recording" : "Take " + (ci + 1), Math.max(xa, 0) + 6, top + 10); }
+        if (LH >= 30 && xb - xa > 46) { g.fillStyle = "rgba(255,255,255,.55)"; g.font = "10px system-ui"; g.fillText(live ? "● Recording" : (c.fx ? "🎛 " : "") + "Take " + (ci + 1) + (c.g ? "  " + (c.g > 0 ? "+" : "") + c.g + " dB" : ""), Math.max(xa, 0) + 6, top + 10); }
       });
       g.restore();
     });
@@ -791,6 +1207,14 @@
     for (const m of B.audio.markers) { const x = X(m.t); if (x < -8 || x > W + 8) continue; g.fillStyle = "#e5473b"; g.fillRect(x - 1, RULER, 2, H - RULER); g.beginPath(); g.moveTo(x, RULER); g.lineTo(x + 8, RULER + 4.5); g.lineTo(x, RULER + 9); g.fill(); }
     const ph = head();
     if (ph != null) { const x = X(ph); g.fillStyle = B.rec ? "#ff5a4d" : "#f5ecd6"; g.fillRect(x - 1, 0, 2, H); if (B.rec) { g.shadowColor = "#ff3b57"; g.shadowBlur = 12; g.fillRect(x - 1, 0, 2, H); g.shadowBlur = 0; } }
+  }
+  // lane colours come from the theme (read once per theme)
+  function colors() {
+    const th = document.documentElement.dataset.theme || "ledger";
+    if (B.col && B.col.th === th) return B.col;
+    const cs = getComputedStyle(document.body), v = k => cs.getPropertyValue(k).trim();
+    const rgb = h => { h = (h || "#c9a45a").replace("#", ""); if (h.length === 3) h = h.split("").map(c => c + c).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
+    return B.col = { th, lane: v("--lane") || "#1d1810", lane2: v("--lane2") || "#241d14", tick: v("--tick") || "#6b5a44", tickInk: v("--tick-ink") || "#b8a98c", w1: rgb(v("--wave")), w2: rgb(v("--wave2")) };
   }
   // mouse on the waveform: click = playhead, drag = select, drag a take's label strip (or ⌥-drag) = move the take
   function bindWave(cv) {
@@ -811,7 +1235,7 @@
       const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t); cv.style.cursor = ci >= 0 && ((p.y - RULER) % p.LH < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
       const p = pos(e);
       if (d.kind === "move") { B.ghost.at = Math.max(0, p.t - d.grab); B.ghost.ti = p.ti; cv.style.cursor = "grabbing"; }
-      else if (Math.abs(e.clientX - d.x0) > 3) { B.sel = { a: Math.max(0, Math.min(d.a, p.t)), b: Math.min(len(), Math.max(d.a, p.t)) }; }
+      else if (Math.abs(e.clientX - d.x0) > 3) { B.selTake = null; B.sel = { a: Math.max(0, Math.min(d.a, p.t)), b: Math.min(len(), Math.max(d.a, p.t)) }; }
       drawWave();
     };
     cv.onpointerup = e => {
@@ -820,10 +1244,10 @@
       if (d.kind === "move") {
         const g = B.ghost; B.ghost = null;
         if (Math.abs(e.clientX - d.x0) > 3 || g.ti !== d.ti) { pushUndo(); T().moveClip(B.audio, d.ti, d.ci, g.ti, g.at); B.track = g.ti; edited(); }
-        else drawWave();
+        else selectTake(d.ti, d.ci);
         return;
       }
-      if (Math.abs(e.clientX - d.x0) <= 3) { B.sel = null; B.track = d.ti; seek(p.t); renderEditBar(); return; }
+      if (Math.abs(e.clientX - d.x0) <= 3) { B.sel = null; B.selTake = null; B.track = d.ti; seek(p.t); renderEditBar(); return; }
       if (B.sel && B.sel.b - B.sel.a < 0.02) B.sel = null;
       B.track = d.ti; renderEditBar(); renderTransport();
     };
@@ -831,7 +1255,7 @@
   }
   function animate() {
     if (!B) return;
-    drawWave();
+    drawWave(); drawVoice();
     const tt = $("#bd-time"); if (tt) tt.textContent = clock(B.rec ? B.rec.clip.at + B.rec.clip.dur : B.player.playing ? B.player.time : len());
     meters();
     if (B.rec || B.player.playing) B.raf = requestAnimationFrame(animate); else B.raf = null;
@@ -925,43 +1349,23 @@
     const typing = t && (t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !/^(checkbox|radio|button|range|color)$/i.test(t.type)));
     if (typing) return;
     if (document.querySelector(".overlay")) return;
-    const k = e.key.toLowerCase(), mod = e.metaKey || e.ctrlKey;
-    const code = e.code || "";
+    const code = e.code || "", mod = e.metaKey || e.ctrlKey;
     if (t && /^(BUTTON|SELECT|INPUT|A)$/.test(t.tagName) && !mod) t.blur();
-    const go = fn => { e.preventDefault(); fn(); B && (B.lastAct = Date.now()); };
-    if (mod && k === "z") return go(() => e.shiftKey ? redo() : undo());
-    if (mod && k === "x") return go(cut);
-    if (mod && k === "c") return go(copy);
-    if (mod && k === "v") return go(() => paste(e.shiftKey));
-    if (mod && k === "a") return go(selectAll);
-    if (mod) return;
-    // ⌥1–6: record on that track from the playhead; while recording, jump the take onto it
-    if (e.altKey && /^Digit[1-6]$/.test(code)) { const ti = +code.slice(5) - 1; return go(() => B.rec ? switchTrackLive(ti) : recordToggle(ti)); }
-    if (!e.shiftKey && /^Digit[1-6]$/.test(code)) { const ti = +code.slice(5) - 1; return go(() => {
+    // fixed keys: 1–6 pick a track (while recording, carry the take onto it); ⌥1–6 record on that track
+    if (!mod && /^Digit[1-6]$/.test(code) && !e.shiftKey) {
+      e.preventDefault(); B.lastAct = Date.now(); const ti = +code.slice(5) - 1;
+      if (e.altKey) return B.rec ? switchTrackLive(ti) : recordToggle(ti);
       if (B.rec) return switchTrackLive(ti);
-      if (ti < B.audio.tracks.length) { B.track = ti; renderEditBar(); renderTransport(); } else toast("Track " + (ti + 1) + " doesn't exist yet. Add it with + Track (Shift+T).");
-    }); }
-    if (k === "r" && e.shiftKey) return go(() => punchAt(B.playhead != null ? B.playhead : len()));
-    if (k === "r") return go(() => recordToggle());
-    if (k === "s") return go(() => B.rec ? stopRecording() : (B.player.stop(), renderTransport()));
-    if (k === "f") return go(flub);
-    if (k === "m") return go(() => addMarker());
-    if (k === "n") return go(customMarker);
-    if (k === "b") return go(splitHere);
-    if (k === "t" && e.shiftKey) return go(() => addTrack());
-    if (k === "t") return go(nextTrack);
-    if (e.key === "Delete" || e.key === "Backspace") return go(deleteSel);
-    if (e.key === "[") return go(() => laneSize(1 / 1.3));
-    if (e.key === "]") return go(() => laneSize(1.3));
-    if (e.key === "Home") return go(() => seek(0));
-    if (e.key === "End") return go(() => seek(len()));
-    if (e.key === ",") return go(() => jumpFlag(-1));
-    if (e.key === ".") return go(() => jumpFlag(1));
-    if (e.key === "=" || e.key === "+") return go(() => setZoom(1.5));
-    if (e.key === "-") return go(() => setZoom(1 / 1.5));
-    if (e.key === " ") return go(() => togglePlay());
-    if (e.key === "Escape") return go(() => { B.player.stop(); B.sel = null; renderEditBar(); renderTransport(); });
+      if (ti < B.audio.tracks.length) { B.track = ti; renderEditBar(); renderTransport(); } else toast("Track " + (ti + 1) + " doesn't exist yet. Add it with + Track (" + kl("addTrack") + ").");
+      return;
+    }
+    const combo = comboOf(e); if (!combo) return;
+    const K = keys(), name = Object.keys(ACTIONS).find(a => K[a] === combo); if (!name) return;
+    if (name === "copy" && !B.sel) return;                // nothing selected: let the browser copy text
+    e.preventDefault(); B.lastAct = Date.now();
+    if (e.repeat && !["bigger", "smaller", "zoomIn", "zoomOut", "nextFlag", "prevFlag", "textSmaller", "textBigger"].includes(name)) return;
+    act(name);
   }
 
-  window.Booth = { open, close, get state() { return B; }, _test: { swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, _test: { applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

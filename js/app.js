@@ -136,7 +136,7 @@
         <div class="pc-head"><div class="pc-spine">${esc((b.title || "?").trim()[0] || "?")}</div>
           <div class="pc-title">${esc(b.title)}
             <div class="project-meta" style="font-family:var(--sans);margin-top:3px">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div></div>
-          <div class="pc-icons"><button class="star" data-star="${esc(b.id)}" title="${cur ? "Unmark current" : "Mark as current project"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}/0" data-booth title="Open in the Booth">🎙</a></div></div>
+          <div class="pc-icons">${b.status === "archived" ? `<button data-restore="${esc(b.id)}" title="Restore from the archive">↩</button>` : ""}<button class="star" data-star="${esc(b.id)}" title="${cur ? "Unmark current" : "Mark as current project"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}/0" data-booth title="Open in the Booth">🎙</a></div></div>
         ${progressBar(st)}
         <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)</div>
         ${st.toRecord && !st.delivered ? `<div class="project-meta">${num(st.toRecord)} words remaining · ${fh(st.left.fh)} FH</div>` : ""}
@@ -145,7 +145,7 @@
         <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
       </div>`;
     };
-    const row = ({ b, st }) => `<div class="ptr ${st.delivered ? "completed" : ""}" data-id="${esc(b.id)}"><div class="ptr-title">${b.star ? "★ " : ""}${esc(b.title)}</div><div>${pct(st)}% · ${num(st.words)} w</div><div>${doneCh(b)} / ${st.chapters} ch</div><div>${st.est.mine ? money(earned(st)) : "—"}</div><div>${b.due ? esc(prettyDate(b.due)) : "—"}${st.track ? ` <span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div></div>`;
+    const row = ({ b, st }) => `<div class="ptr ${st.delivered ? "completed" : ""}" data-id="${esc(b.id)}"><div class="ptr-title">${b.star ? "★ " : ""}${esc(b.title)}${b.status === "archived" ? ` <button class="btn small quiet" data-restore="${esc(b.id)}">↩ Restore</button>` : ""}</div><div>${pct(st)}% · ${num(st.words)} w</div><div>${doneCh(b)} / ${st.chapters} ch</div><div>${st.est.mine ? money(earned(st)) : "—"}</div><div>${b.due ? esc(prettyDate(b.due)) : "—"}${st.track ? ` <span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div></div>`;
     const list = xs => mode === "list"
       ? `<div class="project-table"><div class="ptr head"><div>Title</div><div>Progress</div><div>Chapters</div><div>Earned</div><div>Due</div></div>${xs.map(row).join("")}</div>`
       : `<div class="project-grid">${xs.map(card).join("")}</div>`;
@@ -180,10 +180,11 @@
       ${all.length ? `<div class="dash-today">${contCard}${todayCard}${waitCard}</div>` : ""}
       ${active.length ? list(active) : all.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
       ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
-      ${arch.length ? `<details style="margin-top:26px"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
+      ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{localStorage.setItem('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
-    $$("[data-id]").forEach(el => el.onclick = e => { if (e.target.closest("[data-star],[data-booth]")) return; location.hash = "#/book/" + el.dataset.id; });
+    $$("[data-id]").forEach(el => el.onclick = e => { if (e.target.closest("[data-star],[data-booth],[data-restore]")) return; location.hash = "#/book/" + el.dataset.id; });
     $$("[data-star]").forEach(el => el.onclick = e => { e.stopPropagation(); const b = Store.byId(el.dataset.star), on = !b.star; Store.books.forEach(x => { if (x.star && x !== b) { x.star = false; Store.saveBook(x); } }); b.star = on; Store.saveBook(b); viewLibrary(); });
+    $$("[data-restore]").forEach(el => el.onclick = e => { e.stopPropagation(); const b = Store.byId(el.dataset.restore); b.status = "active"; Store.saveBook(b); toast("“" + b.title + "” is back on your dashboard."); viewLibrary(); });
     $$("[data-mode]").forEach(el => el.onclick = () => { lset("lr-dash-mode", el.dataset.mode); viewLibrary(); });
     $("#dash-sort").onchange = e => { lset("lr-dash-sort", e.target.value); viewLibrary(); };
 
@@ -482,7 +483,7 @@
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
     main().innerHTML = `<h1>Settings</h1>
       <div class="card"><h3>Look &amp; feel</h3><div class="row">
-        <label>Theme<select id="th">${[["ledger", "Ledger — parchment & ink"], ["lamp", "Lamp — lamplit dark"], ["archive", "Archive — cool paper"], ["nocturne", "Nocturne — violet dark"]].map(([k, l]) => `<option value="${k}" ${S.theme === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Theme<select id="th">${[["ledger", "Ledger — warm paper & brass (light)"], ["archive", "Archive — cool paper & ink (light)"], ["lamp", "Lamp — lamplit dark"], ["nocturne", "Nocturne — violet dark"], ["foundry", "Foundry — soot, smoke & whisky (Small Heath)"], ["afterglow", "Afterglow — violet night & sunset neon (Synthwave)"], ["velvet", "Velvet — wine, black velvet & rose gold (Dark Romance)"], ["signal", "Signal — black glass & electric cyan (Cyberpunk)"]].map(([k, l]) => `<option value="${k}" ${S.theme === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="check"><input type="checkbox" id="cf" ${S.confetti ? "checked" : ""}> Confetti</label>
         <label class="check"><input type="checkbox" id="en" ${S.encouragement ? "checked" : ""}> Encouragement messages</label>
         <button class="btn small" id="try">Try it</button>

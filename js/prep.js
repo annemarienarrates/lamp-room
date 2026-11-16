@@ -317,7 +317,30 @@
     if (hue >= 45 && hue <= 70) return "s";
     return "c:" + h;
   }
-  function partLabel(part) { return PART_LABEL[part] || ("Colour " + part.slice(2)); }
+  function partLabel(part) { return PART_LABEL[part] || (part.startsWith("r:") ? part.slice(2) + "'s lines" : "Colour " + part.slice(2)); }
+
+  // Give tokens [from, to] (inclusive, chapter token indexes as tokens() numbers them) a new part.
+  // Works on the characters, so the text and its spacing are untouched; the spaces between two retagged words go with them.
+  function setPart(chapter, from, to, part) {
+    let ti = -1;
+    chapter.paras.forEach((p, pi) => {
+      if (p === SCENE_MARK) return;
+      const chars = []; for (const [t, pt] of paraRuns(p)) for (const ch of t) chars.push([ch, pt]);
+      let inTok = false, changed = false, lastIn = -1;
+      for (let i = 0; i < chars.length; i++) {
+        const sp = /\s/.test(chars[i][0]);
+        if (!sp && !inTok) { ti++; inTok = true; } else if (sp) inTok = false;
+        if (!sp && ti >= from && ti <= to) {
+          if (lastIn >= 0 && ti > from) for (let k = lastIn + 1; k < i; k++) chars[k][1] = part;   // the gap between two chosen words
+          chars[i][1] = part; lastIn = i; changed = true;
+        }
+      }
+      if (!changed) return;
+      const runs = [];
+      for (const [ch, pt] of chars) { const last = runs[runs.length - 1]; if (last && last[1] === pt) last[0] += ch; else runs.push([ch, pt]); }
+      chapter.paras[pi] = runs.length === 1 && runs[0][1] === "n" ? runs[0][0] : { r: runs };
+    });
+  }
 
   // Who reads a part: narration follows the chapter's POV switch; other parts follow the book's assignments.
   function readerOf(part, chapter, book) {
@@ -484,7 +507,7 @@
     return parts.map(p => ({ text: p.text, heading: /^h[1-3]$/i.test(p.tag) }));
   }
 
-  const Prep = { paraText, paraRuns, partOfColor, partLabel, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
+  const Prep = { setPart, paraText, paraRuns, partOfColor, partLabel, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
     estimate, usFederalHolidays, isWorkday, workdaysUntil, addWorkdays, ymd, uid, METHOD_LABELS, SCENE_MARK };
   if (typeof module !== "undefined" && module.exports) module.exports = Prep; else root.Prep = Prep;
 })(typeof window !== "undefined" ? window : globalThis);

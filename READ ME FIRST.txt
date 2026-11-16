@@ -1,4 +1,4 @@
-THE LAMP ROOM — private booth  (v0.4.2: Booth + Studio)
+THE LAMP ROOM  (v0.5: Booth, Studio & Effects)
 ================================================
 
 Opening it
@@ -29,28 +29,52 @@ are lit, everyone else's are dimmed, and the line just before yours shows as a g
 Follow-along, word counts, pace and pay count only your parts.
 A whole chapter in someone else's POV: set the POV column on that chapter in the book view.
 
-Booth & Studio keys
+Booth & Studio keys  (change any of them: Hotkeys button in the Booth)
 -------------------
 R          Record / pause / resume. Track 1 carries on from the end of track 1 (or after a later take
            on another track); other tracks punch in at the playhead
 1 – 6      While recording: carry the take straight onto that track, no gap. Otherwise: select it
 ⌥1 – ⌥6    Record on that track from the playhead
 F          Flub: back to the start of the sentence, pre-roll, record over it
-Shift+R    Punch in at the playhead. Like Finished Hour: the new take replaces only what you
-           re-read; everything after it is kept, and the old take is saved under Tools ▸ Previous
-           takes so you can swap back
+Shift+R    Punch in at the playhead. The new take replaces only what you re-read; the old take is
+           kept under Tools ▸ Takes so you can swap back
+E          Apply the last effect again (to the selection, or the take under the playhead)
 S          Stop            Space   Play / stop (plays the selection if there is one)
 M / N      Flub marker / named marker (named markers go into WAV exports)
 ⌘X ⌘C ⌘V   Cut / copy / paste (paste pushes everything after it along)
-⌘⇧V        Paste over (replaces)        Delete   Delete the selection and close the gap
-⌘A         Select the whole chapter     B        Split the take at the playhead
+⌘⇧V        Paste over (replaces)
+Delete     Delete the selection and close the gap — or, with a take selected, delete that take
+⌘A         Select the whole chapter     ⇧Home / ⇧End  Select from the playhead to the start / end
+B          Split the take at the playhead
 T          Next track      Shift+T  Add a track (up to 6; tracks belong to the whole book)
-[ / ]      Shorter / taller tracks      − / =    Zoom out / in (⌘ + scroll; scroll to pan)
+[ / ]      Shorter / taller tracks (or drag the top edge of the dock)
+− / =      Zoom out / in (⌘ + scroll; scroll to pan)
+⌘− / ⌘=    Smaller / larger reading text (or A− / A+, or ⌘ + scroll over the text)
 Home/End   Playhead to start / end      , / .    Previous / next flag
+Shift+P    Open / close the Tools panel
 ⌘Z / ⌘⇧Z   Undo / redo                  Esc      Stop playback, clear the selection
+C          Co-narrator lines (arrives with duet clips)
 
-On the waveform: click to place the playhead, drag to select, drag a take by its label
-strip (or hold ⌥) to move it along or onto another track.
+On the waveform: click to place the playhead, drag to select, click a take's label strip to
+select the take, drag the strip (or hold ⌥) to move it along or onto another track.
+
+In the text: select words and a little menu asks who reads them (you, your partner, narration).
+Use it when a highlight was missed or landed on the wrong person.
+
+Tools panel (left side of the Booth)
+------------------------------------
+Effects        Pitch, voice doubler, reverb, echo, chorus, robot, phone/radio/muffled.
+               Preview, Apply (to the selection, the selected take, or the whole track; Undo
+               brings the original back), or Arm on a track so every new take recorded there
+               gets it when you press Stop. Each track keeps its own armed effects and settings,
+               so track 2 can be a demon at −8 and track 3 a child at +6.
+               Save a track's armed effects as a named voice preset and reuse it anywhere.
+               The FX button on each track head opens this for that track.
+Track sound    A live chain per track (high-pass, EQ, de-esser, compressor, limiter). Off by
+               default since Auphonic masters for you.
+Takes          Every take in the chapter (play, jump, delete) and the punched-over takes kept for swapping.
+Levels         Gain on a selection or take (+/− dB, nothing re-recorded), and an ACX check.
+Mic & reading  Reading as, microphone, theme, sans or serif reading text.
 
 The chapter clock works like Finished Hour's: it starts the first time you press Record
 on a chapter, keeps running through Stop, playback and punches, pauses after 5 idle

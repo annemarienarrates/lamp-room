@@ -112,6 +112,7 @@
       if (b <= a) continue;
       const f = await (await dir.getFileHandle(c.file)).getFile();
       const pcm = await readPCM(f, c.off + (a - c.at), b - a);
+      if (c.g) { const g = Math.pow(10, c.g / 20); for (let i = 0; i < pcm.length; i++) pcm[i] *= g; }      // clip gain (dB), from Levels
       out.set(pcm.subarray(0, Math.min(pcm.length, out.length - Math.round((a - from) * RATE))), Math.round((a - from) * RATE));
     }
     return out;
@@ -188,6 +189,7 @@
       const ctx = this.ctx = new AudioContext({ sampleRate: RATE, latencyHint: "interactive" });
       const src = ctx.createMediaStreamSource(this.stream);
       const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
+      this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 1024; src.connect(this.analyser);
       const handle = f32 => {
         let pk = 0; for (let i = 0; i < f32.length; i++) { const a = Math.abs(f32[i]); if (a > pk) pk = a; }
         const db = pk > 0 ? 20 * Math.log10(pk) : -90;
@@ -206,7 +208,7 @@
       if (ctx.state === "suspended") await ctx.resume();
     }
     get label() { const t = this.stream && this.stream.getAudioTracks()[0]; return t ? t.label : ""; }
-    close() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); if (this.ctx) this.ctx.close().catch(() => {}); this.stream = null; this.ctx = null; this.onFrames = null; }
+    close() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); if (this.ctx) this.ctx.close().catch(() => {}); this.stream = null; this.ctx = null; this.onFrames = null; this.analyser = null; }
   }
 
   // { mm: Int8Array of min,max pairs } for new takes; older takes have { abs: Uint8Array }
@@ -215,14 +217,27 @@
     try { const f = await (await dir.getFileHandle(clip.file.replace(/\.wav$/, ".peaks"))).getFile(); return { abs: new Uint8Array(await f.arrayBuffer()) }; } catch (e) { return null; }
   }
 
-  // mix(dir, audio, trackSet) → render(from, dur): audible tracks summed with their volume
-  function mixer(dir, audio, trackSet) {
+  // mix(dir, audio, trackSet) → render(from, dur): audible tracks, each through its live chain, summed at their volumes.
+  // Chains keep their state between calls that follow on from each other (playback, export); a jump starts them afresh
+  // with a short run-in so the filters have settled by the first sample you hear.
+  function mixer(dir, audio, trackSet, opts) {
+    const chains = [], bypass = opts && opts.bypass; let lastEnd = null;
+    const RUNIN = 0.25;
     return async (from, dur) => {
       const out = new Float32Array(Math.round(dur * RATE));
       const tracks = audio.tracks || [], set = trackSet || [], solo = set.some((t, i) => t && t.solo && tracks[i]);
+      const fresh = lastEnd == null || Math.abs(from - lastEnd) > 1e-3; lastEnd = from + dur;
       for (let i = 0; i < tracks.length; i++) {
         const st = set[i] || {}; if (st.mute || (solo && !st.solo) || !tracks[i].clips.length) continue;
-        const g = Math.pow(10, (st.vol || 0) / 20), x = await renderRange(dir, tracks[i].clips, from, dur);
+        const g = Math.pow(10, (st.vol || 0) / 20), cfg = !bypass && window.LRFx ? LRFx.chainOf(st) : null;
+        let x;
+        if (cfg && LRFx.chainActive(cfg)) {
+          if (fresh || !chains[i]) {
+            chains[i] = new LRFx.Chain(cfg, RATE);
+            const ri = Math.min(RUNIN, from); if (ri > 0.01) chains[i].process(await renderRange(dir, tracks[i].clips, from - ri, ri));
+          }
+          x = chains[i].process(await renderRange(dir, tracks[i].clips, from, dur));
+        } else x = await renderRange(dir, tracks[i].clips, from, dur);
         for (let k = 0; k < out.length && k < x.length; k++) out[k] += x[k] * g;
       }
       return out;
