@@ -1,0 +1,64 @@
+THE LAMP ROOM — private booth  (v0.4.1: Booth + Studio)
+================================================
+
+Opening it
+----------
+1. Unzip this folder somewhere permanent (Documents is fine). Keep the files together.
+   Replacing an older version: delete the old app folder and put this one in its place.
+   Your work is NOT in the app folder, so nothing is lost.
+2. Double-click index.html. It must open in Google Chrome (or Edge).
+   If it opens in Safari: right-click index.html > Open With > Google Chrome.
+3. Bookmark the page in Chrome.
+
+Two folders, two jobs
+---------------------
+- LIBRARY folder (chosen on first run): books, chapters, sessions, settings. Small files.
+  Later this moves into a shared Google Drive folder so you and Jack see the same titles and schedule.
+- STUDIO folder (asked the first time you press Record): your recordings, 48 kHz 24-bit WAV.
+  Keep it OUTSIDE Google Drive / Dropbox. Audio is big and stays on this computer.
+
+First run asks whose computer this is. The Lamp Room then opens as that person:
+their pace, their sessions, their lines in duets. Change it in Settings, or switch
+"Reading as" inside the Booth.
+
+Duets
+-----
+Import a manuscript whose co-narrator lines are highlighted (blues = male, pinks = female,
+pale yellow = system voice). The Lamp Room asks who reads each part. In the Booth your lines
+are lit, everyone else's are dimmed, and the line just before yours shows as a grey cue.
+Follow-along, word counts, pace and pay count only your parts.
+A whole chapter in someone else's POV: set the POV column on that chapter in the book view.
+
+Booth & Studio keys
+-------------------
+R          Record / pause / resume. Track 1 carries on from the end of track 1 (or after a later take
+           on another track); other tracks punch in at the playhead
+1 – 6      While recording: carry the take straight onto that track, no gap. Otherwise: select it
+⌥1 – ⌥6    Record on that track from the playhead
+F          Flub: back to the start of the sentence, pre-roll, record over it
+Shift+R    Punch in at the playhead. Like Finished Hour: the new take replaces only what you
+           re-read; everything after it is kept, and the old take is saved under Tools ▸ Previous
+           takes so you can swap back
+S          Stop            Space   Play / stop (plays the selection if there is one)
+M / N      Flub marker / named marker (named markers go into WAV exports)
+⌘X ⌘C ⌘V   Cut / copy / paste (paste pushes everything after it along)
+⌘⇧V        Paste over (replaces)        Delete   Delete the selection and close the gap
+⌘A         Select the whole chapter     B        Split the take at the playhead
+T          Next track      Shift+T  Add a track (up to 6; tracks belong to the whole book)
+[ / ]      Shorter / taller tracks      − / =    Zoom out / in (⌘ + scroll; scroll to pan)
+Home/End   Playhead to start / end      , / .    Previous / next flag
+⌘Z / ⌘⇧Z   Undo / redo                  Esc      Stop playback, clear the selection
+
+On the waveform: click to place the playhead, drag to select, drag a take by its label
+strip (or hold ⌥) to move it along or onto another track.
+
+The chapter clock works like Finished Hour's: it starts the first time you press Record
+on a chapter, keeps running through Stop, playback and punches, pauses after 5 idle
+minutes, and stops when you mark the chapter complete. Click it to pause.
+
+Export: WAV 44.1 kHz/16-bit or MP3 192k (ACX), or raw WAV 48 kHz/24-bit for Auphonic.
+Files land in <Studio folder>/<Book>/exports/ unless you choose a place.
+
+Follow-along uses Chrome's speech recognition, which needs an internet connection
+(Chrome sends the audio to Google to recognise it; your recordings themselves stay local).
+If follow-along won't start, click words to move your place, and tell Claude.
