@@ -1,4 +1,4 @@
-THE LAMP ROOM  (v0.5.1: Booth, Studio & Effects)
+THE LAMP ROOM  (v0.6: Booth, Studio, Effects, Duet lines & Celebrations)
 ================================================
 
 Opening it
@@ -29,6 +29,34 @@ are lit, everyone else's are dimmed, and the line just before yours shows as a g
 Follow-along, word counts, pace and pay count only your parts.
 A whole chapter in someone else's POV: set the POV column on that chapter in the book view.
 
+Duet lines (Tools ▸ Co-narrator)
+--------------------------------
+Whoever narrates a chapter is its lead. The other reader records their lines first, as usual.
+- Co-narrator: record your lines straight through, a breath between each. Then press "Send my lines".
+  Each line is cut out of your recording (by your word timing and the pauses around it) and saved
+  in the shared Library folder: Books/<book>/duet/<chapter>/<your name>/. "Send + save a copy"
+  also puts them in a folder you choose, if you'd rather share another way.
+- Lead: open the chapter and their lines arrive by themselves (or "Check for new lines", or
+  "Load from a folder…"). Record straight through. When you finish the line before theirs and go
+  quiet, their line drops onto their track and plays in your headphones. Wait for "YOUR TURN".
+  C drops their next line in by hand if follow-along misses it.
+  Lines not in yet? A slot is marked where each one goes; "Splice all" fills the slots later,
+  and places any other missing line by your word timing, opening the gap on every track.
+- Each line in the list: play, go to it, take it back out (↩), or Place it at the playhead.
+
+Pickups (Tools ▸ Pickups): every open flag in the chapter. Fix goes back to the start of that
+sentence and punches in. ✓ marks it dealt with.
+
+Celebrations
+------------
+Big glowing words for: each daily goal (words, booth hours, earnings if you set one), every
+1,000 words in a sitting, beating your usual pace or your best pace on a chapter, chapter done,
+book recorded, and new books. Anything that comes up mid-take waits until you press Stop.
+Combo meter (top right of the Booth): every 100 of your own words without a 10-second break
+raises the combo through Finished Hour's 20 tiers, Warming Up to Omega. From Overdrive up the
+screen joins in. The co-narrator's lines don't break it. Click the meter to hide it.
+Switch any of it off in Settings: Celebrations, Combo meter, Confetti, Calm (words only).
+
 Booth & Studio keys  (change any of them: Hotkeys button in the Booth)
 -------------------
 R          Record / pause / resume. Track 1 carries on from the end of track 1 (or after a later take
@@ -53,7 +81,7 @@ T          Next track      Shift+T  Add a track (up to 6; tracks belong to the w
 Home/End   Playhead to start / end      , / .    Previous / next flag
 Shift+P    Open / close the Tools panel
 ⌘Z / ⌘⇧Z   Undo / redo                  Esc      Stop playback, clear the selection
-C          Co-narrator lines (arrives with duet clips)
+C          Co-narrator: drop their next line in now (or mark a slot; not recording: at the playhead)
 
 On the waveform: click to place the playhead, drag to select, click a take's label strip to
 select the take, drag the strip (or hold ⌥) to move it along or onto another track.

@@ -484,8 +484,13 @@
     main().innerHTML = `<h1>Settings</h1>
       <div class="card"><h3>Look &amp; feel</h3><div class="row">
         <label>Theme<select id="th">${[["ledger", "Ledger — warm paper & brass (light)"], ["archive", "Archive — cool paper & ink (light)"], ["lamp", "Lamp — lamplit dark"], ["nocturne", "Nocturne — violet dark"], ["foundry", "Foundry — soot, smoke & whisky (Small Heath)"], ["afterglow", "Afterglow — violet night & sunset neon (Synthwave)"], ["velvet", "Velvet — wine, black velvet & rose gold (Dark Romance)"], ["signal", "Signal — black glass & electric cyan (Cyberpunk)"]].map(([k, l]) => `<option value="${k}" ${S.theme === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="check"><input type="checkbox" id="cele" ${S.celebrations !== false ? "checked" : ""}> Celebrations — big glowing words for goals, pace, chapters and books</label>
+        <label class="check"><input type="checkbox" id="combo" ${S.combo !== false ? "checked" : ""}> Combo meter in the Booth (Finished Hour's tiers)</label>
         <label class="check"><input type="checkbox" id="cf" ${S.confetti ? "checked" : ""}> Confetti</label>
-        <label class="check"><input type="checkbox" id="en" ${S.encouragement ? "checked" : ""}> Encouragement messages</label>
+        <label class="check"><input type="checkbox" id="calm" ${S.calm ? "checked" : ""}> Calm: keep the words, drop the sparks, lightning and flashes</label>
+        <label class="check"><input type="checkbox" id="en" ${S.encouragement ? "checked" : ""}> Small encouraging lines</label>
+        <label>Daily earnings goal ($, for the celebration; 0 = none)<input type="number" id="gearn" min="0" step="10" value="${esc(S.goalEarn || 0)}" style="max-width:120px"></label>
+        <div class="row"><button class="btn quiet small" id="try2">Try a celebration</button><button class="btn quiet small" id="try3">Try the big one</button><button class="btn quiet small" id="tryc">Try a combo tier</button></div>
         <button class="btn small" id="try">Try it</button>
       </div></div>
       <div class="card"><h3>Narrators</h3><p class="small muted">Booth pace = manuscript words you get through per hour in the booth. The Booth module will keep these current once you're recording here.</p>
@@ -504,6 +509,13 @@
     const save = () => { Store.saveSettings().catch(e => toast("Couldn't save settings: " + e.message)); };
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
     $("#cf").onchange = e => { S.confetti = e.target.checked; save(); };
+    $("#cele").onchange = e => { S.celebrations = e.target.checked; save(); };
+    $("#combo").onchange = e => { S.combo = e.target.checked; S.comboHidden = false; save(); };
+    $("#calm").onchange = e => { S.calm = e.target.checked; save(); };
+    $("#gearn").onchange = e => { S.goalEarn = Math.max(0, +e.target.value || 0); save(); };
+    $("#try2").onclick = () => LRCele.celebrate({ title: "DAILY WORDS: DONE", sub: "24,210 of your own words today", level: 2 });
+    $("#try3").onclick = () => LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines. Go outside. Briefly.", level: 3 });
+    $("#tryc").onclick = () => { const t = 9 + Math.floor(Math.random() * 12), [n, c] = LRCele.TIERS[t]; LRCele.celebrate({ title: n, color: c, live: true, level: 2, flash: true, noConfetti: true, hold: 1600 }); LRCele.lightning(2, c); LRCele.shootingStars(2, c); };
     $("#en").onchange = e => { S.encouragement = e.target.checked; save(); };
     $("#try").onclick = () => cheer("chapterDone");
     $$("[data-n]").forEach(el => el.onchange = () => { const n = S.narrators[+el.dataset.n]; const old = n.name; n[el.dataset.k] = el.dataset.k === "pace" ? Number(el.value) : el.value.trim();

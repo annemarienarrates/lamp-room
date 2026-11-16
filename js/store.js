@@ -143,6 +143,15 @@
       return a.getDirectoryHandle(chapter.id, { create: true });
     },
 
+    // ---- duet lines: <Library>/Books/<book>/duet/<chapter id>/<reader>/ (lines.json + one WAV per line).
+    //      The Library is the folder you and your co-narrator share, so lines sent on one computer appear on the other.
+    async duetDir(book, chapter, reader, create) {
+      const opt = { create: !!create };
+      const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
+      const b = await booksDir.getDirectoryHandle(book.folder, opt), d = await b.getDirectoryHandle("duet", opt), c = await d.getDirectoryHandle(chapter.id, opt);
+      return c.getDirectoryHandle(safeFolder(reader), opt);
+    },
+
     // ---- booth sessions: Sessions/<person>/<YYYY-MM>.json (written only by that person) ----
     async sessionFile(person, ym, create) {
       const s = await this.root.getDirectoryHandle("Sessions", { create: true });

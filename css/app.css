@@ -408,3 +408,44 @@ body.booth-recording .trk-head.sel { border-color: var(--rec); box-shadow: 0 0 1
 .bd-wave { background: var(--lane); }
 
 body.booth-on #toasts { bottom: calc(var(--dock-h, 170px) + 14px); }
+
+/* ---------------- celebrations ---------------- */
+#cele-fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9800; }
+#cele-words { position: fixed; left: 0; right: 0; top: 42%; transform: translateY(-50%); z-index: 9801; pointer-events: none; text-align: center; padding: 0 4vw; }
+#cele-words .cw-title { font: 900 clamp(46px, 9vw, 150px)/0.95 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: #fff;
+  -webkit-text-stroke: 1.5px var(--cc);
+  text-shadow: 0 0 6px #fff, 0 0 18px var(--cc), 0 0 42px var(--cc), 0 0 90px var(--cc), 0 0 160px var(--cc);
+  animation: cwin .6s cubic-bezier(.17, 1.4, .4, 1) both, cwbuzz 2.4s ease-in-out .6s infinite; }
+#cele-words.lvl1 .cw-title { font-size: clamp(38px, 6.5vw, 104px); }
+#cele-words.lvl3 .cw-title { font-size: clamp(52px, 11vw, 190px); }
+#cele-words .cw-sub { margin-top: 18px; font: 600 clamp(16px, 1.8vw, 26px) var(--sans); color: #fff; letter-spacing: .02em; text-shadow: 0 0 10px var(--cc), 0 0 24px var(--cc), 0 2px 8px #000a; animation: cwsub .5s ease-out .25s both; }
+#cele-words.out { animation: cwout .7s ease-in forwards; }
+#cele-words.calm .cw-title { animation: cwfade .4s ease-out both; text-shadow: 0 0 10px var(--cc), 0 2px 10px #0006; }
+@keyframes cwin { 0% { opacity: 0; transform: scale(.3); filter: blur(14px); } 60% { opacity: 1; filter: blur(0); } 100% { transform: scale(1); } }
+@keyframes cwbuzz { 0%, 100% { filter: brightness(1); } 45% { filter: brightness(1.25); } 50% { filter: brightness(.85); } 55% { filter: brightness(1.3); } }
+@keyframes cwsub { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes cwout { to { opacity: 0; transform: translateY(-50%) scale(1.25); filter: blur(10px); } }
+@keyframes cwfade { from { opacity: 0; } to { opacity: 1; } }
+#cele-flash { position: fixed; inset: 0; z-index: 9799; pointer-events: none; background: radial-gradient(circle at 50% 42%, #fff 0%, var(--cc) 30%, transparent 70%); animation: cflash .75s ease-out forwards; }
+@keyframes cflash { 0% { opacity: .85; } 100% { opacity: 0; } }
+#combo-box { position: fixed; right: 18px; top: 140px; z-index: 30; min-width: 150px; padding: 10px 14px; border-radius: 12px; cursor: pointer; text-align: right;
+  background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(6px); }
+#combo-box.tier { border-color: var(--cc); box-shadow: 0 0 0 1px var(--cc), 0 0 22px -4px var(--cc); }
+#combo-box .cb-l { font: 900 12px var(--sans); letter-spacing: .12em; color: var(--cc); text-shadow: 0 0 8px var(--cc); }
+#combo-box .cb-n { font: 800 26px/1.1 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; } #combo-box .cb-n small { font-size: 12px; color: var(--muted); font-weight: 600; }
+#combo-box .cb-s { font: 500 11px var(--sans); color: var(--muted); }
+#combo-box.pop { animation: cbpop .3s ease-out; } @keyframes cbpop { 40% { transform: scale(1.08); } }
+#combo-glow { position: fixed; inset: 0; pointer-events: none; z-index: 17; box-shadow: inset 0 0 calc(40px + 120px * var(--gs)) color-mix(in srgb, var(--cc) calc(25% + 45% * var(--gs)), transparent); animation: cglow 2.2s ease-in-out infinite; }
+@keyframes cglow { 50% { opacity: .55; } }
+.duet-banner { position: fixed; left: 50%; bottom: calc(var(--dock-h, 170px) + 150px); transform: translateX(-50%); z-index: 9700; pointer-events: none; text-align: center;
+  padding: 14px 26px; border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--accent); box-shadow: 0 0 30px -6px var(--accent), var(--shadow2); }
+.duet-banner b { display: block; font: 900 22px var(--sans); letter-spacing: .06em; color: var(--accent-hi); text-shadow: 0 0 12px var(--accent); }
+.duet-banner i { display: block; font-size: 14px; color: var(--ink); max-width: 560px; margin-top: 4px; }
+.duet-banner .db-bar { height: 4px; margin-top: 10px; border-radius: 3px; background: var(--line); overflow: hidden; } .duet-banner .db-bar span { display: block; height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: dbfill linear forwards; }
+@keyframes dbfill { from { width: 100%; } to { width: 0; } }
+.duet-banner.go { border-color: var(--good); box-shadow: 0 0 30px -6px var(--good); } .duet-banner.go b { color: var(--good); text-shadow: 0 0 12px var(--good); }
+.co-line { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: start; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.co-line .n { font: 700 11px var(--mono); color: var(--muted); padding-top: 4px; } .co-line.placed { opacity: .62; } .co-line.slot .n { color: var(--warn); }
+.co-line i { font-style: normal; color: var(--muted); font-size: 11.5px; }
+.co-chips { display: flex; gap: 6px; flex-wrap: wrap; } .co-chips span { font: 600 11px var(--sans); padding: 3px 8px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); }
+.co-chips span.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); } .co-chips span.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
