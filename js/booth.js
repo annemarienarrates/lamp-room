@@ -20,7 +20,7 @@
   let B = null;
 
   // ======================= open / close =======================
-  async function open(bookId, ci) {
+  async function open(bookId, ci, tab) {
     const book = Store.byId(bookId);
     if (!book) { location.hash = "#/library"; return; }
     if (B && B.book !== book) await close();
@@ -42,6 +42,7 @@
     }
     try { Store.lsSet("lr-last-book", book.id); const o = JSON.parse(Store.lsGet("lr-opened") || "{}"); o[book.id] = Date.now(); Store.lsSet("lr-opened", JSON.stringify(o)); } catch (e) {}
     if (ci == null || isNaN(ci)) ci = firstUnfinished(book);
+    if (tab) { B.side = "tools"; B.tab = tab; }
     await openChapter(Math.max(0, Math.min(book.chapters.length - 1, ci)));
   }
   const markActive = () => { if (B) B.lastAct = Date.now(); };
@@ -113,7 +114,8 @@
     render();
     loadPeaks();
     setTimeout(() => B && checkGoals(true), 1500);
-    if (amLead() && theirRuns().length) setTimeout(() => { if (B && B.ci === ci) bringLines(null, true).catch(() => {}); }, 400);
+    if (amLead() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
+    if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
     if (B.mine.every(m => !m)) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }
 
@@ -323,7 +325,7 @@
             return `<button class="bd-ch ${i === B.ci ? "on" : ""} ${k.mine ? "" : "none"}" data-ci="${i}"><span>${fin ? "✓ " : ""}${esc(x.title)}${x.pov ? `<i class="pov">${esc(x.pov)}'s POV</i>` : ""}</span><em>${k.mine ? num(k.mine - k.done) : "—"}${bs ? " · " + hm(bs) : ""}</em></button>`; }).join("")}</div>`;
       else {
         const tab = B.tab = B.tab || "fx";
-        body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" && B.audio.markers.some(m => !m.done && !m.slot) ? " (" + B.audio.markers.filter(m => !m.done && !m.slot).length + ")" : ""}</option>`).join("")}</select>
+        body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" ? (n => n ? " (" + n + ")" : "")(B.audio.markers.filter(m => !m.done && !m.slot).length + pkForMe().filter(q => !Store.pickupReply(B.book, q)).length) : ""}</option>`).join("")}</select>
           <div class="bd-toolbody">${({ duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
       }
       el.innerHTML = `<div class="bd-tools">${head}${body}</div>`;
@@ -369,6 +371,14 @@
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
       case "lout": return unplace(theirRuns()[+x]);
       case "lin": { const xr = theirRuns()[+x], l = lineFor(xr); if (!l || B.rec) return; pushUndo(); const t = await spliceAt(xr, l, B.playhead != null ? B.playhead : len(), true); B.playhead = t + l.dur + 0.3; edited(); renderSide(); return; }
+      case "castdrop": return castDropPick(x);
+      case "pkrec": { const q = pkForMe().find(z => z.id === x); if (q) pickupRecorder(q); return; }
+      case "pkcopy": return copyCastList(x);
+      case "pkdrop": { const f = await pickAudioFile(); if (f) return castPickupDrop(x, f); return; }
+      case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) playPickupReply(q); return; }
+      case "pkin": return applyPickups();
+      case "pkcancel": return cancelPickup(x);
+      case "lask": return askPickupPrompt(theirRuns()[+x]);
       case "pgo": { const m = B.audio.markers.find(m => m.id === x); if (m) seek(m.t); return; }
       case "pfix": return pickupFix(x);
       case "pdone": case "pundo": { const m = B.audio.markers.find(m => m.id === x); if (m) { m.done = cmd === "pdone"; Store.saveBook(B.book); renderSide(); renderTransport(); } return; }
@@ -465,6 +475,13 @@
         <div class="stu-note">Text size: A− / A+ in the bar above, ${esc(kl("textSmaller"))} / ${esc(kl("textBigger"))}, or ⌘ + scroll over the text.</div></div>
       <a class="stu-btn" href="#/book/${esc(B.book.id)}">Book page →</a>`;
   }
+  // pickups changed in the shared folder: new asks for me, or replies for my asks
+  document.addEventListener("lr-external", e => {
+    if (!B || !/^#\/booth\//.test(location.hash) || !(e.detail || []).includes("pickups")) return;
+    const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length;
+    if (n && n !== B.pkSeen) toast("🔁 " + n + " pickup" + (n === 1 ? "" : "s") + " waiting for you in this book: Tools ▸ Pickups.");
+    B.pkSeen = n; applyPickups(true).catch(() => {}); renderSide();
+  });
   // someone else sat down at this computer: their hotkeys, sizes and look come with them
   document.addEventListener("lr-me", async e => {
     KEYS = null;
@@ -475,7 +492,7 @@
     if (B.view) B.view.pps = num0(Store.lsGet("lr-pps"), 40);
     B.col = null; applyReadFont(); await switchReader(e.detail.to);
   });
-  async function switchReader(name) { await flushSession(); B.session = null; B.readingAs = name; try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (er) { B.sessions = []; } openChapter(B.ci); }
+  async function switchReader(name) { if (!B) return; await flushSession(); if (!B) return; B.session = null; B.readingAs = name; B.pkTold = false; let ss = []; try { ss = await Store.sessions(name, 2); } catch (er) {} if (!B) return; B.sessions = ss; openChapter(B.ci); }
 
   function altsHtml() { return ""; }
   function swapAlt(id) {
@@ -1322,12 +1339,15 @@
         <label class="check"><input type="checkbox" data-duet="hear" ${duetOpt("hear") ? "checked" : ""}> Play their line in my headphones</label>
         <div class="fx-chips"><button class="stu-btn stu-rec" data-p="spliceall" ${dis} ${arrived > placed ? "" : "disabled"} title="Fill the slots, and place any line not yet in by your word timing">⤓ Splice all</button><button class="stu-btn" data-p="bring" ${dis}>Check for new lines</button><button class="stu-btn" data-p="bringfrom" ${dis}>Load from a folder…</button></div></div>
       <div class="bd-sec">${runs.map((x, i) => { const l = lineFor(x), p = placedClip(x), sl = !p && slotOf(x);
-        return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(x.r)} · ${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
-          <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}</span></div>`; }).join("")}</div>`;
+        return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(x.r)} · ${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" + (l.check ? ' · <b class="warn-t">check</b>' : "") + (l.pk ? " · pickup" : "") : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
+          <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}${l || p ? `<button class="stu-btn" data-p="lask:${i}" title="Ask ${esc(x.r)} to re-record this line">🔁</button>` : ""}</span></div>`; }).join("")}</div>
+      <div class="bd-sec"><b>A recording from outside the Lamp Room</b><div class="stu-note">Cast who don't use the Lamp Room send you a file. Drop it here and it's cut into their lines: at the clicks or claps between lines if there are any, otherwise at the pauses. WAV, MP3, M4A, AIFF or FLAC.</div>
+        <div class="fx-chips">${[...new Set(runs.map(x => x.r))].map(r => `<button class="stu-btn" data-p="castdrop:${esc(r)}" ${dis}>🎧 ${esc(r)}'s file…</button>`).join("")}</div>
+        <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label></div>`;
   }
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot), done = B.audio.markers.filter(m => m.done && !m.slot);
-    return `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}) and the spots that clipped. <b>Fix</b> goes back to the start of that sentence and punches in, like the flub key.</div>
+    return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}) and the spots that clipped. <b>Fix</b> goes back to the start of that sentence and punches in, like the flub key.</div>
         ${open.length ? open.map(m => `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk">${clock(m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips"><button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button><button class="stu-btn" data-p="pdone:${m.id}" title="Mark it dealt with">✓</button></span></div>`).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>
       ${done.length ? `<div class="bd-sec"><b>Dealt with (${done.length})</b>${done.map(m => `<div class="co-line placed"><span class="n">✓</span><span>${clock(m.t)} ${esc(m.note || "Flub")}</span><span class="fx-chips"><button class="stu-btn" data-p="pundo:${m.id}">Reopen</button></span></div>`).join("")}</div>` : ""}`;
   }
@@ -1378,6 +1398,7 @@
   // ======================= who reads what: select words, pick a reader =======================
   function readersForPop() {
     const S = Store.settings, set = new Set(S.narrators.map(n => n.name)); Object.values(B.book.parts || {}).forEach(r => r && set.add(r)); set.add(B.readingAs);
+    ["Cast 1", "Cast 2", "Cast 3", "Cast 4"].forEach(n => set.add(n));
     return [...set];
   }
   function showPartPop() {
@@ -1390,11 +1411,13 @@
     const pop = document.createElement("div"); pop.className = "part-pop"; pop.id = "part-pop";
     const words = B.toks.slice(from, to + 1).map(t => t.w), txt = words.length > 6 ? words.slice(0, 3).join(" ") + " … " + words.slice(-2).join(" ") : words.join(" ");
     pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    const run = theirRuns().find(x => from >= x.from && to <= x.to);
+    if (run && amLead()) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px"><button class="stu-btn" data-ask="1">🔁 Ask ${esc(run.r)} for a pickup of this line</button></div>`);
     document.body.appendChild(pop);
     pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
     pop.style.top = Math.max(8, rect.top - pop.offsetHeight - 8) + "px";
     pop.onmousedown = e => e.preventDefault();
-    pop.onclick = e => { const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+    pop.onclick = e => { if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
   }
   function hidePartPop() { const p = $("#part-pop"); if (p) p.remove(); }
   function setReader(from, to, who) {
@@ -1449,10 +1472,11 @@
 
   // ======================= waveform: a zoomed window that follows the head, one lane per track =======================
   async function loadPeaks() {
-    if (!T().hasAudio(B.audio) || (await Store.studioStatus()) !== "ready") { drawWave(); return; }
-    const d = await dir();
-    for (const tr of B.audio.tracks) for (const c of tr.clips) if (!B.peaks[c.file]) { const p = await LRAudio.loadPeaks(d, c); if (p) B.peaks[c.file] = p; }
-    drawWave();
+    if (!B) return;
+    if (!T().hasAudio(B.audio) || (await Store.studioStatus()) !== "ready") { if (B) drawWave(); return; }
+    if (!B) return; const a = B.audio, d = await dir();
+    for (const tr of a.tracks) for (const c of tr.clips) if (B && !B.peaks[c.file]) { const p = await LRAudio.loadPeaks(d, c); if (p && B) B.peaks[c.file] = p; }
+    if (B) drawWave();
   }
   const view = () => B.view || (B.view = { t0: 0, pps: num0(Store.lsGet("lr-pps"), 40) });
   function head() { return B.rec ? B.rec.clip.at + B.rec.clip.dur : B.player.playing ? B.player.time : B.playhead; }
@@ -1711,5 +1735,268 @@
     act(name);
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  // ======================= outside cast & pickups =======================
+  // other readers' runs in any chapter (the same rule theirRuns uses for the open one)
+  function runsIn(chap) {
+    if (chap === B.chap) return theirRuns();
+    const toks = Prep.tokens(chap), out = []; let cur = null;
+    toks.forEach((t, i) => { const r = isMine(t, chap) ? null : Prep.readerOf(t.part, chap, B.book);
+      if (r && cur && cur.r === r && cur.to === i - 1) cur.to = i; else if (r) { cur = { r, from: i, to: i }; out.push(cur); } else cur = null; });
+    out.forEach(x => { x.text = toks.slice(x.from, x.to + 1).map(t => t.w).join(" "); x.words = x.to - x.from + 1; });
+    return out;
+  }
+  // any audio file Chrome can read (WAV, MP3, M4A, AIFF, FLAC…) → mono at the studio rate
+  async function decodeFile(file) {
+    const ab = await new OfflineAudioContext(1, 1, LRAudio.RATE).decodeAudioData(await file.arrayBuffer());
+    const n = ab.length, ch = ab.numberOfChannels, x = new Float32Array(n);
+    for (let c = 0; c < ch; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) x[i] += d[i] / ch; }
+    return x;
+  }
+  // 10 ms loudness frames over a whole buffer
+  function envOf(x) {
+    const hop = Math.round(LRAudio.RATE * 0.01), n = Math.floor(x.length / hop), env = new Float32Array(n), pk = new Float32Array(n);
+    for (let k = 0; k < n; k++) { let s = 0, p = 0; for (let j = k * hop, e = j + hop; j < e; j++) { const v = x[j]; s += v * v; const a = v < 0 ? -v : v; if (a > p) p = a; } env[k] = Math.sqrt(s / hop); pk[k] = p; }
+    const sorted = Array.from(env).filter(v => v > 1e-6).sort((a, b) => a - b), floor = sorted.length ? sorted[Math.floor(sorted.length * 0.1)] : 1e-4;
+    return { env, pk, n, thr: Math.max(floor * 3.5, 0.0035) };
+  }
+  // Cut a cast member's file into lines. A click or clap between lines is the cleanest marker; with none, the pauses decide
+  // (and if there are more stretches of speech than lines, the shortest pauses are joined until the count fits).
+  function cutTakes(x, want) {
+    const E = envOf(x), { env, pk, n, thr } = E, q = k => k < 0 || k >= n || env[k] < thr;
+    // clicks: a burst of at most 0.1 s, sharp, with at least 0.25 s of quiet either side
+    const clicks = [];
+    for (let k = 1; k < n; k++) {
+      if (env[k] < thr || !q(k - 1) || pk[k] < Math.max(0.05, thr * 12)) continue;
+      let e = k; while (e < n && env[e] >= thr) e++;
+      if (e - k > 10) { k = e; continue; }
+      let ok = true; for (let j = 1; j <= 25 && ok; j++) ok = q(k - j - 1) && q(e + j - 1);
+      if (ok) clicks.push([k, e]); k = e;
+    }
+    const isClick = k => clicks.some(([a, b]) => k >= a && k < b);
+    // stretches of speech (gaps under 0.35 s don't split)
+    const st = []; let a = -1, lastLoud = -1;
+    for (let k = 0; k < n; k++) {
+      const loud = env[k] >= thr && !isClick(k);
+      if (loud) { if (a < 0) a = k; else if (k - lastLoud > 35) { st.push([a, lastLoud + 1]); a = k; } lastLoud = k; }
+    }
+    if (a >= 0) st.push([a, lastLoud + 1]);
+    const speech = st.filter(([s, e]) => e - s >= 15);                    // ignore anything under 0.15 s
+    let groups, mode;
+    if (clicks.length) {
+      mode = "clicks"; groups = [];
+      const bounds = clicks.map(c => c[0]).concat([n + 1]); let gi = 0, cur = [];
+      for (const s of speech) { while (s[0] >= bounds[gi]) { if (cur.length) groups.push(cur); cur = []; gi++; } cur.push(s); }
+      if (cur.length) groups.push(cur);
+    } else {
+      mode = "pauses";
+      groups = []; for (const s of speech) { const g = groups[groups.length - 1]; if (g && s[0] - g[g.length - 1][1] < 70) g.push(s); else groups.push([s]); }
+      while (want && groups.length > want) {           // join across the shortest pause
+        let bi = 0, bg = Infinity; for (let i = 0; i < groups.length - 1; i++) { const gap = groups[i + 1][0][0] - groups[i][groups[i].length - 1][1]; if (gap < bg) { bg = gap; bi = i; } }
+        groups.splice(bi, 2, groups[bi].concat(groups[bi + 1]));
+      }
+    }
+    const segs = groups.map(g => {
+      let parts = g, check = "";
+      if (mode === "clicks") {                          // a re-read inside one click-section: keep the last read
+        const reads = [[g[0]]]; for (let i = 1; i < g.length; i++) { if (g[i][0] - g[i - 1][1] >= 150) reads.push([]); reads[reads.length - 1].push(g[i]); }
+        if (reads.length > 1) { parts = reads[reads.length - 1]; check = "kept the last of " + reads.length + " reads"; }
+      }
+      return { a: parts[0][0] * 0.01, b: parts[parts.length - 1][1] * 0.01, check };
+    });
+    const L = x.length / LRAudio.RATE;
+    segs.forEach((s, i) => { const lo = i ? segs[i - 1].b : 0, hi = i < segs.length - 1 ? segs[i + 1].a : L;
+      let a2 = Math.max(lo, s.a - 0.12), b2 = Math.min(hi, s.b + 0.25);
+      for (const [c0, c1] of clicks) { const ct0 = c0 * 0.01, ct1 = c1 * 0.01 + 0.05; if (ct1 <= s.a && ct1 > a2) a2 = ct1; if (ct0 >= s.b && ct0 < b2) b2 = ct0; }
+      s.a = a2; s.b = b2; });
+    if (want && segs.length !== want) segs.forEach(s => { if (!s.check) s.check = "count off"; });
+    return { segs, mode, clicks: clicks.length };
+  }
+  async function writeSeg(d, name, x, a, b) {
+    const R = LRAudio.RATE, seg = x.slice(Math.round(a * R), Math.round(b * R)), fade = Math.min(seg.length >> 1, Math.round(R * 0.012));
+    for (let k = 0; k < fade; k++) { seg[k] *= k / fade; seg[seg.length - 1 - k] *= k / fade; }
+    const w = await LRAudio.WavWriter.create(d, name, R); w.push(seg); await w.close();
+    return seg.length / R;
+  }
+  function pickAudioFile() {
+    return new Promise(res => {
+      let inp = document.getElementById("lr-audio-in"); if (inp) inp.remove();
+      inp = document.createElement("input"); inp.type = "file"; inp.id = "lr-audio-in"; inp.accept = "audio/*,.wav,.mp3,.m4a,.aif,.aiff,.flac,.ogg"; inp.style.display = "none";
+      inp.onchange = () => res(inp.files[0] || null); document.body.appendChild(inp); inp.click();
+    });
+  }
+  const spillOn = () => (Store.settings.duet || {}).spill === true;
+  // a recording from outside the Lamp Room → that reader's lines, in this chapter (and on into the next ones if it runs on)
+  async function castDrop(r, file, spill) {
+    if (B.rec || B.busy || !file) return;
+    if (spill == null) spill = spillOn();
+    B.busy = "cast"; renderSide(); busyNote("Reading " + file.name + "…");
+    try {
+      const x = await decodeFile(file);
+      const targets = [];
+      for (let ci = B.ci; ci < B.book.chapters.length; ci++) { const c = B.book.chapters[ci]; if (!c.included) continue; if (ci !== B.ci && !spill) break; runsIn(c).filter(z => z.r === r).forEach(run => targets.push({ ci, c, run })); }
+      if (!targets.length) { toast(r + " has no lines here."); return; }
+      busyNote("Finding " + r + "'s lines…");
+      const { segs, mode, clicks } = cutTakes(x, targets.length), stamp = Date.now().toString(36), made = new Date().toISOString(), per = {};
+      const n = Math.min(segs.length, targets.length);
+      for (let i = 0; i < n; i++) {
+        const { ci, c, run } = targets[i], s = segs[i], d = await Store.chapterAudioDir(B.book, c);
+        const name = "co-" + r.replace(/[^\w-]+/g, "") + "-" + stamp + "-" + String(i + 1).padStart(3, "0") + ".wav";
+        const dur = await writeSeg(d, name, x, s.a, s.b);
+        c.audio = c.audio || {}; const a = c === B.chap ? B.audio : (c.audio[B.readingAs] = T().normalize(c.audio[B.readingAs]));
+        const du = a.duet = a.duet || {}, rec = du[r] = du[r] || { lines: [] };
+        rec.lines = rec.lines.filter(l => l.from !== run.from);
+        rec.lines.push({ n: i + 1, file: name, from: run.from, to: run.to, text: run.text, dur, check: s.check || undefined, src: file.name });
+        rec.made = made; rec.got = made; per[ci] = (per[ci] || 0) + 1;
+        busyNote("Cutting " + r + "'s lines… " + (i + 1) + " / " + n);
+      }
+      Store.saveBook(B.book); B.peaks = B.peaks || {}; loadPeaks();
+      const checks = segs.slice(0, n).filter(s => s.check).length, chs = Object.keys(per).map(ci => B.book.chapters[ci].title.replace(/^Chapter\s+/i, "Ch ") + ": " + per[ci]).join(", ");
+      toast(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"} (${chs}).` +
+        (segs.length > targets.length ? ` ${segs.length - targets.length} more stretch${segs.length - targets.length === 1 ? "" : "es"} than lines: listen to the last few.` : segs.length < targets.length ? ` ${targets.length - segs.length} line${targets.length - segs.length === 1 ? "" : "s"} still missing.` : "") +
+        (checks ? ` ${checks} marked “check”.` : "") + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : ""));
+      return { n, mode, clicks, segs: segs.length, want: targets.length };
+    } catch (e) { console.error(e); toast("Couldn't read that file: " + e.message); }
+    finally { B.busy = null; busyNote(""); renderSide(); }
+  }
+  async function castDropPick(r) { const f = await pickAudioFile(); if (f) return castDrop(r, f); }
+
+  // ---- pickups: the lead asks, the reader re-records and sends, it replaces the old line in the timeline ----
+  const isNarrator = name => Store.settings.narrators.some(n => n.name === name);
+  const pkAll = () => Store.pickupReqs(B.book);
+  const pkMine = () => pkAll().filter(q => q.asker === B.readingAs);
+  const pkForMe = () => pkAll().filter(q => q.to === B.readingAs && q.status === "open");
+  const chIndex = id => B.book.chapters.findIndex(c => c.id === id);
+  async function saveMine(list) { await Store.savePickupReqs(B.book, B.readingAs, list); }
+  async function askPickup(run, note) {
+    if (!run) return;
+    const list = pkMine().map(q => Object.assign({}, q)), have = list.find(q => q.chapterId === B.chap.id && q.r === run.r && q.w0 === run.from && q.status === "open");
+    if (have) { have.note = note || have.note; await saveMine(list); toast("Already asked: note updated."); return renderSide(); }
+    const ctx = B.toks.slice(Math.max(0, run.from - 12), run.from).map(t => t.w).join(" ");
+    list.push({ id: Prep.uid(), to: run.r, r: run.r, chapterId: B.chap.id, chapter: B.chap.title, w0: run.from, w1: run.to, text: run.text, ctx, note: note || "", made: new Date().toISOString(), status: "open" });
+    await saveMine(list);
+    toast(isNarrator(run.r) ? "🔁 Asked " + run.r + " for a pickup. It shows up on their Dashboard and in their Booth." : "🔁 Added to " + run.r + "'s pickup list. Pickups ▸ Copy the list to send it to them.");
+    renderSide();
+  }
+  function askPickupPrompt(run) { if (!run) return; const note = window.prompt("Pickup for " + run.r + ":\n“" + short(run.text, 20) + "”\n\nA note for them (optional):", ""); if (note === null) return; return askPickup(run, note.trim()); }
+  async function cancelPickup(id) { const list = pkMine().map(q => Object.assign({}, q)), q = list.find(z => z.id === id); if (!q) return; q.status = "cancelled"; await saveMine(list.filter(z => z.status !== "cancelled" || z.id === id)); renderSide(); }
+  // swap one placed line for its pickup: the timeline grows or shrinks by the difference, on every track
+  function replaceClip(ti, ci, file, dur, id) {
+    const a = B.audio, c = a.tracks[ti].clips[ci], at = c.at, od = c.dur;
+    a.tracks[ti].clips.splice(ci, 1);
+    if (dur > od) T().insertGap(a, at + od, dur - od); else if (dur < od) T().deleteRange(a, at + dur, at + od);
+    T().overwrite(a, ti, [{ file, off: 0, dur, at: 0, line: c.line, pk: { id, old: { file: c.file, off: c.off, dur: c.dur } } }], at);
+  }
+  async function applyPickups(quiet) {
+    if (!B || B.rec || B.busy) return 0;
+    const todo = pkMine().filter(q => q.status === "open" && q.chapterId === B.chap.id && Store.pickupReply(B.book, q));
+    if (!todo.length) return 0;
+    const list = pkMine().map(q => Object.assign({}, q)), cd = await dir(); let put = 0, undone = false;
+    for (const q of todo) {
+      const rep = Store.pickupReply(B.book, q);
+      try {
+        const sd = await Store.pickupsDir(B.book, q.to), name = "pk-" + q.id + ".wav";
+        const src = await (await sd.getFileHandle(rep.file)).getFile(), fh = await cd.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(src); await w.close();
+        try { const ps = await (await sd.getFileHandle(rep.file.replace(/\.wav$/, ".peaks2"))).getFile(), ph = await cd.getFileHandle(name.replace(/\.wav$/, ".peaks2"), { create: true }), pw = await ph.createWritable(); await pw.write(ps); await pw.close(); } catch (e) {}
+        const run = theirRuns().find(x => x.r === q.to && x.from === q.w0) || theirRuns().find(x => x.r === q.to && x.text === q.text);
+        if (run) {
+          const p = placedClip(run);
+          if (p) { if (!undone) { pushUndo(); undone = true; } replaceClip(p.ti, p.ci, name, rep.dur, q.id); }
+          const du = duetData(), rec = du[run.r] = du[run.r] || { lines: [] };
+          rec.lines = rec.lines.filter(l => l.from !== run.from); rec.lines.push({ n: 0, file: name, from: run.from, to: run.to, text: run.text, dur: rep.dur, pk: q.id });
+        }
+        const lq = list.find(z => z.id === q.id); lq.status = "in"; lq.in = new Date().toISOString(); put++;
+      } catch (e) { console.warn("pickup", q.id, e); }
+    }
+    if (put) { await saveMine(list); B.peaks = B.peaks || {}; loadPeaks(); edited(); renderSide(); if (!quiet || put) toast("🔁 " + put + " pickup" + (put === 1 ? "" : "s") + " in, replacing the old read" + (put === 1 ? "" : "s") + (undone ? ". Undo takes them out." : ".")); }
+    return put;
+  }
+  // the reader's side: record one pickup in a small booth of its own, then send it
+  function pickupRecorder(q) {
+    if (B.rec) return;
+    const ov = document.createElement("div"); ov.className = "overlay pk-ov";
+    let chunks = [], rec = false, t0 = 0, raf = 0, playCtx = null; const prevFrames = B.mic.onFrames;
+    const total = () => chunks.reduce((a, c) => a + c.length, 0), joined = () => { const x = new Float32Array(total()); let o = 0; for (const c of chunks) { x.set(c, o); o += c.length; } return x; };
+    const draw = () => {
+      const has = total() > 0;
+      ov.innerHTML = `<div class="card reader pk-card"><div class="pk-head"><b>🔁 Pickup for ${esc(q.asker)}</b><span class="muted">${esc(q.chapter || "")}</span></div>
+        ${q.ctx ? `<div class="pk-ctx">…${esc(q.ctx)}</div>` : ""}<div class="pk-line">${esc(q.text)}</div>
+        ${q.note ? `<div class="pk-note">“${esc(q.note)}” — ${esc(q.asker)}</div>` : ""}
+        <div class="pk-meter"><i id="pk-lvl"></i></div><div class="pk-time" id="pk-time">${(total() / LRAudio.RATE).toFixed(1)} s</div>
+        <div class="row pk-btns"><button class="btn ${rec ? "" : "primary"}" data-k="rec">${rec ? "■ Stop (S)" : has ? "● Record again (R)" : "● Record (R)"}</button><button class="btn" data-k="play" ${has && !rec ? "" : "disabled"}>▶ Listen</button>
+          <div class="spacer"></div><button class="btn quiet" data-k="x">Close</button><button class="btn primary" data-k="send" ${has && !rec ? "" : "disabled"}>✓ Send to ${esc(q.asker)}</button></div></div>`;
+    };
+    const book = B.book, me = B.readingAs;
+    const tick = () => { if (!B) { close(); return; } const l = $("#pk-lvl", ov), t = $("#pk-time", ov); if (l) l.style.width = Math.max(0, Math.min(100, (B.mic.level + 60) / 60 * 100)) + "%"; if (t && rec) t.textContent = (total() / LRAudio.RATE).toFixed(1) + " s"; raf = requestAnimationFrame(tick); };
+    const stopPlay = () => { if (playCtx) { playCtx.close().catch(() => {}); playCtx = null; } };
+    const start = async () => { if (!(await ensureMic())) return; stopPlay(); chunks = []; rec = true; B.mic.onFrames = f => { if (rec) chunks.push(new Float32Array(f)); }; draw(); };
+    const stop = () => { rec = false; B.mic.onFrames = prevFrames; draw(); };
+    const close = () => { rec = false; stopPlay(); cancelAnimationFrame(raf); document.removeEventListener("keydown", key, true); if (B) B.mic.onFrames = prevFrames; ov.remove(); };
+    let sending = false;
+    const play = () => { stopPlay(); const x = joined(); if (!x.length) return; playCtx = new AudioContext({ sampleRate: LRAudio.RATE }); const buf = playCtx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = playCtx.createBufferSource(); s.buffer = buf; s.connect(playCtx.destination); s.start(); };
+    const send = async () => {
+      if (sending) return; sending = true; const sb = $("[data-k=send]", ov); if (sb) { sb.disabled = true; sb.textContent = "Sending…"; }
+      const x = joined(), E = envOf(x); let f = 0, l = E.n - 1; while (f < E.n && E.env[f] < E.thr) f++; while (l > f && E.env[l] < E.thr) l--;
+      if (f >= E.n) { sending = false; draw(); toast("That take is silent. Check the microphone and record again."); return; }
+      const a = Math.max(0, f * 0.01 - 0.15), b = Math.min(x.length / LRAudio.RATE, (l + 1) * 0.01 + 0.3);
+      try { const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, x, a, b);
+        await Store.savePickupReply(book, me, q.id, { file: name, dur, made: new Date().toISOString() });
+        close(); if (!B) return; renderSide(); const left = pkForMe().filter(z => !Store.pickupReply(B.book, z)).length;
+        if (window.LRCele && !left) LRCele.celebrate({ title: "PICKUPS SENT", sub: "All of them, to " + q.asker, level: 1, noConfetti: true }); else toast("✓ Sent to " + q.asker + "." + (left ? " " + left + " to go." : ""));
+      } catch (e) { sending = false; toast("Couldn't send it: " + e.message); if (B) draw(); }
+    };
+    const key = e => { if (e.target.closest && e.target.closest("input,textarea")) return; const k = e.key.toLowerCase();
+      if (k === "r" && !rec) { e.preventDefault(); e.stopImmediatePropagation(); start(); } else if ((k === "s" || k === " ") && rec) { e.preventDefault(); e.stopImmediatePropagation(); stop(); }
+      else if (k === "escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); } else if (["r", "s", " ", "f", "m", "n", "c", "e"].includes(k)) { e.preventDefault(); e.stopImmediatePropagation(); } };
+    ov.onclick = e => { const b = e.target.closest("[data-k]"); if (!b || b.disabled) return; ({ rec: () => rec ? stop() : start(), play, send, x: close })[b.dataset.k](); };
+    document.addEventListener("keydown", key, true);
+    draw(); document.body.appendChild(ov); tick();
+    return { start, stop, send, close, get chunks() { return chunks; } };
+  }
+  // outside cast: a list to send them, and their pickups file back in
+  function castPickupList(r) {
+    const qs = pkMine().filter(q => q.to === r && q.status === "open" && !Store.pickupReply(B.book, q)).sort((a, b) => chIndex(a.chapterId) - chIndex(b.chapterId) || a.w0 - b.w0);
+    return { qs, text: `Pickups for ${B.book.title} — ${r}\nRecord them in this order, with a click (or a clap) between each one.\n\n` + qs.map((q, i) => `${i + 1}. ${q.chapter}: ${qt(q.text)}${q.note ? "\n   Note: " + q.note : ""}`).join("\n") };
+  }
+  async function copyCastList(r) { const { qs, text } = castPickupList(r); if (!qs.length) { toast("Nothing waiting for " + r + "."); return; } try { await navigator.clipboard.writeText(text); toast("📋 " + qs.length + " pickup" + (qs.length === 1 ? "" : "s") + " for " + r + " copied. Paste it into an email or message."); } catch (e) { toast("Couldn't copy: " + e.message); } return text; }
+  async function castPickupDrop(r, file) {
+    const { qs } = castPickupList(r); if (!qs.length || !file || B.busy) { if (!qs.length) toast("No open pickups for " + r + "."); return; }
+    B.busy = "cast"; renderSide(); busyNote("Reading " + file.name + "…");
+    try {
+      const x = await decodeFile(file), { segs, mode } = cutTakes(x, qs.length), d = await Store.pickupsDir(B.book, r, true), n = Math.min(segs.length, qs.length);
+      for (let i = 0; i < n; i++) { const name = qs[i].id + ".wav", dur = await writeSeg(d, name, x, segs[i].a, segs[i].b); await Store.savePickupReply(B.book, r, qs[i].id, { file: name, dur, made: new Date().toISOString(), src: file.name }); }
+      toast(`🔁 ${n} of ${qs.length} pickup${qs.length === 1 ? "" : "s"} from ${r} cut ${mode === "clicks" ? "at the clicks" : "at the pauses"}.` + (segs.length !== qs.length ? ` The file had ${segs.length}: listen to them.` : "") + " Each goes in when you open its chapter.");
+    } catch (e) { toast("Couldn't read that file: " + e.message); }
+    finally { B.busy = null; busyNote(""); renderSide(); }
+    await applyPickups();
+  }
+  async function playPickupReply(q) {
+    const rep = Store.pickupReply(B.book, q); if (!rep) return;
+    try { const d = await Store.pickupsDir(B.book, q.to); const x = await LRAudio.renderRange(d, [{ file: rep.file, off: 0, dur: rep.dur, at: 0 }], 0, rep.dur); stopLine();
+      const ctx = new AudioContext({ sampleRate: LRAudio.RATE }), buf = ctx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination); s.start(); B.coPlay = ctx; } catch (e) { toast(e.message); }
+  }
+  function pickupsAskedHtml() {
+    const dis = B.rec || B.busy ? "disabled" : "";
+    const forMe = pkForMe().sort((a, b) => chIndex(a.chapterId) - chIndex(b.chapterId) || a.w0 - b.w0);
+    let h = "";
+    if (forMe.length) {
+      const left = forMe.filter(q => !Store.pickupReply(B.book, q)).length;
+      h += `<div class="bd-sec pk-sec"><b>Asked of you (${left} to do)</b><div class="stu-note">Re-record each one and press Send. It goes straight into ${esc(forMe[0].asker)}'s chapter.</div>
+        ${forMe.map(q => { const sent = Store.pickupReply(B.book, q); return `<div class="co-line ${sent ? "placed" : ""}"><span class="n">${sent ? "✓" : "🔁"}</span><span>${esc(qt(short(q.text, 16)))}<br><i>${esc(q.chapter || "")}${q.note ? " · “" + esc(short(q.note, 12)) + "”" : ""}${sent ? " · sent" : ""}</i></span>
+          <span class="fx-chips"><button class="stu-btn ${sent ? "" : "stu-rec"}" data-p="pkrec:${q.id}" ${dis}>${sent ? "Redo" : "🎙 Record"}</button></span></div>`; }).join("")}</div>`;
+    }
+    const mine = pkMine().filter(q => q.status !== "cancelled");
+    if (mine.length) {
+      const by = {}; mine.forEach(q => (by[q.to] = by[q.to] || []).push(q));
+      h += `<div class="bd-sec pk-sec"><b>Asked of others</b>` + Object.keys(by).map(r => {
+        const qs = by[r].sort((a, b) => chIndex(a.chapterId) - chIndex(b.chapterId) || a.w0 - b.w0), waiting = qs.filter(q => q.status === "open" && !Store.pickupReply(B.book, q)).length;
+        return `<div class="pk-who"><b>${esc(r)}</b> <span class="muted">${waiting ? waiting + " waiting" : "nothing waiting"}</span>${isNarrator(r) ? "" : `<div class="fx-chips"><button class="stu-btn" data-p="pkcopy:${esc(r)}" ${waiting ? "" : "disabled"}>📋 Copy the list</button><button class="stu-btn" data-p="pkdrop:${esc(r)}" ${dis} ${waiting ? "" : "disabled"}>🎧 Drop in their pickups…</button></div>`}</div>` +
+          qs.map(q => { const rep = Store.pickupReply(B.book, q), here = q.chapterId === B.chap.id, st = q.status === "in" ? "in" : rep ? "arrived" : "waiting";
+            return `<div class="co-line ${st === "in" ? "placed" : st === "arrived" ? "" : "slot"}"><span class="n">${st === "in" ? "✓" : st === "arrived" ? "⬇" : "…"}</span><span>${esc(qt(short(q.text, 14)))}<br><i>${esc(q.chapter || "")} · ${st}${q.note ? " · “" + esc(short(q.note, 10)) + "”" : ""}</i></span>
+              <span class="fx-chips">${rep ? `<button class="stu-btn" data-p="pkplay:${q.id}" title="Listen">▶</button>` : ""}${st === "arrived" ? (here ? `<button class="stu-btn stu-rec" data-p="pkin" ${dis}>Put in</button>` : `<button class="stu-btn" data-ci="${chIndex(q.chapterId)}" title="Open that chapter: it goes in">go</button>`) : ""}${q.status === "open" ? `<button class="stu-btn" data-p="pkcancel:${q.id}" title="Never mind">✕</button>` : ""}</span></div>`; }).join("");
+      }).join("") + `</div>`;
+    }
+    return h;
+  }
+
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { cutTakes, castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

@@ -148,3 +148,4 @@
 .ll .modal { color: var(--ink); }
 .ll .modal label { font-size: 13px; }
 #cele-words, #cele-fx { pointer-events: none; }
+.ll h3.kind-h { display: flex; gap: 8px; align-items: baseline; margin: 6px 0 10px; } .ll h3.kind-h span { opacity: .6; font-weight: 500; }

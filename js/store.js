@@ -90,6 +90,7 @@
       }
       this.books.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
       await this.loadLedger();
+      await this.loadAllPickups().catch(e => console.warn('pickups', e));
     },
     // ---- a book is book.json plus one file per person ----
     _written: {},                 // path → last text this computer read or wrote (so unchanged files aren't rewritten)
@@ -376,6 +377,7 @@
           const before = this.ll[c].length; this.ll[c] = this.ll[c].filter(x => names.has(safeId(x.id) + ".json")); if (this.ll[c].length !== before) changed.push(c);
         }
         const t = await look(await this.ledgerDir(), "config.json", "Ledger/config.json"); if (t) { try { this.ll.config = JSON.parse(t); changed.push("config"); } catch (e) {} }
+        if (await this.loadAllPickups(true).catch(() => false)) changed.push("pickups");
         const st = await look(this.root, "lamp-room.json", "lamp-room.json"); if (st) { try { this.setShared(JSON.parse(st)); changed.push("settings"); } catch (e) {} }
       } finally { this._checking = false; }
       if (changed.length) document.dispatchEvent(new CustomEvent("lr-external", { detail: changed }));
@@ -395,6 +397,45 @@
       const b = await booksDir.getDirectoryHandle(book.folder, opt), d = await b.getDirectoryHandle("duet", opt), c = await d.getDirectoryHandle(chapter.id, opt);
       return c.getDirectoryHandle(safeFolder(reader), opt);
     },
+
+    // ---- pickup requests between readers, through the shared folder ----
+    //   Books/<book>/pickups/from-<Asker>.json   what the asker wants re-read (only the asker writes it)
+    //   Books/<book>/pickups/<Reader>/replies.json + <id>.wav   what the reader sent back (only that reader writes it;
+    //                                                            for outside cast, the lead drops their file in for them)
+    pickups: {},          // bookId → { reqs: [...], replies: { reader: { id: {file, dur, made} } } }
+    async pickupsDir(book, sub, create) {
+      const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
+      const b = await booksDir.getDirectoryHandle(book.folder, { create: !!create }), d = await b.getDirectoryHandle("pickups", { create: !!create });
+      return sub ? d.getDirectoryHandle(safeFolder(sub), { create: !!create }) : d;
+    },
+    async loadPickups(book, track) {
+      const out = { reqs: [], replies: {} }; let d; try { d = await this.pickupsDir(book); } catch (e) { this.pickups[book.id] = out; return false; }
+      let dirty = false;
+      const read = async (dir, n, path) => { const f = await (await dir.getFileHandle(n)).getFile(); const t = await f.text(); if (track && this._written[path] !== t) dirty = true; this._written[path] = t; this._seen[path] = f.lastModified; return JSON.parse(t); };
+      for await (const [n, h] of d.entries()) {
+        try {
+          if (h.kind === "file" && /^from-.+\.json$/.test(n)) { const j = await read(d, n, book.folder + "/pickups/" + n); (j.reqs || []).forEach(r => out.reqs.push(Object.assign({ asker: j.from }, r))); }
+          else if (h.kind === "directory") { const j = await read(h, "replies.json", book.folder + "/pickups/" + n + "/replies.json"); out.replies[n] = j || {}; }
+        } catch (e) {}
+      }
+      this.pickups[book.id] = out;
+      return dirty;
+    },
+    async loadAllPickups(track) { let dirty = false; for (const b of this.books) if (await this.loadPickups(b, track)) dirty = true; return dirty; },
+    async savePickupReqs(book, asker, reqs) {
+      const d = await this.pickupsDir(book, null, true), n = "from-" + safeFolder(asker) + ".json";
+      await this.writeIfChanged(d, n, book.folder + "/pickups/" + n, JSON.stringify({ v: 1, from: asker, reqs: reqs.map(r => { const x = Object.assign({}, r); delete x.asker; return x; }) }, null, 1));
+      await this.loadPickups(book);
+    },
+    async savePickupReply(book, reader, id, rec) {
+      const d = await this.pickupsDir(book, reader, true), path = book.folder + "/pickups/" + safeFolder(reader) + "/replies.json";
+      let j = {}; try { j = JSON.parse(await (await (await d.getFileHandle("replies.json")).getFile()).text()) || {}; } catch (e) {}
+      if (rec) j[id] = rec; else delete j[id];
+      await this.writeIfChanged(d, "replies.json", path, JSON.stringify(j, null, 1));
+      await this.loadPickups(book);
+    },
+    pickupReqs(book) { return ((this.pickups[book.id] || {}).reqs) || []; },
+    pickupReply(book, req) { const r = ((this.pickups[book.id] || {}).replies || {})[safeFolder(req.to)]; return r && r[req.id] || null; },
 
     // ---- booth sessions: Sessions/<person>/<YYYY-MM>.json (written only by that person) ----
     async sessionFile(person, ym, create) {

@@ -75,6 +75,17 @@
         ["Slots & Splice all", "Lines that weren't there yet leave a slot. When they arrive, Splice all fills every slot at once."],
         ["Wrong reader?", "Select the words in the text and choose who reads them."]
       ] },
+    { id: "cast", icon: "🎭", title: "Full cast & pickups", lead: "Up to six voices, and re-reads that travel between you without a single email.",
+      items: [
+        ["Full cast", "Highlight each voice in its own colour in Word (Turquoise, Pink, Yellow, Bright green, Teal, Violet…). On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],
+        ["Cast 1–4", "Outside cast don't need the Lamp Room. Give their colour to Cast 1, Cast 2… on import or on the book page."],
+        ["Their file", "Tools ▸ Co-narrator ▸ 🎧 Cast 2's file… Drop in what they sent (WAV, MP3, M4A, AIFF, FLAC). It's cut into their lines and auto-placed as you read, like your partner's. Tick “runs on into the next chapters” for a file that covers several."],
+        ["Clicks or pauses", "Best: ask cast to click or clap once between lines, and to redo a flubbed line before the click (the last read is kept). With no clicks, the pauses decide, which works for clean reads. Lines marked “check” deserve a listen."],
+        ["Ask for a pickup", "Lead only. Click 🔁 on a line in Co-narrator, or select its words in the text. Add a note if you like."],
+        ["Your partner gets it", "It shows on their Dashboard (Heads up) and in their Booth. They open Tools ▸ Pickups, press 🎙 Record, read it (R to record, S to stop), listen, and Send."],
+        ["It goes in by itself", "When their pickup arrives, it replaces the old read in your chapter the moment you open it. The timeline grows or shrinks to fit. Undo takes it out."],
+        ["Pickups from cast", "Pickups ▸ 📋 Copy the list, and send it to them. When their file comes back, 🎧 Drop in their pickups: cut at the clicks, each one goes in."]
+      ] },
     { id: "cele", icon: "✨", title: "Celebrations & combo", lead: "Big glowing words when you earn them.",
       items: [
         ["Celebrations", "Daily word goal, booth hours, earnings, a fast pace, a finished chapter, a finished book. They wait until you stop recording, so they never interrupt a take."],
@@ -94,6 +105,7 @@
       items: [
         ["Shared by both", "Books, titles, the schedule, the log, the ledger, narrators and paces, export names."],
         ["Yours alone", "Theme, reading font, celebrations, combo, confetti, earnings goal, hotkeys, text size, track height, zoom, pre-roll. Kept per person on each computer."],
+        ["Writing and audio", "The Dashboard and Titles keep audio projects and writing projects in separate sections."],
         ["One booth, two people", "Click 👤 in the top bar (or ☰ Menu in the Booth) and pick who's recording. Switch before you press Record."],
         ["Moving takes home", "Recordings stay on the computer they were made on. Afterwards: Settings ▸ Recordings on this computer ▸ Copy their takes to a folder (a USB stick or Drive). On the other Mac: Bring takes in. Nothing gets overwritten."],
         ["Hotkeys", "⌨ Hotkeys in the Booth: click an action, press the new key."]
