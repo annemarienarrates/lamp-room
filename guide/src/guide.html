@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>The Lamp Room — Field Guide</title>
+<link rel="stylesheet" href="print.css">
+<style>
+  @page { size: Letter; margin: 0; }
+  .page { width: 8.5in; min-height: 11in; padding: .65in .7in .6in; position: relative; page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .cover { display: flex; flex-direction: column; justify-content: space-between; height: 11in; }
+  .cover .mark { font: 600 9pt var(--sans); letter-spacing: .32em; text-transform: uppercase; color: var(--brass); }
+  .cover h1 { font-size: 54pt; line-height: .98; letter-spacing: -.02em; margin-top: 1.8in; }
+  .cover h1 i { color: var(--brass-hi); font-weight: 400; }
+  .cover .sub { font: italic 400 15pt var(--serif); color: var(--muted); margin-top: 18px; max-width: 5in; }
+  .cover .lamp { width: 92px; height: 92px; border: 1px solid var(--brass); border-radius: 50%; display: grid; place-items: center; font-size: 40pt; box-shadow: 0 0 60px -10px #c8893a88, inset 0 0 30px -10px #c8893a66; }
+  .cover .toc { columns: 2; column-gap: 32px; font-size: 10.5pt; color: var(--mid, #d6cfc1); }
+  .cover .toc div { padding: 4px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+  .cover .toc b { color: var(--brass); font-weight: 600; margin-right: 8px; }
+  .cover .foot { font-size: 9pt; color: var(--muted); display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; }
+  .runhead { position: absolute; top: .32in; left: .7in; right: .7in; display: flex; justify-content: space-between; font: 600 7.5pt var(--sans); letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+  .runhead b { color: var(--brass); font-weight: 600; }
+  .sec { break-inside: avoid-page; margin-bottom: 18px; }
+  .sec h2 { font-size: 20pt; color: var(--ink); display: flex; gap: 10px; align-items: baseline; }
+  .sec h2 .ic { font-size: 15pt; }
+  .sec .lead { font: italic 400 11pt var(--serif); color: var(--muted); margin: 2px 0 0; }
+  dl { display: grid; grid-template-columns: 1.55in 1fr; gap: 6px 16px; margin: 0; }
+  dt { font: 600 9.5pt var(--sans); color: var(--brass-hi); padding-top: 1px; }
+  dd { margin: 0; color: var(--ink); }
+  .keys { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .kgrp { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 8px; }
+  .kgrp h3 { font: 600 8pt var(--sans); letter-spacing: .18em; text-transform: uppercase; margin-bottom: 8px; }
+  .kgrp.rec h3 { color: var(--brass-hi); } .kgrp.edit h3 { color: var(--steel); } .kgrp.view h3 { color: var(--moss); }
+  .krow { display: grid; grid-template-columns: .72in 1fr; gap: 6px; padding: 3px 0; font-size: 9pt; align-items: baseline; border-bottom: 1px dotted var(--line); }
+  .krow:last-child { border-bottom: 0; }
+  .note { margin-top: 12px; font-size: 9pt; color: var(--muted); }
+</style></head>
+<body>
+<div id="out"></div>
+<script src="../../js/help.js"></script>
+<script src="keys.js"></script>
+<script>
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const H = LRHelp.HELP;
+  const sec = s => `<div class="sec"><h2><span class="ic">${s.icon}</span>${esc(s.title)}</h2>${s.lead ? `<p class="lead">${esc(s.lead)}</p>` : ""}<div class="rule"></div><dl>${s.items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>`;
+  const keys = `<div class="sec"><h2><span class="ic">⌨</span>Booth hotkeys</h2><p class="lead">The defaults. ⌘ is Command, ⇧ is Shift, ⌥ is Option. On a MacBook, Home and End are fn+← and fn+→.</p><div class="rule"></div>
+    <div class="keys">${PRINT_KEYS.map(([g, c, rows]) => `<div class="kgrp ${c}"><h3>${g}</h3>${rows.map(([k, d]) => `<div class="krow"><span><kbd>${esc(k)}</kbd></span><span>${esc(d)}</span></div>`).join("")}</div>`).join("")}</div>
+    <p class="note">Change any key with ⌨ Hotkeys in the Booth: click the action, press the new key. Your keys are yours; your partner keeps theirs.</p></div>`;
+  // pages: cover, then sections packed by hand so nothing splits awkwardly
+  const PAGES = [["start", "dashboard"], ["books", "sharing"], ["booth", "cele"], ["editing", "tools"], ["KEYS", "duets"], ["planner", "trouble"]];
+  const byId = Object.fromEntries(H.map(s => [s.id, s]));
+  const toc = PAGES.flat().map(id => id === "KEYS" ? { title: "Booth hotkeys" } : byId[id]).map((s, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b>${esc(s.title)}</div>`).join("");
+  let html = `<div class="page grain cover"><div><div class="mark">The Lamp Room · Field Guide</div>
+      <h1>Read.<br><i>Record.</i><br>Ring the bell.</h1>
+      <div class="sub">The booth, the editor and the business planner in one Chrome tab. Everything you need, in plain words.</div></div>
+    <div><div class="lamp">🕯</div><div style="height:28px"></div><div class="toc">${toc}</div></div>
+    <div class="foot"><span>annemarienarrates.github.io/lamp-room</span><span>Foundry edition · ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span></div></div>`;
+  PAGES.forEach((ids, i) => {
+    html += `<div class="page grain"><div class="runhead"><span><b>The Lamp Room</b> · Field Guide</span><span>${i + 2}</span></div>${ids.map(id => id === "KEYS" ? keys : sec(byId[id])).join("")}</div>`;
+  });
+  document.getElementById("out").innerHTML = html;
+</script>
+</body></html>

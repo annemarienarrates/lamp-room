@@ -22,6 +22,12 @@
     narrators: [{ name: "Anne", pace: 4035 }, { name: "Jack", pace: 2000 }],
     namePattern: "{book} - {nn} - {chapter}"
   };
+  // Look & feel belongs to a person, not the shared folder: each of you keeps your own on each computer
+  // (and two people sharing one computer each keep theirs).
+  const PERSONAL = ["theme", "readFont", "confetti", "encouragement", "celebrations", "combo", "comboHidden", "calm", "goalEarn", "duet"];
+  // browser-remembered things that are also personal (hotkeys, text size, track height, zoom, pre-roll…)
+  const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|dash-mode|dash-sort)$/;
+  const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
 
   // ---- tiny IndexedDB key/value for the folder handle ----
   const idb = {
@@ -73,7 +79,7 @@
     },
     async load() {
       const s = await readJson(this.root, "lamp-room.json");
-      this.settings = Object.assign({}, DEFAULT_SETTINGS, s || {});
+      this.setShared(s || {});
       if (!s) await this.saveSettings();
       const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
       this.books = [];
@@ -141,7 +147,33 @@
         for (const n of names) await this.writeIfChanged(pd, safeFolder(n) + ".json", book.folder + "/people/" + safeFolder(n) + ".json", JSON.stringify(people[n], null, 1));
       }
     },
-    async saveSettings() { const t = JSON.stringify(this.settings, null, 2); await writeFile(this.root, "lamp-room.json", t); this._written["lamp-room.json"] = t; },
+    // shared settings from the folder, then this person's own look & feel on top
+    setShared(s) {
+      this._shared = clone(s) || {};
+      const next = Object.assign({}, DEFAULT_SETTINGS, clone(s));
+      for (const k in this.settings) delete this.settings[k];
+      Object.assign(this.settings, next);
+      this.applyPrefs();
+    },
+    prefs() { try { return JSON.parse(localStorage.getItem("lr-prefs@" + this.me()) || "null"); } catch (e) { return null; } },
+    applyPrefs() {
+      let p = this.prefs();
+      if (!p) { p = {}; PERSONAL.forEach(k => { if (this._shared && this._shared[k] !== undefined) p[k] = clone(this._shared[k]); }); }
+      PERSONAL.forEach(k => { const v = p[k] !== undefined ? clone(p[k]) : DEFAULT_SETTINGS[k]; if (v === undefined) delete this.settings[k]; else this.settings[k] = v; });
+    },
+    PERSONAL,
+    async saveSettings() {
+      const p = {}; PERSONAL.forEach(k => { if (this.settings[k] !== undefined) p[k] = clone(this.settings[k]); });
+      try { if (this.me()) localStorage.setItem("lr-prefs@" + this.me(), JSON.stringify(p)); } catch (e) {}
+      const shared = clone(this.settings); PERSONAL.forEach(k => { if (this._shared && this._shared[k] !== undefined) shared[k] = clone(this._shared[k]); else delete shared[k]; });
+      const t = JSON.stringify(shared, null, 2); if (t === this._written["lamp-room.json"]) return;
+      await writeFile(this.root, "lamp-room.json", t); this._written["lamp-room.json"] = t;
+    },
+    // localStorage, with the personal keys kept per person (falls back to the old shared value once)
+    lsKey(k) { return PERSONAL_LS.test(k) ? k + "@" + this.me() : k; },
+    lsGet(k) { try { const v = localStorage.getItem(this.lsKey(k)); return v !== null || !PERSONAL_LS.test(k) ? v : localStorage.getItem(k); } catch (e) { return null; } },
+    lsSet(k, v) { try { localStorage.setItem(this.lsKey(k), v); } catch (e) {} },
+    lsDel(k) { try { localStorage.removeItem(this.lsKey(k)); } catch (e) {} },
 
     async bookDir(book, sub) {
       const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
@@ -177,7 +209,10 @@
 
     // ---- who this computer belongs to (acts as the login; remembered per computer) ----
     me() { try { return localStorage.getItem("lr-me") || ""; } catch (e) { return ""; } },
-    setMe(name) { try { localStorage.setItem("lr-me", name); } catch (e) {} },
+    setMe(name) {
+      const was = this.me(); try { localStorage.setItem("lr-me", name); } catch (e) {}
+      if (was !== name) { this.applyPrefs(); document.dispatchEvent(new CustomEvent("lr-me", { detail: { from: was, to: name } })); }
+    },
 
     // ---- Studio folder: recordings live here, on this computer only ----
     studio: null,
@@ -204,6 +239,46 @@
       const b = await this.studio.getDirectoryHandle(book.folder, { create: true });
       const a = await b.getDirectoryHandle("audio", { create: true });
       return a.getDirectoryHandle(chapter.id, { create: true });
+    },
+
+    // ---- moving one person's recordings between computers (after sharing one booth for a while) ----
+    takesOf(person) {
+      const out = [];
+      for (const b of this.books) for (const c of b.chapters || []) {
+        const a = c.audio && c.audio[person]; if (!a) continue;
+        const seen = new Set(); JSON.stringify(a).replace(/"([^"\/]+\.wav)"/g, (m, f) => { seen.add(f); return m; });
+        seen.forEach(f => out.push({ book: b, chap: c, file: f }));
+      }
+      return out;
+    },
+    // copies that person's takes into dest/<Book folder>/audio/<chapter id>/ — skips files already there
+    async exportTakes(person, dest, prog) {
+      const list = this.takesOf(person); let done = 0, copied = 0, missing = 0;
+      for (const t of list) {
+        try {
+          const src = await (await this.chapterAudioDir(t.book, t.chap)).getFileHandle(t.file).then(h => h.getFile());
+          const d = await (await (await dest.getDirectoryHandle(t.book.folder, { create: true })).getDirectoryHandle("audio", { create: true })).getDirectoryHandle(t.chap.id, { create: true });
+          let have = null; try { have = await (await d.getFileHandle(t.file)).getFile(); } catch (e) {}
+          if (!have || have.size !== src.size) { await writeFile(d, t.file, src); copied++; }
+        } catch (e) { missing++; }
+        done++; if (prog) prog(done, list.length);
+      }
+      return { total: list.length, copied, missing };
+    },
+    // merges a copied recordings folder into this computer's Studio — never overwrites a file that's already here
+    async importTakes(src, prog) {
+      let copied = 0, skipped = 0;
+      const walk = async (from, to) => {
+        for await (const [n, h] of from.entries()) {
+          if (h.kind === "directory") await walk(h, await to.getDirectoryHandle(n, { create: true }));
+          else if (/\.(wav|mp3|json)$/i.test(n)) {
+            let have = false; try { await to.getFileHandle(n); have = true; } catch (e) {}
+            if (have) skipped++; else { await writeFile(to, n, await h.getFile()); copied++; if (prog) prog(copied); }
+          }
+        }
+      };
+      await walk(src, this.studio);
+      return { copied, skipped };
     },
 
     // ---- the business side (Ledger & Lamp): <Library>/Ledger/<collection>/<id>.json and Ledger/config.json ----
@@ -301,7 +376,7 @@
           const before = this.ll[c].length; this.ll[c] = this.ll[c].filter(x => names.has(safeId(x.id) + ".json")); if (this.ll[c].length !== before) changed.push(c);
         }
         const t = await look(await this.ledgerDir(), "config.json", "Ledger/config.json"); if (t) { try { this.ll.config = JSON.parse(t); changed.push("config"); } catch (e) {} }
-        const st = await look(this.root, "lamp-room.json", "lamp-room.json"); if (st) { try { this.settings = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(st)); changed.push("settings"); } catch (e) {} }
+        const st = await look(this.root, "lamp-room.json", "lamp-room.json"); if (st) { try { this.setShared(JSON.parse(st)); changed.push("settings"); } catch (e) {} }
       } finally { this._checking = false; }
       if (changed.length) document.dispatchEvent(new CustomEvent("lr-external", { detail: changed }));
       return changed;

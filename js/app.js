@@ -38,6 +38,13 @@
     LL.views.linkBook = id => linkBook(id);
     LL.views.openBook = id => { const b = Store.books.find(b => b.titleId === id); location.hash = b ? "#/book/" + b.id : "#/import?title=" + id; };
     Store.watch();
+    drawWho();
+    $("#whochip").onclick = whoMenu;
+    document.addEventListener("lr-me", e => {
+      applyTheme(); drawWho();
+      if (route.name !== "booth") render();
+      toast("Now working as " + e.detail.to + ". Their look, hotkeys and goals are in place.");
+    });
     document.addEventListener("lr-external", e => {
       const d = e.detail || []; if (d.includes("settings")) applyTheme();
       if (["library", "book", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim")) render();
@@ -48,6 +55,20 @@
   function chip(text, err) {
     const c = $("#savechip"); c.textContent = text; c.classList.remove("hidden"); c.classList.toggle("err", !!err);
     clearTimeout(chip.t); if (!err) chip.t = setTimeout(() => c.classList.add("hidden"), 1500);
+  }
+  // the name chip in the bar: who's working at this computer right now
+  function drawWho() { const c = $("#whochip"); if (!c) return; c.innerHTML = "👤 " + esc(Store.me() || "Who?") + (Store.settings.narrators.length > 1 ? " <i>⇄</i>" : ""); c.classList.remove("hidden"); }
+  function whoMenu(ev) {
+    const old = $(".who-menu"); if (old) { old.remove(); return; }
+    if (window.Booth && Booth.state && Booth.state.rec && /^#\/booth/.test(location.hash)) { toast("Stop recording first, then switch."); return; }
+    const m = document.createElement("div"); m.className = "who-menu";
+    m.innerHTML = Store.settings.narrators.map(n => `<button data-who="${esc(n.name)}" class="${n.name === Store.me() ? "on" : ""}">${n.name === Store.me() ? "● " : "○ "}${esc(n.name)}</button>`).join("") +
+      `<div class="hint">Sharing one computer? Switch here before you record. Each person keeps their own theme, hotkeys, sizes, sessions and lines.</div>`;
+    const r = ev.currentTarget.getBoundingClientRect(); m.style.top = (r.bottom + 6) + "px"; m.style.right = Math.max(8, innerWidth - r.right) + "px";
+    document.body.appendChild(m);
+    const off = e => { if (!m.contains(e.target) && e.target !== $("#whochip")) { m.remove(); document.removeEventListener("pointerdown", off, true); } };
+    setTimeout(() => document.addEventListener("pointerdown", off, true));
+    m.onclick = e => { const b = e.target.closest("[data-who]"); if (!b) return; m.remove(); document.removeEventListener("pointerdown", off, true); if (b.dataset.who !== Store.me()) Store.setMe(b.dataset.who); };
   }
   function applyTheme() { document.documentElement.dataset.theme = (Store.settings && Store.settings.theme) || "ledger"; }
 
@@ -80,12 +101,12 @@
     const h = location.hash.replace(/^#\/?/, "").split("/");
     const q = (h[0] || "").split("?"); h[0] = q[0];
     route = { name: h[0] || "library", id: h[1], ci: h[2] != null && h[2] !== "" ? +h[2] : null, q: new URLSearchParams(q[1] || "") };
-    $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === route.name || ((route.name === "book" || route.name === "booth") && a.dataset.r === "library")));
+    $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === route.name || (route.name === "key" && a.dataset.r === "help") || ((route.name === "book" || route.name === "booth") && a.dataset.r === "library")));
     const fc = $("#folderchip"); fc.textContent = "📁 " + (Store.testMode ? "test library" : Store.folderName()); fc.classList.remove("hidden");
     if (route.name !== "booth") window.scrollTo(0, 0);
-    if (!["almanac", "titles", "log", "ledger", "key"].includes(route.name) && LL.views) LL.views.el = null;
-    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci),
-      workspace: () => { const id = localStorage.getItem("lr-last-book"); if (id && Store.byId(id)) location.hash = "#/booth/" + id; else { toast("Open a book first — its Booth becomes your Workspace."); location.hash = "#/library"; } } }[route.name] || viewLibrary)();
+    if (!["almanac", "titles", "log", "ledger", "key", "help"].includes(route.name) && LL.views) LL.views.el = null;
+    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), help: viewHelp, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci),
+      workspace: () => { const id = Store.lsGet("lr-last-book"); if (id && Store.byId(id)) location.hash = "#/booth/" + id; else { toast("Open a book first — its Booth becomes your Workspace."); location.hash = "#/library"; } } }[route.name] || viewLibrary)();
   }
 
   function llView(tab) { main().innerHTML = `<div id="llhost"></div>`; LL.show(tab, $("#llhost")); }
@@ -189,8 +210,8 @@
 
   // ---------------- dashboard: today's focus, then the projects ----------------
   function viewLibrary() {
-    const ls = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
-    const lset = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+    const ls = (k, d) => Store.lsGet(k) || d;
+    const lset = (k, v) => Store.lsSet(k, v);
     const opened = JSON.parse(ls("lr-opened", "{}")), mode = ls("lr-dash-mode", "cards"), sort = ls("lr-dash-sort", "opened");
     const P = LL.S, sim = P.sim || { out: {}, alloc: {} }, today = todayYmd();
     // every project: Lamp Room books (with their title if linked) and planner titles that have no book yet
@@ -312,7 +333,7 @@
     if (LL.isWorkday(me, yd) && !(P.logs || []).some(l => l.date === yd && (l.person === me || (l.entries || []).some(e => e.person === me)))) heads.push({ cls: "", html: `No log for ${esc(LL.fmt(yd))} yet`, go: "#/log" });
     const headCard = `<div class="dt-card"><div class="dt-label">Heads up</div>${heads.length ? heads.slice(0, 7).map(h => `<div class="head-row ${h.cls}" data-go="${esc(h.go)}">${h.html}</div>`).join("") + (heads.length > 7 ? `<div class="dt-empty"><a href="#/almanac">${heads.length - 7} more on the Almanac</a></div>` : "") : `<div class="dt-empty">All quiet.</div>`}</div>`;
     const ring = (id, label, sub) => `<div class="ring" id="${id}"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="trk" cx="32" cy="32" r="28.5" stroke-width="7"/><circle class="arc" cx="32" cy="32" r="28.5" stroke-width="7" transform="rotate(-90 32 32)" stroke-dasharray="179.07" stroke-dashoffset="179.07"/></svg><div class="ctr">—</div><div class="lbl">${label}</div><div class="sub">${sub}</div></div>`;
-    const cb = (() => { try { return JSON.parse(localStorage.getItem("lr-combo-best") || "null"); } catch (e) { return null; } })();
+    const cb = (() => { try { return JSON.parse(Store.lsGet("lr-combo-best") || "null"); } catch (e) { return null; } })();
     const todayCard = `<div class="dt-card"><div class="dt-label">Today${meName ? " · " + esc(meName) : ""}</div><div class="rings">
         ${ring("r-words", "Words", "of " + num(wordsGoal))}${ring("r-booth", "Booth hrs", "of " + hrsGoal)}${ring("r-earn", "Earned", S.goalEarn ? "of $" + num(S.goalEarn) : "today")}</div>${cb && cb.score ? `<div class="dt-sub" style="text-align:center;margin-top:8px">Best combo ${num(cb.score)} pts</div>` : ""}</div>`;
 
@@ -326,7 +347,7 @@
           <button class="btn" id="newtitle" title="A title without a manuscript yet (or author work)">+ Title</button><a class="btn primary" href="#/import">+ New Project</a></div></div>
       ${active.length ? list(active) : items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
       ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
-      ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{localStorage.setItem('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
+      ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
     const stop = e => e.target.closest("[data-star],[data-booth],[data-restore],[data-coverpick],[data-link]");
     $$("[data-id]").forEach(el => el.onclick = e => { if (stop(e)) return; location.hash = "#/book/" + el.dataset.id; });
@@ -678,8 +699,10 @@
       <div class="card"><h3>Export file names</h3><div class="row">
         <label style="flex:1">Pattern<input id="np" value="${esc(S.namePattern)}"></label></div>
         <p class="small muted">Use {book} {chapter} {n} {nn} {nnn}. Preview: <b>${esc(sample)}.wav</b></p></div>
-      <div class="card"><h3>This computer</h3><div class="row"><label>Belongs to<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
-        <p class="small muted">The Lamp Room opens as this person here: their pace, their sessions, their lines in duets.</p></div>
+      <div class="card"><h3>Who's working here</h3><div class="row"><label>Working as<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
+        <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
+      <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
+        <div class="row"><label>Whose takes<select id="tkWho">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label><button class="btn small" id="tkOut">Copy their takes to a folder…</button><button class="btn small" id="tkIn">Bring takes in from a folder…</button><span class="small muted" id="tkRes"></span></div></div>
       <div class="card"><h3>Library folder</h3><p>📁 ${esc(Store.testMode ? "test library (browser storage)" : Store.folderName())}</p><button class="btn small" id="sw">Switch to a different folder</button>
         <details style="margin-top:10px"><summary class="small">Sharing it with ${esc((S.narrators.find(n => n.name !== Store.me()) || {}).name || "your partner")} through Google Drive</summary><ol class="small" style="line-height:1.6">
           <li>Install <b>Google Drive for desktop</b> on both Macs and sign in to the same Google account (or share one folder between your two accounts).</li>
@@ -722,7 +745,34 @@
     $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
     $("#meSel").onchange = e => Store.setMe(e.target.value);
+    const needStudio = async () => { const st = await Store.studioStatus(); if (st === "ready") return true; try { if (st === "needs-permission") await Store.reopenStudio(); else await Store.pickStudio(); return true; } catch (e) { if (e.name !== "AbortError") toast(e.message); return false; } };
+    $("#tkOut").onclick = async () => { if (!(await needStudio())) return; const who = $("#tkWho").value, n = Store.takesOf(who).length; if (!n) { toast("No recordings for " + who + " in this library yet."); return; }
+      let d; try { d = await window.showDirectoryPicker({ id: "lamp-room-takes", mode: "readwrite" }); } catch (e) { return; }
+      const res = $("#tkRes"); try { const dest = await d.getDirectoryHandle("Lamp Room takes - " + who, { create: true }); const r = await Store.exportTakes(who, dest, (i, t) => res.textContent = i + " / " + t);
+        res.textContent = `${r.copied} copied${r.total - r.copied - r.missing ? ", " + (r.total - r.copied - r.missing) + " already there" : ""}${r.missing ? ", " + r.missing + " not on this computer" : ""}.`; toast("Copied into “Lamp Room takes - " + who + "”. On the other Mac: Bring takes in, and choose that folder."); } catch (e) { toast("Couldn't copy: " + e.message); } };
+    $("#tkIn").onclick = async () => { if (!(await needStudio())) return; let d; try { d = await window.showDirectoryPicker({ id: "lamp-room-takes", mode: "read" }); } catch (e) { return; }
+      const res = $("#tkRes"); try { const r = await Store.importTakes(d, n => res.textContent = n + " copied…"); res.textContent = r.copied + " brought in" + (r.skipped ? ", " + r.skipped + " already here" : "") + "."; toast("Takes are in. Open the book and they play."); } catch (e) { toast("Couldn't bring them in: " + e.message); } };
     $("#sw").onclick = async () => { try { await Store.pickFolder(); applyTheme(); render(); } catch (e) { if (e.name !== "AbortError") toast(e.message); } };
+  }
+
+  // ---------------- ? : the guide ----------------
+  function hotkeyGroups() {
+    const A = (window.Booth && Booth.ACTIONS) || {}, L = a => (window.Booth ? Booth.keyLabel(a) : "");
+    const G = [["Record", ["rec", "stop", "play", "punch", "flub", "marker", "custom", "click", "fxLast"]],
+      ["Edit", ["undo", "redo", "cut", "copy", "paste", "pasteOver", "del", "split", "selAll", "selToStart", "selToEnd"]],
+      ["Move & view", ["home", "end", "prevFlag", "nextFlag", "track", "addTrack", "smaller", "bigger", "zoomOut", "zoomIn", "textSmaller", "textBigger", "tools", "escape"]]];
+    return G.map(([g, list]) => [g, list.filter(a => A[a]).map(a => [L(a), A[a][0]])]).concat([["Fixed", [["1–6", "Pick a track (while recording: carry the take onto it)"], ["⌥1–6", "Record on that track"]]]]);
+  }
+  function viewHelp() {
+    const H = window.LRHelp.HELP, sec = s => `<section class="hp-sec" id="hp-${s.id}"><h2>${s.icon} ${esc(s.title)}</h2>${s.lead ? `<p class="hp-lead">${esc(s.lead)}</p>` : ""}
+      <dl class="hp-dl">${s.items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>`;
+    const keysSec = `<section class="hp-sec" id="hp-keys"><h2>⌨ Booth hotkeys</h2><p class="hp-lead">${esc(Store.me() || "Your")}'s keys on this computer. ⌘ is Command. Change any of them with ⌨ Hotkeys in the Booth.</p>
+      <div class="hp-keys">${hotkeyGroups().map(([g, rows]) => `<div><h3>${esc(g)}</h3>${rows.map(([k, d]) => `<div class="hp-k"><kbd>${esc(k || "—")}</kbd><span>${esc(d)}</span></div>`).join("")}</div>`).join("")}</div></section>`;
+    const order = H.slice(0, 5).map(sec).join("") + keysSec + H.slice(5).map(sec).join("");
+    main().innerHTML = `<div class="hp"><aside class="hp-nav"><div class="section-label">Guide</div>${H.slice(0, 5).concat([{ id: "keys", icon: "⌨", title: "Hotkeys" }], H.slice(5)).map(s => `<a href="#" data-go="hp-${s.id}">${s.icon} ${esc(s.title)}</a>`).join("")}
+        <div class="hp-dl-btns"><a class="btn small" href="guide/Lamp Room Guide.pdf" target="_blank" rel="noopener">📄 Guide (PDF)</a><a class="btn small" href="guide/Lamp Room Keyboard.pdf" target="_blank" rel="noopener">⌨ Keyboard sheet</a><a class="btn small quiet" href="#/key">The Key: how the planner thinks →</a></div></aside>
+      <div class="hp-main"><h1>How the Lamp Room works</h1>${order}</div></div>`;
+    $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.go); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   }
 
   // ---------------- Ledger & Lamp import ----------------

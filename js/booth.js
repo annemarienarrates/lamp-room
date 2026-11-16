@@ -27,10 +27,10 @@
     const me = Store.me() || (Store.settings.narrators[0] || {}).name || "Me";
     if (!B) {
       B = { book, readingAs: me, mic: new LRAudio.Mic(), player: new LRAudio.Player(), listening: false, rec: null, playhead: null,
-        prerollSec: num0(localStorage.getItem("lr-preroll"), 3), follow: localStorage.getItem("lr-follow") !== "0",
+        prerollSec: num0(Store.lsGet("lr-preroll"), 3), follow: Store.lsGet("lr-follow") !== "0",
         edit: false, sessions: [], session: null, peaks: {}, bRun: {}, clockPaused: false, lastAct: Date.now(),
-        track: 0, sel: null, laneH: num0(localStorage.getItem("lr-laneh"), 72), undo: [], redo: [], fxOpen: {}, fxp: {} };
-      let fp = {}; try { fp = JSON.parse(localStorage.getItem("lr-fxp") || "{}") || {}; } catch (e) {}
+        track: 0, sel: null, laneH: num0(Store.lsGet("lr-laneh"), 72), undo: [], redo: [], fxOpen: {}, fxp: {} };
+      let fp = {}; try { fp = JSON.parse(Store.lsGet("lr-fxp") || "{}") || {}; } catch (e) {}
       for (const k in LRFx.KINDS) B.fxp[k] = Object.assign({}, LRFx.KINDS[k].def, fp[k] || {});
       try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (e) { B.sessions = []; }
       B.tick = setInterval(() => { tick(); if (B && ++B.tickN % 30 === 0) checkGoals(); }, 1000); B.tickN = 0;
@@ -40,7 +40,7 @@
       window.addEventListener("beforeunload", flushSession);
       window.addEventListener("hashchange", onLeave);
     }
-    try { localStorage.setItem("lr-last-book", book.id); const o = JSON.parse(localStorage.getItem("lr-opened") || "{}"); o[book.id] = Date.now(); localStorage.setItem("lr-opened", JSON.stringify(o)); } catch (e) {}
+    try { Store.lsSet("lr-last-book", book.id); const o = JSON.parse(Store.lsGet("lr-opened") || "{}"); o[book.id] = Date.now(); Store.lsSet("lr-opened", JSON.stringify(o)); } catch (e) {}
     if (ci == null || isNaN(ci)) ci = firstUnfinished(book);
     await openChapter(Math.max(0, Math.min(book.chapters.length - 1, ci)));
   }
@@ -119,7 +119,7 @@
 
   // ======================= render (Finished Hour layout) =======================
   const ICON = { rec: "●", stop: "■", play: "▶", pause: "❚❚", punch: "⤓", flag: "⚑", pin: "⌖", users: "👥", undo: "↶", redo: "↷", split: "✂", home: "⏮", end: "⏭", chevL: "‹", chevR: "›", kbd: "⌨", check: "✓", menu: "☰", dl: "⤓", reset: "↺", rows: "☰", sliders: "⚙" };
-  const zoom = () => num0(localStorage.getItem("lr-tzoom"), 1);
+  const zoom = () => num0(Store.lsGet("lr-tzoom"), 1);
   function render() {
     document.body.classList.add("booth-on");
     const c = B.chap;
@@ -149,7 +149,7 @@
     g.onpointerdown = e => {
       g.setPointerCapture(e.pointerId); const y0 = e.clientY, h0 = B.laneH, n = B.audio.tracks.length;
       g.onpointermove = ev => { const h = Math.max(34, Math.min(220, Math.round(h0 + (y0 - ev.clientY) / n))); if (h !== B.laneH) { B.laneH = h; renderTransport(); } };
-      g.onpointerup = () => { g.onpointermove = null; g.onpointerup = null; localStorage.setItem("lr-laneh", B.laneH); };
+      g.onpointerup = () => { g.onpointermove = null; g.onpointerup = null; Store.lsSet("lr-laneh", B.laneH); };
     };
   }
   function renderEditBar() {
@@ -195,12 +195,14 @@
     if (a === "export") return exportDialog();
     ({ cut, copy, paste: () => paste(false), pasteOver: () => paste(true), del: deleteSel, track: nextTrack, addTrack }[a] || (() => {}))();
   }
-  function barChange(e) { const t = e.target; if (t.dataset.b === "pre") { B.prerollSec = +t.value; localStorage.setItem("lr-preroll", B.prerollSec); } t.blur(); }
+  function barChange(e) { const t = e.target; if (t.dataset.b === "pre") { B.prerollSec = +t.value; Store.lsSet("lr-preroll", B.prerollSec); } t.blur(); }
 
   function navMenu(btn) {
     const r = btn.getBoundingClientRect(), m = document.createElement("div"); m.className = "pop";
     m.style.left = r.left + "px"; m.style.top = (r.bottom + 4) + "px";
-    m.innerHTML = [["#/library", "Dashboard"], ["#/book/" + B.book.id, "This book's page"], ["#/import", "+ New Project"], ["#/calc", "Tools"], ["#/settings", "Settings"]].map(([h, l]) => `<a href="${h}">${l}</a>`).join("");
+    m.innerHTML = [["#/library", "Dashboard"], ["#/book/" + B.book.id, "This book's page"], ["#/import", "+ New Project"], ["#/calc", "Tools"], ["#/settings", "Settings"], ["#/help", "? Help"]].map(([h, l]) => `<a href="${h}">${l}</a>`).join("") +
+      (B.rec ? "" : Store.settings.narrators.filter(n => n.name !== Store.me()).map(n => `<a href="#" data-sw="${esc(n.name)}">👤 Switch to ${esc(n.name)}</a>`).join(""));
+    m.querySelectorAll("[data-sw]").forEach(a => a.onclick = e => { e.preventDefault(); Store.setMe(a.dataset.sw); });
     document.body.appendChild(m);
     setTimeout(() => document.addEventListener("click", function off() { m.remove(); document.removeEventListener("click", off); }), 0);
   }
@@ -223,11 +225,11 @@
   let KEYS = null;
   function keys() {
     if (KEYS) return KEYS;
-    let saved = {}; try { saved = JSON.parse(localStorage.getItem("lr-keys") || "{}") || {}; } catch (e) {}
+    let saved = {}; try { saved = JSON.parse(Store.lsGet("lr-keys") || "{}") || {}; } catch (e) {}
     KEYS = {}; for (const a in ACTIONS) KEYS[a] = saved[a] != null ? saved[a] : ACTIONS[a][1];
     return KEYS;
   }
-  const saveKeys = () => { try { localStorage.setItem("lr-keys", JSON.stringify(KEYS)); } catch (e) {} };
+  const saveKeys = () => { try { Store.lsSet("lr-keys", JSON.stringify(KEYS)); } catch (e) {} };
   const kl = a => { const k = keys()[a]; return k ? k.replace("Ctrl+", "⌘").replace("Shift+", "⇧").replace("Alt+", "⌥") : "—"; };
   function comboOf(e) {
     let k = e.code || "";
@@ -254,7 +256,7 @@
     document.addEventListener("keydown", cap, true);
     ov.onclick = e => {
       if (e.target.closest("[data-x]") || e.target === ov) { ov.remove(); document.removeEventListener("keydown", cap, true); renderEditBar(); renderTransport(); return; }
-      if (e.target.closest("[data-reset]")) { KEYS = null; localStorage.removeItem("lr-keys"); draw(); return; }
+      if (e.target.closest("[data-reset]")) { KEYS = null; Store.lsDel("lr-keys"); draw(); return; }
       const c = e.target.closest("[data-clear]"); if (c) { keys()[c.dataset.clear] = ""; saveKeys(); draw(); return; }
       const k = e.target.closest("[data-k]"); if (k) { capturing = k.dataset.k; draw(); }
     };
@@ -300,7 +302,7 @@
     }
   }
   function textZoom(d) {
-    const z = Math.max(0.7, Math.min(2.2, zoom() + d)); localStorage.setItem("lr-tzoom", z.toFixed(2));
+    const z = Math.max(0.7, Math.min(2.2, zoom() + d)); Store.lsSet("lr-tzoom", z.toFixed(2));
     const ms = $("#ms"); if (ms) ms.style.fontSize = (BASE_TEXT * z).toFixed(2) + "rem";
     $$(".bd-zl").forEach(x => x.textContent = Math.round(z * 100) + "%");
     markPos(true);
@@ -376,7 +378,7 @@
     const t = e.target;
     if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
     if (t.dataset.duet) { setDuetOpt(t.dataset.duet, t.checked); renderSide(); return; }
-    if (t.id === "b-as") return switchReader(t.value);
+    if (t.id === "b-as") { if (Store.settings.narrators.some(n => n.name === t.value)) return Store.setMe(t.value); return switchReader(t.value); }
     if (t.dataset.pk) { const [k, f] = t.dataset.pk.split("."); B.fxp[k][f] = t.value; saveFxp(); renderSide(); return; }
     if (t.dataset.ch) { const st = trackSet()[B.fxTrack]; st.chain = LRFx.chainOf(st); const [g, f] = t.dataset.ch.split("."); if (f) st.chain[g][f] = t.type === "checkbox" ? t.checked : +t.value; else st.chain[g] = t.checked; Store.saveBook(B.book); chainChanged(); renderSide(); return; }
     if (t.dataset.pref) { Store.settings[t.dataset.pref] = t.value; Store.saveSettings(); applyReadFont(); if (t.dataset.pref === "theme") { document.documentElement.dataset.theme = t.value; B.col = null; drawWave(); } return; }
@@ -388,7 +390,7 @@
   }
   const fmtV = (v, step) => (+v).toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0);
   const rng = (attr, label, min, max, step, val, unit) => `<label class="fxr"><span>${label}</span><input type="range" ${attr} min="${min}" max="${max}" step="${step}" value="${val}" data-u="${esc(unit || "")}"><b class="fxv">${fmtV(val, step)}${esc(unit || "")}</b></label>`;
-  function saveFxp() { try { localStorage.setItem("lr-fxp", JSON.stringify(B.fxp)); } catch (e) {} }
+  function saveFxp() { try { Store.lsSet("lr-fxp", JSON.stringify(B.fxp)); } catch (e) {} }
   function trackPicker() {
     const ts = trackSet(); B.fxTrack = Math.min(B.fxTrack != null ? B.fxTrack : B.track, B.audio.tracks.length - 1);
     return `<div class="fx-tracks">${B.audio.tracks.map((_, i) => `<button class="stu-btn ${i === B.fxTrack ? "on" : ""}" data-p="fxtrack:${i}" title="${esc((ts[i] || {}).name || "")}">${i + 1}${(ts[i] || {}).armed && ts[i].armed.length ? " ●" : ""}</button>`).join("")}<span class="stu-note">${esc((ts[B.fxTrack] || {}).name || "Track " + (B.fxTrack + 1))}</span></div>`;
@@ -463,6 +465,16 @@
         <div class="stu-note">Text size: A− / A+ in the bar above, ${esc(kl("textSmaller"))} / ${esc(kl("textBigger"))}, or ⌘ + scroll over the text.</div></div>
       <a class="stu-btn" href="#/book/${esc(B.book.id)}">Book page →</a>`;
   }
+  // someone else sat down at this computer: their hotkeys, sizes and look come with them
+  document.addEventListener("lr-me", async e => {
+    KEYS = null;
+    if (!B || !/^#\/booth\//.test(location.hash)) return;
+    B.laneH = num0(Store.lsGet("lr-laneh"), 72); B.prerollSec = num0(Store.lsGet("lr-preroll"), 3); B.follow = Store.lsGet("lr-follow") !== "0";
+    let fp = {}; try { fp = JSON.parse(Store.lsGet("lr-fxp") || "{}") || {}; } catch (er) {}
+    for (const k in LRFx.KINDS) B.fxp[k] = Object.assign({}, LRFx.KINDS[k].def, fp[k] || {});
+    if (B.view) B.view.pps = num0(Store.lsGet("lr-pps"), 40);
+    B.col = null; applyReadFont(); await switchReader(e.detail.to);
+  });
   async function switchReader(name) { await flushSession(); B.session = null; B.readingAs = name; try { B.sessions = await Store.sessions(B.readingAs, 2); } catch (er) { B.sessions = []; } openChapter(B.ci); }
 
   function altsHtml() { return ""; }
@@ -540,7 +552,7 @@
         G("", bt("prevFlag", ICON.chevL, { tip: "Previous flag (,)", dis: rec || !flags }) + `<button class="stu-btn" data-b="flags" title="See every flag in this chapter">${ICON.flag} ${flags} flag${flags === 1 ? "" : "s"}</button>` + bt("nextFlag", ICON.chevR, { tip: "Next flag (.)", dis: rec || !flags })) +
       `</div></div>`;
     tp.onclick = dockClick;
-    tp.onchange = e => { if (e.target.dataset.b === "link") { B.follow = e.target.checked; localStorage.setItem("lr-follow", B.follow ? "1" : "0"); if (!B.follow) stopListening(); else if (B.rec) startListening(); } e.target.blur(); };
+    tp.onchange = e => { if (e.target.dataset.b === "link") { B.follow = e.target.checked; Store.lsSet("lr-follow", B.follow ? "1" : "0"); if (!B.follow) stopListening(); else if (B.rec) startListening(); } e.target.blur(); };
     renderHeads();
     const cv = $("#wave"); if (cv) { cv.style.height = (RULER + B.laneH * B.audio.tracks.length) + "px"; bindWave(cv); }
     document.body.classList.toggle("booth-recording", !!rec);
@@ -1442,7 +1454,7 @@
     for (const tr of B.audio.tracks) for (const c of tr.clips) if (!B.peaks[c.file]) { const p = await LRAudio.loadPeaks(d, c); if (p) B.peaks[c.file] = p; }
     drawWave();
   }
-  const view = () => B.view || (B.view = { t0: 0, pps: num0(localStorage.getItem("lr-pps"), 40) });
+  const view = () => B.view || (B.view = { t0: 0, pps: num0(Store.lsGet("lr-pps"), 40) });
   function head() { return B.rec ? B.rec.clip.at + B.rec.clip.dur : B.player.playing ? B.player.time : B.playhead; }
   function follow(W) {
     const v = view(), span = W / v.pps, h = head(), L = len();
@@ -1567,8 +1579,8 @@
     const lm = $("#lm-msg"); if (lm && (B.lmOn || B.rec)) { const h = B.mic.peakHold; lm.textContent = B.mic.clip ? "Clipping — lower the gain" : h < -40 ? "Say a line…" : h > -3 ? "Too hot" : h > -12 ? "Good level" : "Too quiet"; if (Date.now() - (B.lmT || 0) > 2500) { B.mic.peakHold = -90; B.mic.clip = false; B.lmT = Date.now(); } }
   }
   function startAnim() { if (B && !B.raf) B.raf = requestAnimationFrame(animate); }
-  function setZoom(f) { const v = view(); v.pps = Math.max(2, Math.min(400, v.pps * f)); localStorage.setItem("lr-pps", v.pps.toFixed(1)); drawWave(); }
-  function laneSize(f) { B.laneH = Math.max(34, Math.min(200, Math.round(B.laneH * f))); localStorage.setItem("lr-laneh", B.laneH); renderTransport(); }
+  function setZoom(f) { const v = view(); v.pps = Math.max(2, Math.min(400, v.pps * f)); Store.lsSet("lr-pps", v.pps.toFixed(1)); drawWave(); }
+  function laneSize(f) { B.laneH = Math.max(34, Math.min(200, Math.round(B.laneH * f))); Store.lsSet("lr-laneh", B.laneH); renderTransport(); }
   function setHint(s) { const h = $(`.trk-head[data-t="${B.track}"] .th-sub`); if (h) h.textContent = s; }
 
   // ======================= export =======================
@@ -1699,5 +1711,5 @@
     act(name);
   }
 
-  window.Booth = { open, close, get state() { return B; }, _test: { theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();
