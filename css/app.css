@@ -449,3 +449,35 @@ body.booth-on #toasts { bottom: calc(var(--dock-h, 170px) + 14px); }
 .co-line i { font-style: normal; color: var(--muted); font-size: 11.5px; }
 .co-chips { display: flex; gap: 6px; flex-wrap: wrap; } .co-chips span { font: 600 11px var(--sans); padding: 3px 8px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); }
 .co-chips span.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); } .co-chips span.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+
+/* ---------------- Today page & covers ---------------- */
+.dash-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 12px; margin-bottom: 12px; }
+@media (max-width: 900px) { .dash-top { grid-template-columns: 1fr; } }
+.focus-card { cursor: pointer; border-left: 4px solid var(--c, var(--accent)); transition: transform .15s, box-shadow .15s; }
+.focus-card:hover { transform: translateY(-1px); box-shadow: var(--shadow2); }
+.focus-card.late { border-left-color: var(--bad); } .focus-card.amber { border-left-color: var(--warn); }
+.fc-body { display: flex; gap: 18px; align-items: flex-start; margin-top: 6px; }
+.fc-text { min-width: 0; flex: 1; }
+.fc-verb { font: 800 12px var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--accent-hi); }
+.fc-title { font: 500 28px/1.15 var(--serif); color: var(--ink); letter-spacing: -.01em; margin: 2px 0 6px; }
+.fc-sub { font-size: 14px; color: var(--mid); } .fc-why { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.fc-go { margin-top: 12px; }
+.then-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.then-row:hover b { color: var(--accent-hi); } .then-row i { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+.then-row small { color: var(--muted); }
+.partner-line { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
+.head-row { font-size: 12.5px; padding: 6px 8px; margin: 4px 0; border-radius: 6px; background: var(--panel); border-left: 3px solid var(--line2, var(--line)); cursor: pointer; }
+.head-row.bad { border-left-color: var(--bad); } .head-row.warn { border-left-color: var(--warn); } .head-row.money { border-left-color: var(--good); }
+.head-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.pc-cover { width: 64px; height: 92px; flex: none; border-radius: 5px; background: var(--c) center / contain no-repeat; display: grid; place-items: center; color: rgba(255,255,255,.92); font: 600 22px var(--serif);
+  box-shadow: inset -3px 0 0 rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.2), 0 3px 10px -4px rgba(0,0,0,.4); position: relative; overflow: hidden; }
+.pc-cover.has-cover { background-color: var(--panel2); box-shadow: 0 0 0 1px var(--line), 0 4px 12px -4px rgba(0,0,0,.45); border-bottom: 3px solid var(--c); }
+.pc-cover.has-cover span { display: none; }
+.pc-cover.big { width: 96px; height: 136px; font-size: 34px; }
+.pc-cover.mini { width: 22px; height: 30px; font-size: 11px; display: inline-grid; vertical-align: middle; margin-right: 8px; border-radius: 3px; }
+.pc-cover.book-cover { width: 56px; height: 80px; cursor: pointer; }
+.pc-cover.book-cover:hover::after { content: "🖼"; position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.35); font-size: 20px; }
+.ll .cc-cover { width: 34px; height: 48px; border-radius: 3px; background: center / contain no-repeat; flex: none; box-shadow: 0 0 0 1px var(--line); }
+.book-plan .ccard { margin-bottom: 16px; }
+.project-card[data-tid] { border-style: dashed; }
+#layer .scrim { z-index: 9000; }

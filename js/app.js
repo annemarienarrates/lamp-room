@@ -28,7 +28,22 @@
     let status;
     try { status = await Store.init(); } catch (e) { status = "error"; console.error(e); }
     if (status !== "ready") return renderWelcome(status);
-    askMe(render);
+    askMe(start);
+  }
+  // once the library is open: the planner wakes, and changes from the other computer are watched for
+  function start() {
+    try { LL.init(); } catch (e) { console.error("planner", e); }
+    LL.views.onChange = () => { if (route.name === "library") viewLibrary(); else if (route.name === "book") viewBook(); };
+    LL.views.decorate = el => decorateCovers(el);
+    LL.views.linkBook = id => linkBook(id);
+    LL.views.openBook = id => { const b = Store.books.find(b => b.titleId === id); location.hash = b ? "#/book/" + b.id : "#/import?title=" + id; };
+    Store.watch();
+    document.addEventListener("lr-external", e => {
+      const d = e.detail || []; if (d.includes("settings")) applyTheme();
+      if (["library", "book", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim")) render();
+      chip("Updated from " + ((Store.settings.narrators || []).map(n => n.name).find(n => n !== Store.me()) || "the shared folder"), false);
+    });
+    render();
   }
   function chip(text, err) {
     const c = $("#savechip"); c.textContent = text; c.classList.remove("hidden"); c.classList.toggle("err", !!err);
@@ -45,7 +60,7 @@
       "error": `<p>Something went wrong opening your library. Reload the page to try again.</p><button class="btn" id="pick">Choose library folder</button>`
     }[status];
     main().innerHTML = `<div class="welcome card"><h1>The Lamp Room</h1>${msg}</div>`;
-    const go = async fn => { try { await fn(); $("#nav").classList.remove("hidden"); applyTheme(); askMe(render); } catch (e) { if (e.name !== "AbortError") alertBox(e.message); } };
+    const go = async fn => { try { await fn(); $("#nav").classList.remove("hidden"); applyTheme(); askMe(start); } catch (e) { if (e.name !== "AbortError") alertBox(e.message); } };
     const p = $("#pick"); if (p) p.onclick = () => go(() => Store.pickFolder());
     const r = $("#reopen"); if (r) r.onclick = () => go(() => Store.reopen());
   }
@@ -63,12 +78,72 @@
 
   function render() {
     const h = location.hash.replace(/^#\/?/, "").split("/");
-    route = { name: h[0] || "library", id: h[1], ci: h[2] != null && h[2] !== "" ? +h[2] : null };
+    const q = (h[0] || "").split("?"); h[0] = q[0];
+    route = { name: h[0] || "library", id: h[1], ci: h[2] != null && h[2] !== "" ? +h[2] : null, q: new URLSearchParams(q[1] || "") };
     $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === route.name || ((route.name === "book" || route.name === "booth") && a.dataset.r === "library")));
     const fc = $("#folderchip"); fc.textContent = "📁 " + (Store.testMode ? "test library" : Store.folderName()); fc.classList.remove("hidden");
     if (route.name !== "booth") window.scrollTo(0, 0);
-    ({ library: viewLibrary, book: viewBook, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci),
+    if (!["almanac", "titles", "log", "ledger", "key"].includes(route.name) && LL.views) LL.views.el = null;
+    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci),
       workspace: () => { const id = localStorage.getItem("lr-last-book"); if (id && Store.byId(id)) location.hash = "#/booth/" + id; else { toast("Open a book first — its Booth becomes your Workspace."); location.hash = "#/library"; } } }[route.name] || viewLibrary)();
+  }
+
+  function llView(tab) { main().innerHTML = `<div id="llhost"></div>`; LL.show(tab, $("#llhost")); }
+
+  // ---------------- covers ----------------
+  const coverKey = b => b.titleId || ("b-" + b.id);
+  function decorateCovers(root) {
+    $$("[data-cover]", root || document).forEach(el => Store.coverURL(el.dataset.cover).then(u => { if (!u) return; el.style.backgroundImage = `url("${u}")`; el.classList.add("has-cover"); }));
+    // Ledger & Lamp's title cards get a cover too
+    $$(".ll .ccard h4", root || document).forEach(h => {
+      if (h.querySelector(".cc-cover")) return; const btn = h.closest(".ccard").querySelector('[data-act="edit-title"]'); if (!btn) return;
+      const id = btn.dataset.id, d = document.createElement("span"); d.className = "cc-cover"; d.dataset.cover = id; h.prepend(d);
+      Store.coverURL(id).then(u => { if (u) { d.style.backgroundImage = `url("${u}")`; d.classList.add("has-cover"); } else d.remove(); });
+    });
+  }
+  function pickCover(key, then) {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = async () => { const f = inp.files[0]; if (!f) return; try { await Store.setCover(key, f); toast("Cover on."); then && then(); } catch (e) { toast("Couldn't use that image: " + e.message); } };
+    inp.click();
+  }
+  // a book joins the schedule: link it to a title from the planner, or make one from the book
+  function wordsFor(book) {
+    const rw = readerWords(book), out = {};
+    for (const n in rw) { if (n === "?") continue; out[n] = rw[n]; }
+    if (!Object.keys(out).length) out[Store.me() || (Store.settings.narrators[0] || {}).name] = book.chapters.filter(c => c.included).reduce((a, c) => a + c.words, 0);
+    return out;
+  }
+  function titleFromBook(book) {
+    const wb = wordsFor(book), me = LL.keyOf(Store.me()) || "anne", stages = [], recs = [];
+    let ext = null;
+    for (const n in wb) { const k = LL.keyOf(n); if (k) { stages.push({ id: "rec-" + k, type: "record", owner: k, words: Math.round(wb[n]), after: [], done: false, doneDate: null }); recs.push("rec-" + k); } else ext = ext || { n, w: 0 }, ext.w += wb[n]; }
+    if (ext) { stages.push({ id: "rec-ext", type: "ext", owner: "ext", words: Math.round(ext.w), after: [], done: false, doneDate: null, extDate: null }); recs.push("rec-ext"); }
+    stages.push({ id: "edit", type: "edit", owner: me, after: recs, done: false, doneDate: null, cost: 0, turnaround: null }, { id: "deliver", type: "deliver", owner: me, after: ["edit"], done: false, doneDate: null }, { id: "pickups", type: "pickups", owner: me, after: ["deliver"], done: false, doneDate: null });
+    const r = book.rate || {}, ks = Object.keys(wb).map(LL.keyOf).filter(Boolean);
+    return { kind: "narration", status: "active", name: book.title, short: "", client: book.client || "", due: book.due || null, color: LL.nextInk(),
+      category: ext ? "B" : ks.length > 1 ? "A" : "S", partnerName: ext ? ext.n : "", rateModel: r.type === "perword" ? "per2k" : "pfh", rate: r.type === "perword" ? (+r.amount || 0) * 2000 : r.type === "pfh" ? (+r.amount || 0) : 0, software: 0, stages };
+  }
+  async function moveCover(from, to) { const u = await Store.coverURL(from); if (!u || await Store.coverURL(to)) return; const blob = await (await fetch(u)).blob(); await Store.setCover(to, blob); await Store.removeCover(from); }
+  function linkBook(bookId) {
+    const book = Store.byId(bookId); if (!book) return;
+    const free = LL.S.titles.filter(t => t.kind !== "author" && !Store.books.some(b => b.titleId === t.id));
+    const norm = x => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), guess = free.find(t => norm(t.name) === norm(book.title)) || free.find(t => norm(book.title).includes(norm(t.name)) || norm(t.name).includes(norm(book.title)));
+    const ov = document.createElement("div"); ov.className = "overlay";
+    ov.innerHTML = `<div class="card reader" style="max-width:520px"><h2>Put “${esc(book.title)}” on the schedule</h2>
+      <p class="muted">Link it to a title the planner already knows, or make a new title from this book (its word counts per reader become the recording stages).</p>
+      <label>Title<select id="lt">${free.map(t => `<option value="${esc(t.id)}" ${guess === t ? "selected" : ""}>${esc(t.name)}${t.client ? " · " + esc(t.client) : ""}</option>`).join("")}<option value="__new" ${guess ? "" : "selected"}>＋ New title from this book</option></select></label>
+      <div class="row" style="margin-top:14px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" data-go>Link</button></div></div>`;
+    document.body.appendChild(ov);
+    $("[data-x]", ov).onclick = () => ov.remove();
+    $("[data-go]", ov).onclick = async () => {
+      const v = $("#lt", ov).value; ov.remove();
+      let id = v;
+      if (v === "__new") { id = "t-" + LL.uid(); await LL.put("titles", id, titleFromBook(book)); }
+      else { const t = LL.tById(v), wb = wordsFor(book); const st = (t.stages || []).map(s => { if (s.type === "record") { const n = Object.keys(wb).find(n => LL.keyOf(n) === s.owner); if (n && !s.words) return Object.assign({}, s, { words: Math.round(wb[n]) }); } return s; }); await LL.patch("titles", v, { stages: st }); }
+      book.titleId = id; const t = LL.tById(id); if (t) { book.title = t.name; book.due = t.due || book.due; book.client = t.client || book.client; book.color = t.color || book.color; }
+      Store.saveBook(book, true); await moveCover("b-" + book.id, id).catch(() => {});
+      LL.loadBoothFh().then(() => render()); toast("On the schedule."); render();
+    };
   }
 
   // ---------------- stats ----------------
@@ -112,89 +187,171 @@
     return `<div class="bar">${STATUSES.slice(1).reverse().map(([k]) => st.byStatus[k] ? `<i style="width:${100 * st.byStatus[k] / st.words}%;background:${STATUS_COLOR[k]}" title="${k}"></i>` : "").join("")}</div>`;
   }
 
-  // ---------------- library ----------------
+  // ---------------- dashboard: today's focus, then the projects ----------------
   function viewLibrary() {
     const ls = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
     const lset = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
     const opened = JSON.parse(ls("lr-opened", "{}")), mode = ls("lr-dash-mode", "cards"), sort = ls("lr-dash-sort", "opened");
-    const all = Store.books.map(b => ({ b, st: bookStats(b) }));
+    const P = LL.S, sim = P.sim || { out: {}, alloc: {} }, today = todayYmd();
+    // every project: Lamp Room books (with their title if linked) and planner titles that have no book yet
+    const items = Store.books.map(b => ({ b, t: b.titleId ? LL.tById(b.titleId) : null, st: bookStats(b) }))
+      .concat((P.titles || []).filter(t => !Store.books.some(b => b.titleId === t.id)).map(t => ({ b: null, t, st: null })));
+    const nameOf = x => x.b ? x.b.title : x.t.name, dueOf = x => (x.t && x.t.due) || (x.b && x.b.due) || "", idOf = x => x.b ? x.b.id : x.t.id;
+    const isDone = x => x.b ? (x.st.delivered || (x.t && x.t.status === "done")) : x.t.status === "done";
+    const isArch = x => x.b ? x.b.status === "archived" : false;
     const sorters = {
-      opened: (x, y) => (opened[y.b.id] || 0) - (opened[x.b.id] || 0),
-      due: (x, y) => (x.b.due || "9999") < (y.b.due || "9999") ? -1 : 1,
-      words: (x, y) => y.st.words - x.st.words,
-      client: (x, y) => (x.b.client || "~").localeCompare(y.b.client || "~"),
-      title: (x, y) => x.b.title.localeCompare(y.b.title) };
-    all.sort(sorters[sort] || sorters.opened);
-    const active = all.filter(x => x.b.status !== "archived" && !x.st.delivered), done = all.filter(x => x.b.status !== "archived" && x.st.delivered), arch = all.filter(x => x.b.status === "archived");
+      opened: (x, y) => (opened[idOf(y)] || 0) - (opened[idOf(x)] || 0) || (dueOf(x) || "9999").localeCompare(dueOf(y) || "9999"),
+      due: (x, y) => (dueOf(x) || "9999").localeCompare(dueOf(y) || "9999"),
+      words: (x, y) => (y.st ? y.st.words : LL.partWords(y.t)) - (x.st ? x.st.words : LL.partWords(x.t)),
+      client: (x, y) => ((x.t && x.t.client) || (x.b && x.b.client) || "~").localeCompare((y.t && y.t.client) || (y.b && y.b.client) || "~"),
+      title: (x, y) => nameOf(x).localeCompare(nameOf(y)) };
+    items.sort(sorters[sort] || sorters.opened);
+    const active = items.filter(x => !isArch(x) && !isDone(x)), done = items.filter(x => !isArch(x) && isDone(x)), arch = items.filter(isArch);
     const recW = st => st.words - st.byStatus.todo, pct = st => st.words ? Math.round(100 * recW(st) / st.words) : 0;
-    const earned = st => st.words ? st.est.mine * recW(st) / st.words : 0;
     const doneCh = b => b.chapters.filter(c => c.included && c.status !== "todo").length;
+    const schedStamp = t => {
+      if (!t || t.status !== "active") return "";
+      const o = sim.out[t.id] || {}; if (!o.finish) return "";
+      if (o.late) return `<span class="badge bad" title="Forecast past the due date">Late · ${esc(LL.fmtShort(o.finish))}</span>`;
+      if (o.amber) return `<span class="badge warn" title="Past the aim (a week early), still before the due date">Into the week · ${esc(LL.fmtShort(o.finish))}</span>`;
+      return `<span class="badge good" title="Forecast finish">${t.kind === "author" ? "Ready" : "Delivers"} ${esc(LL.fmtShort(o.finish))}</span>`;
+    };
+    const moneyLine = t => {
+      if (!t || t.kind === "author") return "";
+      const m = LL.moneyOf(t); if (!(m.gross > 0) && !t.checkDate) return "";
+      return `<div class="project-meta earn">${money(m.net)} net · ${t.checkDate ? "💰 received " + esc(LL.fmtShort(t.checkDate)) : "check ~" + esc(LL.fmtShort(LL.checkDateOf(t)))}</div>`;
+    };
+    const cover = (key, color, letter, cls) => `<div class="pc-cover ${cls || ""}" data-cover="${esc(key)}" style="--c:${esc(color || "#888")}"><span>${esc(letter)}</span></div>`;
 
-    const card = ({ b, st }) => {
-      const cur = !!b.star, p = pct(st), cls = st.delivered ? "completed" : cur ? "is-current" : "";
+    const card = x => {
+      const { b, t, st } = x;
+      if (!b) {   // a title the planner knows, no manuscript here yet
+        const stg = t.stages || [], dn = stg.filter(s => s.done).length;
+        return `<div class="project-card ${t.status === "done" ? "completed" : t.starred ? "is-current" : ""}" data-tid="${esc(t.id)}">
+          <div class="pc-head">${cover(t.id, t.color, (t.name || "?")[0])}
+            <div class="pc-title">${esc(t.name)}<div class="project-meta" style="margin-top:3px">${t.kind === "author" ? "Author work" + (t.series ? " · " + esc(t.series) + (t.seriesNo ? " #" + t.seriesNo : "") : "") : esc([t.client, LL.CAT[t.category]].filter(Boolean).join(" · "))}</div></div>
+            <div class="pc-icons"><button data-coverpick="${esc(t.id)}" title="Add a cover">🖼</button>${t.kind !== "author" ? `<a href="#/import?title=${esc(t.id)}" data-booth title="Add the manuscript">📖</a>` : ""}</div></div>
+          <div class="pc-bar"><i style="width:${stg.length ? 100 * dn / stg.length : 0}%"></i></div>
+          <div class="project-meta">${dn} / ${stg.length} stages · ${stg.filter(s => !s.done).slice(0, 1).map(s => "next: " + esc(LL.stageLabel(s))).join("")}</div>
+          ${t.kind !== "author" && LL.partWords(t) ? `<div class="project-meta">${num(LL.partWords(t))} words · ${LL.titleFH(t).toFixed(2)} FH</div>` : ""}
+          ${moneyLine(t)}
+          <div class="project-meta">${t.due ? (LL.hardDue(t) ? "Due " : "Target ") + esc(prettyDate(t.due)) : "No due date"}${schedStamp(t)}</div>
+          ${t.kind !== "author" ? `<div class="project-meta muted">No manuscript yet · <a href="#/import?title=${esc(t.id)}" data-booth>add it</a></div>` : ""}
+        </div>`;
+      }
+      const cur = !!(t ? t.starred : b.star), p = pct(st), cls = st.delivered ? "completed" : cur ? "is-current" : "";
       return `<div class="project-card ${cls}" style="--c:${esc(b.color)}" data-id="${esc(b.id)}">
-        <div class="pc-head"><div class="pc-spine">${esc((b.title || "?").trim()[0] || "?")}</div>
+        <div class="pc-head">${cover(coverKey(b), b.color, (b.title || "?").trim()[0] || "?")}
           <div class="pc-title">${esc(b.title)}
-            <div class="project-meta" style="font-family:var(--sans);margin-top:3px">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div></div>
-          <div class="pc-icons">${b.status === "archived" ? `<button data-restore="${esc(b.id)}" title="Restore from the archive">↩</button>` : ""}<button class="star" data-star="${esc(b.id)}" title="${cur ? "Unmark current" : "Mark as current project"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}/0" data-booth title="Open in the Booth">🎙</a></div></div>
+            <div class="project-meta" style="margin-top:3px">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div></div>
+          <div class="pc-icons">${b.status === "archived" ? `<button data-restore="${esc(b.id)}" title="Restore from the archive">↩</button>` : ""}<button data-coverpick="${esc(coverKey(b))}" title="${"Add or change the cover"}">🖼</button><button class="star" data-star="${esc(b.id)}" title="${cur ? "Unstar" : "Star: work this first, deadlines permitting"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}" data-booth title="Open in the Booth">🎙</a></div></div>
         ${progressBar(st)}
         <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)</div>
         ${st.toRecord && !st.delivered ? `<div class="project-meta">${num(st.toRecord)} words remaining · ${fh(st.left.fh)} FH</div>` : ""}
         <div class="project-meta">${doneCh(b)} / ${st.chapters} chapters recorded</div>
-        ${st.est.mine ? `<div class="project-meta earn">${money(earned(st))} earned${st.delivered ? "" : " of " + money(st.est.mine)}</div>` : ""}
-        <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
+        ${t ? moneyLine(t) : st.est.mine ? `<div class="project-meta earn">${money(st.est.mine)} est.</div>` : ""}
+        <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${t ? schedStamp(t) : st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
+        ${!t && b.status !== "archived" ? `<div class="project-meta"><button class="btn small quiet" data-link="${esc(b.id)}">📅 Put on the schedule</button></div>` : ""}
       </div>`;
     };
-    const row = ({ b, st }) => `<div class="ptr ${st.delivered ? "completed" : ""}" data-id="${esc(b.id)}"><div class="ptr-title">${b.star ? "★ " : ""}${esc(b.title)}${b.status === "archived" ? ` <button class="btn small quiet" data-restore="${esc(b.id)}">↩ Restore</button>` : ""}</div><div>${pct(st)}% · ${num(st.words)} w</div><div>${doneCh(b)} / ${st.chapters} ch</div><div>${st.est.mine ? money(earned(st)) : "—"}</div><div>${b.due ? esc(prettyDate(b.due)) : "—"}${st.track ? ` <span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div></div>`;
+    const row = x => {
+      const { b, t, st } = x;
+      if (!b) return `<div class="ptr" data-tid="${esc(t.id)}"><div class="ptr-title">${cover(t.id, t.color, (t.name || "?")[0], "mini")}${esc(t.name)}</div><div>${(t.stages || []).filter(s => s.done).length} / ${(t.stages || []).length} stages</div><div>—</div><div>${t.kind !== "author" ? money(LL.moneyOf(t).net) : "—"}</div><div>${t.due ? esc(prettyDate(t.due)) : "—"} ${schedStamp(t)}</div></div>`;
+      return `<div class="ptr ${st.delivered ? "completed" : ""}" data-id="${esc(b.id)}"><div class="ptr-title">${cover(coverKey(b), b.color, (b.title || "?")[0], "mini")}${(t ? t.starred : b.star) ? "★ " : ""}${esc(b.title)}${b.status === "archived" ? ` <button class="btn small quiet" data-restore="${esc(b.id)}">↩ Restore</button>` : ""}</div><div>${pct(st)}% · ${num(st.words)} w</div><div>${doneCh(b)} / ${st.chapters} ch</div><div>${t ? money(LL.moneyOf(t).net) : st.est.mine ? money(st.est.mine) : "—"}</div><div>${b.due ? esc(prettyDate(b.due)) : "—"} ${t ? schedStamp(t) : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div></div>`;
+    };
     const list = xs => mode === "list"
-      ? `<div class="project-table"><div class="ptr head"><div>Title</div><div>Progress</div><div>Chapters</div><div>Earned</div><div>Due</div></div>${xs.map(row).join("")}</div>`
+      ? `<div class="project-table"><div class="ptr head"><div>Title</div><div>Progress</div><div>Chapters</div><div>Net</div><div>Due · forecast</div></div>${xs.map(row).join("")}</div>`
       : `<div class="project-grid">${xs.map(card).join("")}</div>`;
 
-    // Today strip: Continue · Today rings · Waiting on
-    const cont = all.find(x => x.b.star && x.b.status !== "archived" && !x.st.delivered) || active[0];
-    const contCard = cont ? `<div class="dt-card"><div class="dt-label">Continue</div><div class="dt-title">${esc(cont.b.title)}</div>
-        <div class="dt-sub">${doneCh(cont.b)} of ${cont.st.chapters} chapters · ${pct(cont.st)}% read</div>
-        <div class="gpr-bar" style="margin:10px 0"><div class="gpr-fill" style="width:${pct(cont.st)}%"></div></div>
-        <a class="btn primary small" href="#/booth/${esc(cont.b.id)}/${Math.max(0, cont.b.chapters.findIndex(c => c.included && c.status === "todo"))}">Resume ▸</a></div>`
-      : `<div class="dt-card"><div class="dt-label">Continue</div><div class="dt-empty">Nothing in progress. <a href="#/import">Start a project</a>.</div></div>`;
-    const me = Store.me ? Store.me() : "", S = Store.settings;
-    const nar = (S.narrators || []).find(n => n.name === me) || (S.narrators || [])[0] || { pace: 4000 };
+    // ---- today ----
+    const meName = Store.me ? Store.me() : "", me = LL.keyOf(meName) || "anne", other = me === "anne" ? "jack" : "anne", S = Store.settings;
+    const nar = (S.narrators || []).find(n => n.name === meName) || (S.narrators || [])[0] || { pace: 4000 };
     const hrsGoal = S.boothHoursPerDay || 6, wordsGoal = Math.round((nar.pace || 4000) * hrsGoal);
-    const today = todayYmd(), dueSoon = active.filter(x => x.b.due && Prep.workdaysUntil(x.b.due) <= 5);
-    const unpaid = done.filter(x => !x.b.paid && x.st.est.mine);
+    const plan = p => { const na = LL.nextAlloc(p); if (!na) return null; const g = {}; for (const a of na.l) { const k = a.tid + "|" + a.sid; g[k] = g[k] || { tid: a.tid, sid: a.sid, type: a.type, h: 0 }; g[k].h += a.h; } return { d: na.d, tasks: Object.values(g) }; };
+    const verb = (s, p) => s.type === "record" ? "Record" : s.type === "ext" ? "Partner records" : LL.STAGE_LABEL[s.type] || s.type;
+    const target = (task, p) => {
+      const t = LL.tById(task.tid), s = t && (t.stages || []).find(x => x.id === task.sid), book = Store.books.find(b => b.titleId === task.tid);
+      if (!t || !s) return null;
+      let href = null, sub = "", act = "Open";
+      if (s.type === "record") {
+        if (book) { const ci = book.chapters.findIndex(c => c.included && !((c.prog || {})[LL.nameOf(p)] || {}).done && Prep.wordsByReader(c, book)[LL.nameOf(p)] > 0);
+          href = "#/booth/" + book.id + (ci >= 0 ? "/" + ci : ""); act = "Into the Booth ▸";
+          sub = (ci >= 0 ? esc(book.chapters[ci].title) + " · " : "") + "~" + LL.hrs(task.h) + " · ~" + num(task.h * LL.wphOf(p)) + " words"; }
+        else { href = "#/import?title=" + t.id; act = "Add the manuscript ▸"; sub = "~" + LL.hrs(task.h) + " in the booth · the manuscript isn't in the Lamp Room yet"; }
+      } else if (book) { href = "#/book/" + book.id; act = "Open ▸"; sub = "~" + LL.hrs(task.h); }
+      else { act = "Open the card ▸"; sub = "~" + LL.hrs(task.h); }
+      const o = sim.out[t.id] || {};
+      const why = t.kind === "author" ? "Writing between paychecks" : t.ownProject ? "Our own project" + (o.finish ? " · forecast " + LL.fmtShort(o.finish) : "") : (t.starred ? "⭐ Starred · " : "") + (t.due ? "Due " + LL.fmtShort(t.due) + " · aim " + LL.fmtShort(o.target) + " · forecast " + LL.fmtShort(o.finish) : "");
+      return { t, s, book, href, sub, act, why, late: o.late, amber: o.amber };
+    };
+    const mine = plan(me), theirs = plan(other);
+    const notToday = mine && mine.d !== today;
+    const focus = mine && mine.tasks.length ? target(mine.tasks[0], me) : null;
+    const offWhy = LL.dayOff(me, today) ? "Day off today." : LL.holidayName(today) ? LL.holidayName(today) + ". Lamp's out." : !LL.isWorkday(me, today) ? "Not a workday." : "Today's hours are logged.";
+    const focusCard = focus ? `<div class="dt-card focus-card ${focus.late ? "late" : focus.amber ? "amber" : ""}" ${focus.href ? `data-go="${esc(focus.href)}"` : `data-tcard="${esc(focus.t.id)}"`} style="--c:${esc(focus.t.color || "#888")}">
+        <div class="dt-label">${notToday ? "Next up · " + esc(LL.fmt(mine.d)) + " · " + esc(offWhy) : "Your focus today"}</div>
+        <div class="fc-body">${cover(focus.book ? coverKey(focus.book) : focus.t.id, focus.t.color, (focus.t.name || "?")[0], "big")}
+          <div class="fc-text"><div class="fc-verb">${esc(verb(focus.s, me))}</div><div class="fc-title">${esc(focus.t.name)}</div>
+            <div class="fc-sub">${focus.sub}</div><div class="fc-why">${esc(focus.why)}${focus.late ? ' · <b style="color:var(--bad)">late</b>' : focus.amber ? ' · <b style="color:var(--warn)">into the week</b>' : ""}</div>
+            <div class="fc-go"><span class="btn primary">${focus.act}</span></div></div></div></div>`
+      : `<div class="dt-card focus-card"><div class="dt-label">Your focus today</div><div class="dt-empty" style="margin-top:8px">Nothing scheduled. A clear desk.${P.titles && P.titles.length ? "" : ` <a href="#/titles">Add a title</a> or <a href="#/import">import a manuscript</a> to get the planner going.`}</div></div>`;
+    const thenTasks = mine ? mine.tasks.slice(1).map(x => target(x, me)).filter(Boolean) : [];
+    const thenCard = `<div class="dt-card"><div class="dt-label">Then</div>${thenTasks.length ? thenTasks.map(x => `<div class="then-row" ${x.href ? `data-go="${esc(x.href)}"` : `data-tcard="${esc(x.t.id)}"`}><i style="background:${esc(x.t.color || "#888")}"></i><span><b>${esc(verb(x.s, me))}</b> · ${esc(x.t.name)}<br><small>${x.sub}</small></span></div>`).join("") : `<div class="dt-empty">${focus ? "That's the day." : "—"}</div>`}
+        ${theirs ? `<div class="partner-line" title="${esc(LL.nameOf(other))}'s plan">${esc(LL.nameOf(other))} · ${theirs.d !== today ? "next " + esc(LL.fmtShort(theirs.d)) + ": " : ""}${theirs.tasks.map(x => { const t = LL.tById(x.tid), s = t && (t.stages || []).find(y => y.id === x.sid); return t && s ? esc(verb(s, other)) + " " + esc(t.short || t.name) + " " + LL.hrs(x.h) : ""; }).filter(Boolean).join(" · ")}</div>` : ""}</div>`;
+    // heads up: the planner's notices, money coming and going, and partner payouts
+    const soon = LL.addDays(today, 10), heads = [];
+    for (const t of (P.titles || []).filter(t => t.status === "active" && t.kind !== "author")) { const o = sim.out[t.id]; if (!o) continue;
+      if (o.late) heads.push({ cls: "bad", html: `<b>${esc(t.short || t.name)}</b> forecasts ${esc(LL.fmtShort(o.finish))}, past its ${esc(LL.fmtShort(t.due))} due date · ~${LL.hrs(o.ot)} overtime makes it`, go: "#/almanac" });
+      else if (o.amber) heads.push({ cls: "warn", html: `<b>${esc(t.short || t.name)}</b> is into the week: forecast ${esc(LL.fmtShort(o.finish))}, aim ${esc(LL.fmtShort(o.target))}`, go: "#/almanac" });
+      const ext = (t.stages || []).find(s => s.type === "ext" && !s.done && s.extDate && s.extDate < today); if (ext) heads.push({ cls: "warn", html: `${esc(t.partnerName || "The partner")}'s lines for <b>${esc(t.short || t.name)}</b> were expected ${esc(LL.fmtShort(ext.extDate))}`, go: "#/titles" });
+    }
+    for (const t of (P.titles || []).filter(t => t.kind !== "author" && !t.checkDate)) { const cd = LL.checkDateOf(t), m = LL.moneyOf(t); if (cd && cd <= soon && m.gross > 0 && (t.invoiceDate || (t.stages || []).some(s => s.type === "deliver" && s.done))) heads.push({ cls: "money", html: `💰 ${esc(t.short || t.name)} check ~${esc(LL.fmtShort(cd))} · ${money(LL.ourCheck(t) + (t.partnerPaidByClient ? 0 : m.partner))}`, go: "#/ledger" }); }
+    for (const t of (P.titles || []).filter(t => t.checkDate && !t.partnerPaidByClient && !t.partnerPaidDate && LL.moneyOf(t).partner > 0)) heads.push({ cls: "money", html: `↗ Pay ${esc(t.partnerName || "the partner")} ${money(LL.moneyOf(t).partner)} for ${esc(t.short || t.name)}`, go: "#/titles" });
+    for (const bl of (P.bills || []).filter(b => b.active !== false)) { const ym = today.slice(0, 7), d = LL.billDate(bl, ym); if (!(bl.paid || {})[ym] && d >= today && d <= LL.addDays(today, 7)) heads.push({ cls: "", html: `🧾 ${esc(bl.name)} ${money(LL.billAmount(bl, ym))} due ${esc(LL.fmtShort(d))}`, go: "#/ledger" }); }
+    let yd = LL.addDays(today, -1), guard = 0; while (!LL.isWorkday(me, yd) && guard++ < 7) yd = LL.addDays(yd, -1);
+    if (LL.isWorkday(me, yd) && !(P.logs || []).some(l => l.date === yd && (l.person === me || (l.entries || []).some(e => e.person === me)))) heads.push({ cls: "", html: `No log for ${esc(LL.fmt(yd))} yet`, go: "#/log" });
+    const headCard = `<div class="dt-card"><div class="dt-label">Heads up</div>${heads.length ? heads.slice(0, 7).map(h => `<div class="head-row ${h.cls}" data-go="${esc(h.go)}">${h.html}</div>`).join("") + (heads.length > 7 ? `<div class="dt-empty"><a href="#/almanac">${heads.length - 7} more on the Almanac</a></div>` : "") : `<div class="dt-empty">All quiet.</div>`}</div>`;
     const ring = (id, label, sub) => `<div class="ring" id="${id}"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="trk" cx="32" cy="32" r="28.5" stroke-width="7"/><circle class="arc" cx="32" cy="32" r="28.5" stroke-width="7" transform="rotate(-90 32 32)" stroke-dasharray="179.07" stroke-dashoffset="179.07"/></svg><div class="ctr">—</div><div class="lbl">${label}</div><div class="sub">${sub}</div></div>`;
-    const todayCard = `<div class="dt-card"><div class="dt-label">Today${me ? " · " + esc(me) : ""}</div><div class="rings">
-        ${ring("r-words", "Words", "of " + num(wordsGoal))}${ring("r-booth", "Booth hrs", "of " + hrsGoal)}${ring("r-earn", "Earned", "today")}</div></div>`;
-    const waitCard = `<div class="dt-card"><div class="dt-label">Waiting on</div>
-        <div class="dt-row"><span>Unpaid (${unpaid.length} book${unpaid.length === 1 ? "" : "s"})</span><b>${money(unpaid.reduce((a, x) => a + x.st.est.mine, 0))}</b></div>
-        <div class="dt-row"><span>Due within a week</span><b>${dueSoon.length}</b></div>
-        <div class="dt-row"><span>Behind or overdue</span><b>${active.filter(x => x.st.track && x.st.track.cls !== "good").length}</b></div>
-        <div class="dt-row"><span>Awaiting proof / delivery</span><b>${active.filter(x => !x.st.toRecord && x.st.words).length}</b></div></div>`;
+    const cb = (() => { try { return JSON.parse(localStorage.getItem("lr-combo-best") || "null"); } catch (e) { return null; } })();
+    const todayCard = `<div class="dt-card"><div class="dt-label">Today${meName ? " · " + esc(meName) : ""}</div><div class="rings">
+        ${ring("r-words", "Words", "of " + num(wordsGoal))}${ring("r-booth", "Booth hrs", "of " + hrsGoal)}${ring("r-earn", "Earned", S.goalEarn ? "of $" + num(S.goalEarn) : "today")}</div>${cb && cb.score ? `<div class="dt-sub" style="text-align:center;margin-top:8px">Best combo ${num(cb.score)} pts</div>` : ""}</div>`;
 
     main().innerHTML = `
-      <div class="view-header"><h2>Your Projects</h2>
+      <div class="dash-top">${focusCard}${todayCard}</div>
+      <div class="dash-today">${thenCard}${headCard}</div>
+      <div class="view-header" style="margin-top:8px"><h2>Your Projects</h2>
         <div class="view-header-actions">
           <div class="mode-toggle"><button class="mode-btn ${mode !== "list" ? "on" : ""}" data-mode="cards">▦ Thumbnails</button><button class="mode-btn ${mode === "list" ? "on" : ""}" data-mode="list">☰ List</button></div>
           <select id="dash-sort">${[["opened", "Recently Opened"], ["due", "Due Date"], ["words", "Word Count"], ["client", "Client"], ["title", "Title"]].map(([k, l]) => `<option value="${k}" ${sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-          <a class="btn primary" href="#/import">+ New Project</a></div></div>
-      ${all.length ? `<div class="dash-today">${contCard}${todayCard}${waitCard}</div>` : ""}
-      ${active.length ? list(active) : all.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
+          <button class="btn" id="newtitle" title="A title without a manuscript yet (or author work)">+ Title</button><a class="btn primary" href="#/import">+ New Project</a></div></div>
+      ${active.length ? list(active) : items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
       ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
       ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{localStorage.setItem('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
-    $$("[data-id]").forEach(el => el.onclick = e => { if (e.target.closest("[data-star],[data-booth],[data-restore]")) return; location.hash = "#/book/" + el.dataset.id; });
-    $$("[data-star]").forEach(el => el.onclick = e => { e.stopPropagation(); const b = Store.byId(el.dataset.star), on = !b.star; Store.books.forEach(x => { if (x.star && x !== b) { x.star = false; Store.saveBook(x); } }); b.star = on; Store.saveBook(b); viewLibrary(); });
+    const stop = e => e.target.closest("[data-star],[data-booth],[data-restore],[data-coverpick],[data-link]");
+    $$("[data-id]").forEach(el => el.onclick = e => { if (stop(e)) return; location.hash = "#/book/" + el.dataset.id; });
+    $$("[data-tid]").forEach(el => el.onclick = e => { if (stop(e)) return; LL.titleForm(structuredClone(LL.tById(el.dataset.tid))); });
+    $$("[data-tcard]").forEach(el => el.onclick = () => LL.titleForm(structuredClone(LL.tById(el.dataset.tcard))));
+    $$("[data-go]").forEach(el => el.onclick = () => { location.hash = el.dataset.go; });
+    $$("[data-star]").forEach(el => el.onclick = async e => { e.stopPropagation(); const b = Store.byId(el.dataset.star);
+      if (b.titleId && LL.tById(b.titleId)) { const t = LL.tById(b.titleId), on = !t.starred; for (const o of LL.S.titles.filter(x => x.starred && x.id !== t.id)) await LL.patch("titles", o.id, { starred: false }); await LL.patch("titles", t.id, { starred: on }); toast(on ? "⭐ " + (t.short || t.name) + " goes first, deadlines permitting." : "Star removed."); }
+      else { const on = !b.star; Store.books.forEach(x => { if (x.star && x !== b) { x.star = false; Store.saveBook(x); } }); b.star = on; Store.saveBook(b); }
+      viewLibrary(); });
     $$("[data-restore]").forEach(el => el.onclick = e => { e.stopPropagation(); const b = Store.byId(el.dataset.restore); b.status = "active"; Store.saveBook(b); toast("“" + b.title + "” is back on your dashboard."); viewLibrary(); });
+    $$("[data-coverpick]").forEach(el => el.onclick = e => { e.stopPropagation(); pickCover(el.dataset.coverpick, viewLibrary); });
+    $$("[data-link]").forEach(el => el.onclick = e => { e.stopPropagation(); linkBook(el.dataset.link); });
     $$("[data-mode]").forEach(el => el.onclick = () => { lset("lr-dash-mode", el.dataset.mode); viewLibrary(); });
     $("#dash-sort").onchange = e => { lset("lr-dash-sort", e.target.value); viewLibrary(); };
+    $("#newtitle").onclick = () => LL.titleForm(null, "narration");
+    decorateCovers(main());
 
     // fill the rings from today's booth sessions
     const setRing = (id, frac, txt) => { const r = $("#" + id); if (!r) return; const arc = r.querySelector(".arc"); arc.style.strokeDashoffset = 179.07 * (1 - Math.min(1, frac)); arc.classList.toggle("done", frac >= 1); r.querySelector(".ctr").textContent = txt; };
-    if (me && Store.sessions) Store.sessions(me, 1).then(list => {
+    if (meName && Store.sessions) Store.sessions(meName, 1).then(list => {
       const t = list.filter(s => s.date === today), w = t.reduce((a, s) => a + (s.words || 0), 0), sec = t.reduce((a, s) => a + (s.boothSec || 0), 0), v = t.reduce((a, s) => a + (s.value || 0), 0);
       setRing("r-words", w / wordsGoal, w >= 1000 ? (w / 1000).toFixed(1) + "k" : String(w));
       setRing("r-booth", sec / 3600 / hrsGoal, (sec / 3600).toFixed(1));
-      setRing("r-earn", v ? 1 : 0, "$" + Math.round(v));
+      setRing("r-earn", S.goalEarn ? v / S.goalEarn : v ? 1 : 0, "$" + Math.round(v));
     }).catch(() => {});
   }
 
@@ -206,23 +363,24 @@
     const S = Store.settings, st = bookStats(book);
     const statusOpts = v => STATUSES.map(([k, l]) => `<option value="${k}" ${v === k ? "selected" : ""}>${l}</option>`).join("");
     const narrOpts = v => S.narrators.map(n => `<option ${n.name === v ? "selected" : ""}>${esc(n.name)}</option>`).join("");
-    const tr = st.track;
+    const tr = st.track, T = book.titleId ? LL.tById(book.titleId) : null;
     main().innerHTML = `
       <div class="row" style="align-items:center">
-        <div style="width:14px;height:40px;border-radius:3px;background:${esc(book.color)}"></div>
+        <div class="pc-cover book-cover" data-cover="${esc(coverKey(book))}" style="--c:${esc(book.color)}" title="Click to add or change the cover"><span>${esc((book.title || "?")[0])}</span></div>
         <div><h1 style="margin:0">${esc(book.title)}</h1><div class="muted">${esc([book.author, book.client].filter(Boolean).join(" · "))}</div></div>
         <div class="spacer"></div>
-        ${st.delivered ? `<span class="badge good">Delivered</span>` : tr ? `<span class="badge ${tr.cls}">${tr.label}</span>` : ""}
+        ${(() => { const o = T && LL.S.sim && LL.S.sim.out[T.id]; if (o && o.finish && T.status === "active") return o.late ? `<span class="badge bad">Late · ${esc(LL.fmtShort(o.finish))}</span>` : o.amber ? `<span class="badge warn">Into the week · ${esc(LL.fmtShort(o.finish))}</span>` : `<span class="badge good">Delivers ${esc(LL.fmtShort(o.finish))}</span>`; return st.delivered ? `<span class="badge good">Delivered</span>` : tr ? `<span class="badge ${tr.cls}">${tr.label}</span>` : ""; })()}
         <a class="btn primary" href="#/booth/${esc(book.id)}">🎙 Booth</a>
       </div>
       <div class="tiles">
         <div class="tile"><span>Words</span><b>${num(st.words)}</b><em>${st.chapters} chapters</em></div>
         <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>at ${num(S.wpfh)} words / FH</em></div>
-        <div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>
+        ${T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
         <div class="tile"><span>Left to record</span><b>${num(st.toRecord)}</b><em>${st.left.perNarrator.map(p => esc(p.name) + " " + hrs(p.boothHours)).join(" · ")} in booth</em></div>
         <div class="tile"><span>Booth days left</span><b>${st.left.days.toFixed(1)}</b><em>at ${S.boothHoursPerDay} booth hrs / day</em></div>
         ${tr ? `<div class="tile"><span>Due ${esc(prettyDate(book.due))}</span><b>${tr.days} workdays</b><em>${num(tr.perDay)} words / day needed · recording done ${esc(prettyDate(tr.finish))}</em></div>` : `<div class="tile"><span>Due</span><b>—</b><em>set a due date below</em></div>`}
       </div>
+      ${T ? `<div class="ll book-plan">${LL.cardHTML(T)}</div>` : `<div class="card row" style="align-items:center"><div><b>Not on the schedule yet.</b> <span class="muted">Link it to a title so the planner can schedule it, track its money and learn from your booth time.</span></div><div class="spacer"></div><button class="btn primary" id="linkbk">📅 Put on the schedule</button></div>`}
       ${progressBar(st)}
       <div class="small muted" style="margin-bottom:18px">${STATUSES.map(([k, l]) => st.byStatus[k] ? `<span style="color:${STATUS_COLOR[k]}">■</span> ${l} ${num(st.byStatus[k])}` : "").filter(Boolean).join(" &nbsp; ")}</div>
 
@@ -234,7 +392,8 @@
           <label style="flex:1">Client / publisher<input data-f="client" value="${esc(book.client || "")}"></label>
           <label>Due date<input type="date" data-f="due" value="${esc(book.due || "")}"></label>
         </div>
-        <div class="row" style="margin-top:12px">
+        ${T ? `<div class="small muted" style="margin-top:10px">Pay, partner split, editor and due date live on the schedule card above (Edit). Title, client, due date and colour stay in step both ways.</div>` : ""}
+        <div class="row" style="margin-top:12px;${T ? "display:none" : ""}">
           <label>Rate type<select data-f="rate.type">${RATE_TYPES.map(([k, l]) => `<option value="${k}" ${(book.rate || {}).type === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
           <label>Amount ($)<input type="number" step="0.001" min="0" data-f="rate.amount" value="${esc((book.rate || {}).amount || "")}" style="width:110px"></label>
           <label>My share of pay (%)<input type="number" min="0" max="100" data-f="myShare" value="${esc(book.myShare != null ? book.myShare : 100)}" style="width:90px"></label>
@@ -267,13 +426,17 @@
 
     $("#details").ontoggle = e => { detailsOpen[book.id] = e.target.open; };
     const save = (rerender) => { Store.saveBook(book); if (rerender) viewBook(); };
+    const toTitle = f => { if (!T) return; const m = { title: "name", due: "due", client: "client", color: "color" }[f]; if (m) LL.patch("titles", T.id, { [m]: book[f] || (f === "due" ? null : "") }); };
+    $(".book-cover").onclick = () => pickCover(coverKey(book), viewBook);
+    const lb = $("#linkbk"); if (lb) lb.onclick = () => linkBook(book.id);
+    decorateCovers(main());
     // details
     $$("[data-f]").forEach(el => el.onchange = () => {
       const f = el.dataset.f, v = el.type === "number" ? (el.value === "" ? "" : Number(el.value)) : el.value;
       if (f.startsWith("rate.")) { book.rate = book.rate || { type: "none", amount: 0 }; book.rate[f.slice(5)] = v; } else book[f] = v;
-      save(f !== "notes");
+      toTitle(f); save(f !== "notes");
     });
-    $$("[data-color]").forEach(b => b.onclick = () => { book.color = b.dataset.color; save(true); });
+    $$("[data-color]").forEach(b => b.onclick = () => { book.color = b.dataset.color; toTitle("color"); save(true); });
     $$("[data-cast]").forEach(el => el.onchange = () => { const c = book.cast[+el.dataset.cast]; c[el.dataset.k] = el.dataset.k === "share" ? Number(el.value) : el.value; save(true); });
     $$("[data-delcast]").forEach(b => b.onclick = () => { book.cast.splice(+b.dataset.delcast, 1); save(true); });
     const mk = $("#mkparts"); if (mk) mk.onclick = () => { book.parts = { n: Store.me() || (S.narrators[0] || {}).name }; save(true); };
@@ -363,8 +526,10 @@
   let imp = null;
   function viewImport() {
     imp = imp || { opts: { sceneBreaks: true, normalizePunct: false, joinBrokenLines: false }, method: "auto" };
+    const forT = route.q && route.q.get("title") ? LL.tById(route.q.get("title")) : null;
+    if (forT) { imp.forTitle = forT.id; if (!imp.title) imp.title = forT.name; if (!imp.client) imp.client = forT.client || ""; }
     if (!imp.raw) {
-      main().innerHTML = `<h1>New book</h1>
+      main().innerHTML = `<h1>${forT ? "Manuscript for " + esc(forT.name) : "New book"}</h1>
         <div class="drop card" id="drop"><h2>Drop a manuscript here</h2><p class="muted">Word (.docx) — or click to browse.</p><input type="file" id="file" accept=".docx" class="hidden"></div>
         <div class="card"><h3>…or paste the text</h3><textarea id="paste" style="min-height:160px" placeholder="Paste the whole manuscript"></textarea><div class="row" style="margin-top:10px"><div class="spacer"></div><button class="btn" id="usepaste">Use pasted text</button></div></div>`;
       const d = $("#drop"), f = $("#file");
@@ -373,7 +538,7 @@
       d.ondragleave = () => d.classList.remove("over");
       d.ondrop = e => { e.preventDefault(); d.classList.remove("over"); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); };
       f.onchange = () => f.files[0] && loadFile(f.files[0]);
-      $("#usepaste").onclick = () => { const t = $("#paste").value; if (!t.trim()) return; imp.file = null; imp.raw = Prep.blocksFromPlainText(t); imp.opts.joinBrokenLines = !/\n[ \t]*\n/.test(t); imp.title = ""; viewImport(); };
+      $("#usepaste").onclick = () => { const t = $("#paste").value; if (!t.trim()) return; imp.file = null; imp.raw = Prep.blocksFromPlainText(t); imp.opts.joinBrokenLines = !/\n[ \t]*\n/.test(t); imp.title = imp.forTitle && LL.tById(imp.forTitle) ? LL.tById(imp.forTitle).name : ""; viewImport(); };
       return;
     }
     const B = Prep.cleanBlocks(imp.raw, imp.opts);
@@ -416,7 +581,17 @@
         source: { file: imp.file ? imp.file.name : null, method: imp.method, options: imp.opts }, chapters: imp.chapters };
       if (imp.hasParts) book.parts = Object.assign({}, imp.parts);
       $("#create").disabled = true;
-      try { await Store.createBook(book, imp.file); imp = null; cheer("bookCreated"); location.hash = "#/book/" + book.id; }
+      try {
+        // every book joins the schedule: its own title, or the one it was imported for
+        const tFor = imp.forTitle && LL.tById(imp.forTitle);
+        if (tFor) { book.titleId = tFor.id; book.color = tFor.color || book.color; book.due = tFor.due || ""; }
+        await Store.createBook(book, imp.file); imp = null; cheer("bookCreated");
+        let fresh = false;
+        if (tFor) { const wb = wordsFor(book); await LL.patch("titles", tFor.id, { stages: (tFor.stages || []).map(s => { if (s.type === "record") { const n = Object.keys(wb).find(n => LL.keyOf(n) === s.owner); if (n) return Object.assign({}, s, { words: Math.round(wb[n]) }); } return s; }) }); }
+        else { const id = "t-" + LL.uid(); await LL.put("titles", id, titleFromBook(book)); book.titleId = id; Store.saveBook(book, true); fresh = true; }
+        location.hash = "#/book/" + book.id;
+        if (fresh && !(Store.testMode && !localStorage.getItem("lr-test-forms"))) setTimeout(() => { toast("On the schedule. Add the client, pay and due date so the planner can place it."); LL.titleForm(structuredClone(LL.tById(book.titleId))); }, 300);
+      }
       catch (err) { $("#create").disabled = false; toast("Couldn't save: " + err.message); }
     };
   }
@@ -445,7 +620,7 @@
       else throw new Error("The Lamp Room reads Word .docx files. Save it as .docx, or paste the text instead.");
       if (!raw.length || raw.reduce((a, b) => a + b.text.length, 0) < 200) throw new Error("Hardly any text came out of that file.");
       imp.raw = raw; imp.file = file;
-      imp.title = file.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\b(final|manuscript|ms|draft|v\d+|copy)\b/gi, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim();
+      imp.title = imp.forTitle && LL.tById(imp.forTitle) ? LL.tById(imp.forTitle).name : file.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\b(final|manuscript|ms|draft|v\d+|copy)\b/gi, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim();
       imp.opts.joinBrokenLines = false;
     } catch (e) { imp.raw = null; toast(e.message); }
     viewImport();
@@ -483,7 +658,7 @@
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
     main().innerHTML = `<h1>Settings</h1>
       <div class="card"><h3>Look &amp; feel</h3><div class="row">
-        <label>Theme<select id="th">${[["ledger", "Ledger — warm paper & brass (light)"], ["archive", "Archive — cool paper & ink (light)"], ["lamp", "Lamp — lamplit dark"], ["nocturne", "Nocturne — violet dark"], ["foundry", "Foundry — soot, smoke & whisky (Small Heath)"], ["afterglow", "Afterglow — violet night & sunset neon (Synthwave)"], ["velvet", "Velvet — wine, black velvet & rose gold (Dark Romance)"], ["signal", "Signal — black glass & electric cyan (Cyberpunk)"]].map(([k, l]) => `<option value="${k}" ${S.theme === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Theme<select id="th">${[["ledger", "Ledger — warm paper & brass (light)"], ["archive", "Archive — cool paper & ink (light)"], ["lamp", "Lamp — lamplit dark"], ["nocturne", "Nocturne — violet dark"], ["foundry", "Foundry — soot, smoke & whisky (Small Heath)"], ["afterglow", "Afterglow — violet night & sunset neon (Synthwave)"], ["velvet", "Velvet — wine, black velvet & rose gold (Dark Romance)"], ["signal", "Signal — hot pink & acid yellow on black (Cyberpunk)"]].map(([k, l]) => `<option value="${k}" ${S.theme === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="check"><input type="checkbox" id="cele" ${S.celebrations !== false ? "checked" : ""}> Celebrations — big glowing words for goals, pace, chapters and books</label>
         <label class="check"><input type="checkbox" id="combo" ${S.combo !== false ? "checked" : ""}> Combo meter in the Booth (Finished Hour's tiers)</label>
         <label class="check"><input type="checkbox" id="cf" ${S.confetti ? "checked" : ""}> Confetti</label>
@@ -505,7 +680,27 @@
         <p class="small muted">Use {book} {chapter} {n} {nn} {nnn}. Preview: <b>${esc(sample)}.wav</b></p></div>
       <div class="card"><h3>This computer</h3><div class="row"><label>Belongs to<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
         <p class="small muted">The Lamp Room opens as this person here: their pace, their sessions, their lines in duets.</p></div>
-      <div class="card"><h3>Library folder</h3><p>📁 ${esc(Store.testMode ? "test library (browser storage)" : Store.folderName())}</p><button class="btn small" id="sw">Switch to a different folder</button></div>`;
+      <div class="card"><h3>Library folder</h3><p>📁 ${esc(Store.testMode ? "test library (browser storage)" : Store.folderName())}</p><button class="btn small" id="sw">Switch to a different folder</button>
+        <details style="margin-top:10px"><summary class="small">Sharing it with ${esc((S.narrators.find(n => n.name !== Store.me()) || {}).name || "your partner")} through Google Drive</summary><ol class="small" style="line-height:1.6">
+          <li>Install <b>Google Drive for desktop</b> on both Macs and sign in to the same Google account (or share one folder between your two accounts).</li>
+          <li>On one Mac, make a folder in Google Drive called <i>Lamp Room Library</i>. Move your current library's contents into it (Books, Ledger, Covers, Sessions and lamp-room.json), or start it fresh.</li>
+          <li>In Drive's settings, set that folder to <b>Available offline</b> (Mirror files) on both Macs, so the Lamp Room reads real files, not placeholders.</li>
+          <li>Here, press <b>Switch to a different folder</b> and choose it. Do the same on the other Mac.</li></ol>
+          <p class="small muted">Recordings stay in each computer's Studio folder, outside Drive. Each of you only rewrites your own progress files, so you can both work at the same time. Changes from the other computer show up within about 20 seconds.</p></details></div>
+      <div class="card"><h3>Planning &amp; money</h3><p class="small muted">The planner's house rules: hours, workdays and paces for each of you (they keep learning as stages finish), turnaround times, goals and holidays.</p><div class="ll" id="llset"></div></div>
+      <div class="card"><h3>Claude for the work log</h3><p class="small muted">With your own Anthropic API key, “Read my note” turns a free-written “Today I…” into log lines, the way Ledger & Lamp did. Without one, a simple word-matcher reads it and you check the lines. The key stays on this computer only (not in the shared folder). Costs are a fraction of a cent per note.</p>
+        <div class="row"><label style="flex:1">API key<input type="password" id="akey" placeholder="sk-ant-…" value="${esc((() => { try { return localStorage.getItem("lr-anthropic-key") || ""; } catch (e) { return ""; } })())}"></label>
+        <label>Model<input id="amodel" value="${esc((() => { try { return localStorage.getItem("lr-anthropic-model") || "claude-sonnet-5-5"; } catch (e) { return "claude-sonnet-5-5"; } })())}" style="width:190px"></label><button class="btn small" id="atest">Test</button></div></div>
+      <div class="card"><h3>Bring in Ledger &amp; Lamp</h3><p class="small muted">Choose the <i>ledger-and-lamp-export.json</i> file Claude made from your Ledger &amp; Lamp. Titles, logs, bills, deposits, days off, pipeline and settings come across; titles link to the books here with the same name. Safe to run again: records with the same id are replaced, not doubled.</p>
+        <div class="row"><input type="file" id="llimp" accept=".json,application/json"><span class="small muted" id="llimpres"></span></div></div>`;
+    const ls = $("#llset"); ls.innerHTML = LL.settingsHTML().replace(/^<h2>Settings<\/h2>/, ""); LL.views.el = null;
+    $("#akey").onchange = e => { try { localStorage.setItem("lr-anthropic-key", e.target.value.trim()); } catch (er) {} toast(e.target.value.trim() ? "Key saved on this computer." : "Key removed."); };
+    $("#amodel").onchange = e => { try { localStorage.setItem("lr-anthropic-model", e.target.value.trim() || "claude-sonnet-5-5"); } catch (er) {} };
+    $("#atest").onclick = async () => { const b = $("#atest"); b.disabled = true; b.textContent = "Testing…";
+      try { const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": $("#akey").value.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: $("#amodel").value.trim() || "claude-sonnet-5-5", max_tokens: 20, messages: [{ role: "user", content: "Reply with the single word: lit" }] }) });
+        const j = await r.json(); toast(r.ok ? "Claude answers: " + ((j.content || [])[0] || {}).text : "That didn't work: " + ((j.error || {}).message || r.status)); }
+      catch (e) { toast("That didn't work: " + e.message); } b.disabled = false; b.textContent = "Test"; };
+    $("#llimp").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const n = await importLL(JSON.parse(await f.text())); $("#llimpres").textContent = n; toast("Ledger & Lamp is in."); } catch (er) { toast("Couldn't import that: " + er.message); } };
     const save = () => { Store.saveSettings().catch(e => toast("Couldn't save settings: " + e.message)); };
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
     $("#cf").onchange = e => { S.confetti = e.target.checked; save(); };
@@ -528,6 +723,25 @@
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
     $("#meSel").onchange = e => Store.setMe(e.target.value);
     $("#sw").onclick = async () => { try { await Store.pickFolder(); applyTheme(); render(); } catch (e) { if (e.name !== "AbortError") toast(e.message); } };
+  }
+
+  // ---------------- Ledger & Lamp import ----------------
+  async function importLL(data) {
+    if (!data || !data.collections) throw new Error("That isn't a Ledger & Lamp export.");
+    const counts = [];
+    for (const c of ["titles", "logs", "fh", "bills", "daysoff", "pipeline", "deposits"]) {
+      const list = data.collections[c] || []; for (const r of list) { const { id, ...rest } = r; await Store.llPut(c, id, rest); }
+      if (list.length) counts.push(list.length + " " + c);
+    }
+    if (data.config) await Store.llPut("config", "main", data.config);
+    // link titles to books with the same name
+    const norm = x => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); let linked = 0;
+    for (const b of Store.books.filter(b => !b.titleId)) {
+      const t = Store.ll.titles.find(t => t.kind !== "author" && (norm(t.name) === norm(b.title)) && !Store.books.some(x => x.titleId === t.id));
+      if (t) { b.titleId = t.id; b.color = t.color || b.color; b.due = t.due || b.due; b.client = t.client || b.client; Store.saveBook(b, true); linked++; }
+    }
+    LL.init(); await LL.loadBoothFh();
+    return counts.join(", ") + (linked ? " · " + linked + " book" + (linked === 1 ? "" : "s") + " linked by name" : "");
   }
 
   boot();
