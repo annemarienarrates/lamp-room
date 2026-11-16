@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ledger">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Lamp Room</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%95%AF%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">The Lamp Room<small>private booth</small></div>
+  <nav id="nav">
+    <a href="#/library" data-r="library">Dashboard</a>
+    <a href="#/workspace" data-r="workspace">Workspace</a>
+    <a href="#/calc" data-r="calc">Tools</a>
+    <a href="#/settings" data-r="settings">Settings</a>
+  </nav>
+  <span id="savechip" class="chip hidden"></span>
+  <span id="folderchip" class="chip hidden"></span>
+</header>
+<main id="main"></main>
+
+<!-- libraries (bundled, nothing loads from the internet) -->
+<script src="lib/jszip.min.js"></script>
+<script src="lib/confetti.browser.js"></script>
+<script src="lib/lame.min.js"></script>
+<!-- app -->
+<script src="js/prep.js"></script>
+<script src="js/docx.js"></script>
+<script src="js/store.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/export.js"></script>
+<script src="js/cheers.js"></script>
+<script src="js/app.js"></script>
+<script src="js/booth.js"></script>
+</body>
+</html>
