@@ -469,7 +469,8 @@
     const S = Store.settings, readers = [...new Set([B.readingAs, ...S.narrators.map(n => n.name)])];
     return `<div class="bd-sec"><b>Reading as</b><select class="stu-sel" id="b-as" ${B.rec ? "disabled" : ""}>${readers.map(nm => `<option ${nm === B.readingAs ? "selected" : ""}>${esc(nm)}</option>`).join("")}</select>
         <div class="stu-note">Your lines are lit; other readers' lines are dimmed, with the line before yours as a grey cue. Select words in the text to change who reads them.</div></div>
-      <div class="bd-sec"><b>Microphone</b><button class="stu-btn" data-p="mic">🎙 ${esc(B.mic.label ? B.mic.label.slice(0, 34) : "Choose microphone")}</button></div>
+      <div class="bd-sec"><b>Microphone</b><button class="stu-btn" data-p="mic">🎙 ${esc(B.mic.label ? B.mic.label.slice(0, 34) : "Choose microphone")}</button>
+        ${B.mic.isOpen ? (inf => `<div class="stu-note">Capture: <b>${inf.mode === "direct" ? "direct" : inf.mode === "worklet" ? "audio worklet" : "fallback"}</b>${inf.rate ? " · mic at " + (inf.rate / 1000) + " kHz" : ""}${inf.rate && inf.rate !== LRAudio.RATE ? ' · <b class="warn-t">set it to 48 kHz in Audio MIDI Setup</b>' : ""} · ${inf.drops ? '<b class="warn-t">' + inf.drops + " dropout" + (inf.drops === 1 ? "" : "s") + " this session</b>" : "no dropouts"}</div>`)(B.mic.info) : ""}</div>
       <div class="bd-sec"><b>Look</b><label class="fxr"><span>Theme</span><select class="stu-sel" data-pref="theme">${[["ledger", "Ledger"], ["archive", "Archive"], ["lamp", "Lamp"], ["nocturne", "Nocturne"], ["foundry", "Foundry"], ["afterglow", "Afterglow"], ["velvet", "Velvet"], ["signal", "Signal"]].map(([k, l]) => `<option value="${k}" ${(S.theme || "ledger") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="fxr"><span>Reading font</span><select class="stu-sel" data-pref="readFont"><option value="sans" ${S.readFont !== "serif" ? "selected" : ""}>Sans (clean)</option><option value="serif" ${S.readFont === "serif" ? "selected" : ""}>Serif (book)</option></select></label>
         <div class="stu-note">Text size: A− / A+ in the bar above, ${esc(kl("textSmaller"))} / ${esc(kl("textBigger"))}, or ⌘ + scroll over the text.</div></div>
@@ -786,8 +787,13 @@
     });
   }
   async function ensureMic() {
-    if (B.mic.ctx) return true;
-    try { await B.mic.open(localStorage.getItem("lr-mic") || undefined); return true; }
+    if (B.mic.isOpen) return true;
+    try {
+      await B.mic.open(localStorage.getItem("lr-mic") || undefined);
+      const inf = B.mic.info;
+      if (inf.rate && inf.rate !== LRAudio.RATE && !B.rateWarned) { B.rateWarned = true; toast("🎤 Your microphone is running at " + (inf.rate / 1000) + " kHz. For the cleanest takes, set it to 48,000 Hz in Audio MIDI Setup (Applications ▸ Utilities), then reload."); }
+      return true;
+    }
     catch (e) { toast("Couldn't open the microphone: " + e.message); return false; }
   }
   async function chooseMic() {
@@ -850,6 +856,12 @@
       // Finished Hour flagged clipping as you went
       if (hot > 1) { r.clipFlags += hot; const t = r.clip.at + r.clip.dur; if (t - r.lastClipT > 3) { r.lastClipT = t; B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx: "", note: "Clipped — too loud here", auto: true, done: false }); } }
     };
+    B.mic.onDrop = (ms, why) => {
+      const r = B && B.rec; if (!r || r.writer !== writer) return;
+      const t = r.clip.at + r.clip.dur; if (r.lastDropT != null && t - r.lastDropT < 2) return; r.lastDropT = t;
+      B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx: "", note: "Audio dropout — " + why, auto: true, done: false });
+      if (!r.dropToast) { r.dropToast = true; toast("⚠️ The microphone audio glitched at " + clock(t) + ". It's flagged in Pickups so you can punch it in again."); }
+    };
     B.playhead = null;
     startListening(); startAnim();
     renderEditBar(); renderTransport(); renderStats();
@@ -868,7 +880,9 @@
   }
   async function stopRecording() {
     if (!B || !B.rec) return;
-    const r = B.rec; B.rec = null; B.mic.onFrames = null; document.body.classList.remove("booth-recording"); drawVoice();
+    if (B.rec && !B.rec.paused) await B.mic.flush();          // the last few milliseconds still in the capture buffer
+    if (!B || !B.rec) return;
+    const r = B.rec; B.rec = null; B.mic.onFrames = null; B.mic.onDrop = null; document.body.classList.remove("booth-recording"); drawVoice();
     try { await r.writer.close(); } catch (e) { toast("Saving the take failed: " + e.message); }
     r.clip.dur = r.writer.duration - r.clip.off;
     B.audio.alts = B.audio.alts || [];
@@ -1597,7 +1611,7 @@
     if (B.rec || B.player.playing) B.raf = requestAnimationFrame(animate); else B.raf = null;
   }
   function meters() {
-    const db = B.mic.ctx ? B.mic.level : -90, pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100)), cls = db > -3 ? "hot" : db > -12 ? "ok" : "";
+    const db = B.mic.isOpen ? B.mic.level : -90, pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100)), cls = db > -3 ? "hot" : db > -12 ? "ok" : "";
     const lv = $("#bd-lvl"); if (lv) { lv.style.width = pct + "%"; lv.className = cls; }
     const lf = $("#lm-fill"); if (lf) { lf.style.width = (B.lmOn || B.rec ? pct : 0) + "%"; lf.className = "lm-fill " + cls; }
     const lm = $("#lm-msg"); if (lm && (B.lmOn || B.rec)) { const h = B.mic.peakHold; lm.textContent = B.mic.clip ? "Clipping — lower the gain" : h < -40 ? "Say a line…" : h > -3 ? "Too hot" : h > -12 ? "Good level" : "Too quiet"; if (Date.now() - (B.lmT || 0) > 2500) { B.mic.peakHold = -90; B.mic.clip = false; B.lmT = Date.now(); } }
@@ -1757,7 +1771,9 @@
     const hop = Math.round(LRAudio.RATE * 0.01), n = Math.floor(x.length / hop), env = new Float32Array(n), pk = new Float32Array(n);
     for (let k = 0; k < n; k++) { let s = 0, p = 0; for (let j = k * hop, e = j + hop; j < e; j++) { const v = x[j]; s += v * v; const a = v < 0 ? -v : v; if (a > p) p = a; } env[k] = Math.sqrt(s / hop); pk[k] = p; }
     const sorted = Array.from(env).filter(v => v > 1e-6).sort((a, b) => a - b), floor = sorted.length ? sorted[Math.floor(sorted.length * 0.1)] : 1e-4;
-    return { env, pk, n, thr: Math.max(floor * 3.5, 0.0035) };
+    let top = 0; for (let k = 0; k < n; k++) if (env[k] > top) top = env[k];
+    // very clean audio (digital silence between lines) puts the floor at the voice itself: cap the threshold under the loudest speech
+    return { env, pk, n, thr: Math.max(Math.min(floor * 3.5, top * 0.3), 0.0035) };
   }
   // Cut a cast member's file into lines. A click or clap between lines is the cleanest marker; with none, the pauses decide
   // (and if there are more stretches of speech than lines, the shortest pauses are joined until the count fits).
