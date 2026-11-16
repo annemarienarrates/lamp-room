@@ -1,4 +1,4 @@
-THE LAMP ROOM  (v0.7: Booth, Studio, Effects, Duets, Celebrations & the Ledger & Lamp planner)
+THE LAMP ROOM  (v0.8: Booth, Studio, Effects, Duets, Celebrations, the Ledger & Lamp planner, two people one booth)
 ================================================
 
 Opening it
@@ -18,8 +18,14 @@ Two folders, two jobs
   Keep it OUTSIDE Google Drive / Dropbox. Audio is big and stays on this computer.
 
 First run asks whose computer this is. The Lamp Room then opens as that person:
-their pace, their sessions, their lines in duets. Change it in Settings, or switch
-"Reading as" inside the Booth.
+their pace, their sessions, their lines in duets.
+Sharing one computer? Click the 👤 name at the top right (or ☰ Menu in the Booth) and pick
+who's recording. Theme, celebrations, hotkeys, text size and track sizes are kept per person.
+Afterwards, Settings > Recordings on this computer copies one person's takes to a folder,
+and "Bring takes in" on their own Mac puts them in its Studio folder.
+
+Full guide: the ? in the top bar, or guide/Lamp Room Guide.pdf. Keyboard printout:
+guide/Lamp Room Keyboard.pdf.
 
 Duets
 -----

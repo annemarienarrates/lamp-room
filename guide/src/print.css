@@ -1,0 +1,11 @@
+@font-face { font-family: "Fraunces"; src: url("../../fonts/fraunces-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Fraunces"; src: url("../../fonts/fraunces-latin-wght-italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; }
+:root { --bg: #121212; --panel: #1b1a19; --panel2: #24221f; --ink: #ece6d9; --muted: #9a9183; --line: #34312c; --line2: #46423b;
+  --brass: #c8893a; --brass-hi: #e0a050; --steel: #8aa6b8; --moss: #8fae7a; --rust: #c0472f; --amber: #d9a04a;
+  --serif: "Fraunces", Georgia, serif; --sans: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; --mono: "SF Mono", Menlo, Consolas, monospace; }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 10.5pt/1.45 var(--sans); }
+h1, h2, h3 { font-family: var(--serif); font-weight: 500; margin: 0; }
+.grain { background: radial-gradient(900px 500px at 15% -10%, #2a241c 0%, transparent 60%), radial-gradient(700px 400px at 100% 110%, #20160c 0%, transparent 60%), var(--bg); }
+.rule { height: 1px; background: linear-gradient(90deg, var(--brass), transparent); margin: 8px 0 14px; }
+kbd { font: 600 8.5pt var(--mono); background: var(--panel2); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--ink); white-space: nowrap; }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>The Lamp Room — Booth Keyboard</title>
+<link rel="stylesheet" href="print.css">
+<style>
+  @page { size: 11in 8.5in; margin: 0; }
+  body { width: 11in; height: 8.5in; overflow: hidden; }
+  .sheet { width: 11in; height: 8.5in; padding: .45in .5in .4in; display: flex; flex-direction: column; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; }
+  header .mark { font: 600 8pt var(--sans); letter-spacing: .3em; text-transform: uppercase; color: var(--brass); }
+  header h1 { font-size: 25pt; letter-spacing: -.01em; }
+  header h1 i { color: var(--brass-hi); font-weight: 400; }
+  .legend { display: flex; gap: 16px; font: 600 8pt var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .kb { margin-top: 12px; background: linear-gradient(180deg, #1f1d1a, #151412); border: 1px solid #3a352e; border-radius: 18px; padding: 12px; box-shadow: 0 20px 40px -20px #000, inset 0 1px 0 #ffffff0d; }
+  .row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .row.fnrow .k { height: .3in; padding: 3px 6px; flex-direction: row; align-items: center; gap: 8px; }
+  .row.fnrow .k .act { margin: 0 0 0 auto; }
+  .row:last-child { margin-bottom: 0; }
+  .k { --u: .6in; flex: 0 0 calc(var(--u) * var(--w, 1) + 6px * (var(--w, 1) - 1)); height: .58in; border-radius: 7px; background: linear-gradient(180deg, #2a2723, #211f1c); border: 1px solid #3b3630; border-bottom: 3px solid #12100e;
+    padding: 4px 6px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  .k .cap { font: 600 10pt var(--sans); color: #8d8476; line-height: 1; }
+  .k .cap.sm { font-size: 7.5pt; letter-spacing: .02em; }
+  .k .act { margin-top: auto; font: 600 6.6pt/1.15 var(--sans); color: var(--ink); }
+  .k .act em { font-style: normal; color: var(--muted); font-weight: 500; }
+  .k.on { border-color: var(--c); background: linear-gradient(180deg, color-mix(in srgb, var(--c) 26%, #2a2723), color-mix(in srgb, var(--c) 12%, #1d1b18)); box-shadow: 0 0 14px -4px var(--c), inset 0 0 12px -6px var(--c); }
+  .k.on .cap { color: var(--c); text-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent); }
+  .rec { --c: #e0a050; } .edit { --c: #8aa6b8; } .view { --c: #8fae7a; } .mod { --c: #b9a98c; }
+  .k.mod.on .act { color: var(--muted); font-weight: 500; }
+  .arrows { display: grid; grid-template-columns: repeat(3, .6in); grid-template-rows: .27in .27in; gap: 4px 6px; flex: 0 0 auto; align-self: flex-end; }
+  .arrows .k { height: auto; flex: none; padding: 2px 5px; }
+  .arrows .k .act { font-size: 5.8pt; }
+  .lower { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 12px; flex: 1; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 7.9pt; line-height: 1.3; }
+  .box h3 { font: 600 7.5pt var(--sans); letter-spacing: .18em; text-transform: uppercase; margin-bottom: 6px; color: var(--c); }
+  .box .r { display: grid; grid-template-columns: .66in 1fr; gap: 6px; padding: 1.5px 0; border-bottom: 1px dotted var(--line); align-items: baseline; }
+  .box .r:last-child { border: 0; }
+  .box kbd { font-size: 7.5pt; }
+  footer { margin-top: 10px; display: flex; justify-content: space-between; font-size: 8pt; color: var(--muted); }
+</style></head>
+<body class="grain">
+<div class="sheet">
+  <header><div><div class="mark">The Lamp Room · Booth keyboard</div><h1>Keep your hands <i>on the keys.</i></h1></div>
+    <div class="legend"><span class="rec">Record</span><span class="edit">Edit</span><span class="view">Move &amp; view</span><span class="mod" style="--c:#b9a98c">Modifiers</span></div></header>
+  <div class="kb" id="kb"></div>
+  <div class="lower" id="lower"></div>
+  <footer><span>⌘ Command · ⇧ Shift · ⌥ Option · On a MacBook, Home / End are fn+← / fn+→. These are the defaults: change any with ⌨ Hotkeys in the Booth.</span><span>Foundry edition</span></footer>
+</div>
+<script src="keys.js"></script>
+<script>
+  // key → [group, html for the action line]
+  const A = {
+    esc: ["view", "Stop · clear"], "1": ["view", "Track 1<br><em>⌥ record</em>"], "2": ["view", "Track 2<br><em>⌥ record</em>"], "3": ["view", "Track 3<br><em>⌥ record</em>"], "4": ["view", "Track 4<br><em>⌥ record</em>"], "5": ["view", "Track 5<br><em>⌥ record</em>"], "6": ["view", "Track 6<br><em>⌥ record</em>"],
+    "-": ["view", "Zoom out<br><em>⌘ text smaller</em>"], "=": ["view", "Zoom in<br><em>⌘ text larger</em>"], delete: ["edit", "Delete sel. / take"],
+    E: ["rec", "Repeat effect"], R: ["rec", "Record<br><em>⇧ Punch in</em>"], T: ["view", "Next track<br><em>⇧ Add one</em>"], P: ["view", "<em>⇧ Tools panel</em>"],
+    "[": ["view", "Shorter tracks"], "]": ["view", "Taller tracks"],
+    A: ["edit", "<em>⌘ Select all</em>"], S: ["rec", "Stop"], F: ["rec", "Flub<br><em>redo sentence</em>"],
+    Z: ["edit", "<em>⌘ Undo<br>⌘⇧ Redo</em>"], X: ["edit", "<em>⌘ Cut</em>"], C: ["rec", "Their line<br><em>⌘ Copy</em>"], V: ["edit", "<em>⌘ Paste<br>⌘⇧ Over</em>"], B: ["edit", "Split take"], N: ["rec", "Named marker"], M: ["rec", "Flub marker"],
+    ",": ["view", "Prev. flag"], ".": ["view", "Next flag"], space: ["rec", "Play / stop · plays the selection"],
+    shift: ["mod", "Shift ⇧"], cmd: ["mod", "Command ⌘"], opt: ["mod", "Option ⌥"]
+  };
+  const FN = [["esc", "esc", 1.5]].concat(Array.from({ length: 12 }, (_, i) => ["F" + (i + 1), "F" + (i + 1), 1.092]));
+  const ROWS = [
+    [["`", "`"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"], ["6", "6"], ["7", "7"], ["8", "8"], ["9", "9"], ["0", "0"], ["-", "−"], ["=", "="], ["delete", "delete", 1.5]],
+    [["tab", "tab", 1.5], ["Q"], ["W"], ["E"], ["R"], ["T"], ["Y"], ["U"], ["I"], ["O"], ["P"], ["[", "["], ["]", "]"], ["\\", "\\", 1]],
+    [["caps", "caps lock", 1.75], ["A"], ["S"], ["D"], ["F"], ["G"], ["H"], ["J"], ["K"], ["L"], [";", ";"], ["'", "'"], ["return", "return", 1.86]],
+    [["shift", "shift ⇧", 2.36], ["Z"], ["X"], ["C"], ["V"], ["B"], ["N"], ["M"], [",", ","], [".", "."], ["/", "/"], ["rshift", "shift ⇧", 2.36]],
+    [["fn", "fn"], ["ctrl", "control"], ["opt", "option ⌥"], ["cmd", "command ⌘", 1.25], ["space", "", 5.46], ["cmd", "command ⌘", 1.25], ["opt", "option ⌥"], ["ARROWS"]]
+  ];
+  const key = (id, cap, w) => { const a = A[id === "rshift" ? "shift" : id]; const long = cap && cap.length > 2;
+    return `<div class="k ${a ? a[0] + " on" : ""}" style="--w:${w || 1}"><span class="cap ${long ? "sm" : ""}">${cap == null ? id : cap}</span>${a ? `<span class="act">${a[0] === "mod" ? "" : a[1]}</span>` : ""}</div>`; };
+  const arrows = `<div class="arrows"><div></div><div class="k"><span class="cap sm">▲</span></div><div></div>
+    <div class="k view on"><span class="cap sm">◀</span><span class="act">fn: Home</span></div><div class="k"><span class="cap sm">▼</span></div><div class="k view on"><span class="cap sm">▶</span><span class="act">fn: End</span></div></div>`;
+  document.getElementById("kb").innerHTML = `<div class="row fnrow">${FN.map(([id, cap, w]) => key(id, cap, w)).join("")}</div>` + ROWS.map(r => `<div class="row">${r.map(([id, cap, w]) => id === "ARROWS" ? arrows : key(id, cap, w)).join("")}</div>`).join("");
+  document.getElementById("lower").innerHTML = PRINT_KEYS.map(([g, c, rows]) => `<div class="box ${c}"><h3>${g}</h3>${rows.map(([k, d]) => `<div class="r"><span><kbd>${k}</kbd></span><span>${d}</span></div>`).join("")}</div>`).join("");
+</script>
+</body></html>

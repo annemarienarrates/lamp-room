@@ -135,7 +135,7 @@
   const tierOf = m => m <= 1 ? 0 : m <= 9 ? m - 1 : Math.min(20, 9 + Math.floor((m - 10) / 5));
   const BREAK_MS = 10000;
   const C = { words: 0, score: 0, last: 0, tier: 0, hold: 0 };
-  const best = () => { try { return JSON.parse(localStorage.getItem("lr-combo-best") || "null") || { score: 0 }; } catch (e) { return { score: 0 }; } };
+  const best = () => { try { return JSON.parse(Store.lsGet("lr-combo-best") || "null") || { score: 0 }; } catch (e) { return { score: 0 }; } };
   function comboWords(n) {
     if (!on("combo") || n <= 0) return;
     const now = Date.now();
@@ -156,7 +156,7 @@
     if (C.score > 0) {
       const b = best();
       if (C.score > b.score) {
-        try { localStorage.setItem("lr-combo-best", JSON.stringify({ score: C.score, words: C.words, when: Date.now() })); } catch (e) {}
+        try { Store.lsSet("lr-combo-best", JSON.stringify({ score: C.score, words: C.words, when: Date.now() })); } catch (e) {}
         if (b.score > 0) celebrate({ title: "NEW BEST COMBO", sub: C.score.toLocaleString() + " points · " + C.words.toLocaleString() + " words", level: 2 });
       }
     }
