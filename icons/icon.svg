@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a221a"/><stop offset="1" stop-color="#0f0c09"/></linearGradient>
+    <radialGradient id="glow" cx="512" cy="470" r="400" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffb347" stop-opacity=".55"/><stop offset=".45" stop-color="#e08a2a" stop-opacity=".18"/><stop offset="1" stop-color="#e08a2a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcf6b"/><stop offset=".55" stop-color="#ff9a2e"/><stop offset="1" stop-color="#e2531c"/></linearGradient>
+    <radialGradient id="core" cx="512" cy="470" r="70" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fffbe9"/><stop offset="1" stop-color="#ffe7a0" stop-opacity="0"/></radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7a4c18"/><stop offset=".35" stop-color="#e8b060"/><stop offset=".6" stop-color="#c8893a"/><stop offset="1" stop-color="#6b4214"/></linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffe2b0" stop-opacity=".05"/><stop offset=".25" stop-color="#ffe2b0" stop-opacity=".22"/><stop offset=".5" stop-color="#ffe2b0" stop-opacity=".04"/><stop offset="1" stop-color="#ffe2b0" stop-opacity=".12"/></linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <circle cx="512" cy="470" r="400" fill="url(#glow)"/>
+  <!-- sound, either side of the lamp -->
+  <g fill="#c8893a" opacity=".9">
+    <rect x="172" y="440" width="26" height="60" rx="13" opacity=".45"/><rect x="222" y="400" width="26" height="140" rx="13" opacity=".6"/><rect x="272" y="350" width="26" height="240" rx="13" opacity=".75"/><rect x="322" y="410" width="26" height="120" rx="13" opacity=".9"/>
+    <rect x="826" y="440" width="26" height="60" rx="13" opacity=".45"/><rect x="776" y="400" width="26" height="140" rx="13" opacity=".6"/><rect x="726" y="350" width="26" height="240" rx="13" opacity=".75"/><rect x="676" y="410" width="26" height="120" rx="13" opacity=".9"/>
+  </g>
+  <!-- chimney glass -->
+  <path d="M452 250 C452 300 392 340 392 470 C392 580 440 620 452 640 L572 640 C584 620 632 580 632 470 C632 340 572 300 572 250 Z" fill="url(#glass)" stroke="#ffd9a0" stroke-opacity=".35" stroke-width="6"/>
+  <rect x="440" y="226" width="144" height="30" rx="10" fill="url(#brass)"/>
+  <!-- flame -->
+  <path d="M512 330 C540 390 572 430 572 492 C572 540 545 572 512 572 C479 572 452 540 452 492 C452 430 484 390 512 330 Z" fill="#ff9a2e" filter="url(#soft)" opacity=".9"/>
+  <path d="M512 330 C540 390 572 430 572 492 C572 540 545 572 512 572 C479 572 452 540 452 492 C452 430 484 390 512 330 Z" fill="url(#flame)"/>
+  <path d="M512 420 C526 455 540 470 540 500 C540 526 528 546 512 546 C496 546 484 526 484 500 C484 470 498 455 512 420 Z" fill="url(#core)"/>
+  <rect x="504" y="560" width="16" height="40" rx="6" fill="#3a2a18"/>
+  <!-- brass base -->
+  <path d="M420 640 L604 640 L644 700 L380 700 Z" fill="url(#brass)"/>
+  <rect x="352" y="700" width="320" height="34" rx="12" fill="url(#brass)"/>
+  <ellipse cx="512" cy="770" rx="230" ry="20" fill="#000" opacity=".35"/>
+</svg>
