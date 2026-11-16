@@ -7,7 +7,10 @@
   const kid = (el, name) => kids(el, name)[0] || null;
   const attr = (el, name) => el ? (el.getAttributeNS(W, name) || el.getAttribute("w:" + name)) : null;
 
-  async function readDocx(arrayBuffer) {
+  let COLORS = new Set();
+  // opts.fullCast: every distinct highlight colour becomes its own part
+  async function readDocx(arrayBuffer, opts) {
+    COLORS = new Set(); Prep.partOfColor.full = !!(opts && opts.fullCast);
     const zip = await JSZip.loadAsync(arrayBuffer);
     const docXml = await zip.file("word/document.xml").async("string");
     const stylesFile = zip.file("word/styles.xml");
@@ -30,7 +33,8 @@
         else if (["tbl", "tr", "tc", "sdt", "sdtContent", "customXml"].includes(n.localName)) walkParas(n);
       }
     };
-    walkParas(body);
+    try { walkParas(body); } finally { Prep.partOfColor.full = false; }
+    blocks.colors = [...COLORS];
     return blocks;
   }
 
@@ -72,7 +76,7 @@
         else if (n.localName === "br" || n.localName === "cr") text += " ";
         else if (n.localName === "noBreakHyphen") text += "-";
       }
-      if (text) runs.push([text, Prep.partOfColor(color)]);
+      if (text) { runs.push([text, Prep.partOfColor(color)]); if (color && !/^(none|auto|white|FFFFFF)$/i.test(color)) COLORS.add(color); }
     };
     walk(p);
     return { text: runs.map(r => r[0]).join(""), heading, runs };

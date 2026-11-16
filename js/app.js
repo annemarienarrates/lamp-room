@@ -47,6 +47,7 @@
     });
     document.addEventListener("lr-external", e => {
       const d = e.detail || []; if (d.includes("settings")) applyTheme();
+      if (d.includes("pickups") && route.name !== "booth") { const n = Store.books.reduce((a, b) => a + Store.pickupReqs(b).filter(q => q.to === Store.me() && q.status === "open" && !Store.pickupReply(b, q)).length, 0); if (n && n !== start.pk) toast("🔁 " + n + " pickup" + (n === 1 ? "" : "s") + " waiting for you. See Heads up."); start.pk = n; }
       if (["library", "book", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim")) render();
       chip("Updated from " + ((Store.settings.narrators || []).map(n => n.name).find(n => n !== Store.me()) || "the shared folder"), false);
     });
@@ -98,14 +99,13 @@
   function alertBox(m) { window.toast ? toast(m) : console.warn(m); }
 
   function render() {
-    const h = location.hash.replace(/^#\/?/, "").split("/");
-    const q = (h[0] || "").split("?"); h[0] = q[0];
-    route = { name: h[0] || "library", id: h[1], ci: h[2] != null && h[2] !== "" ? +h[2] : null, q: new URLSearchParams(q[1] || "") };
+    const [path, qs] = location.hash.replace(/^#\/?/, "").split("?"), h = path.split("/");
+    route = { name: h[0] || "library", id: h[1], ci: h[2] != null && h[2] !== "" ? +h[2] : null, q: new URLSearchParams(qs || "") };
     $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === route.name || (route.name === "key" && a.dataset.r === "help") || ((route.name === "book" || route.name === "booth") && a.dataset.r === "library")));
     const fc = $("#folderchip"); fc.textContent = "📁 " + (Store.testMode ? "test library" : Store.folderName()); fc.classList.remove("hidden");
     if (route.name !== "booth") window.scrollTo(0, 0);
     if (!["almanac", "titles", "log", "ledger", "key", "help"].includes(route.name) && LL.views) LL.views.el = null;
-    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), help: viewHelp, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci),
+    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), help: viewHelp, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci, route.q.get("tab")),
       workspace: () => { const id = Store.lsGet("lr-last-book"); if (id && Store.byId(id)) location.hash = "#/booth/" + id; else { toast("Open a book first — its Booth becomes your Workspace."); location.hash = "#/library"; } } }[route.name] || viewLibrary)();
   }
 
@@ -331,6 +331,14 @@
     for (const bl of (P.bills || []).filter(b => b.active !== false)) { const ym = today.slice(0, 7), d = LL.billDate(bl, ym); if (!(bl.paid || {})[ym] && d >= today && d <= LL.addDays(today, 7)) heads.push({ cls: "", html: `🧾 ${esc(bl.name)} ${money(LL.billAmount(bl, ym))} due ${esc(LL.fmtShort(d))}`, go: "#/ledger" }); }
     let yd = LL.addDays(today, -1), guard = 0; while (!LL.isWorkday(me, yd) && guard++ < 7) yd = LL.addDays(yd, -1);
     if (LL.isWorkday(me, yd) && !(P.logs || []).some(l => l.date === yd && (l.person === me || (l.entries || []).some(e => e.person === me)))) heads.push({ cls: "", html: `No log for ${esc(LL.fmt(yd))} yet`, go: "#/log" });
+    // pickups through the shared folder: asked of me, or sent back to me
+    for (const b of Store.books) {
+      const qs = Store.pickupReqs(b), ch = id => b.chapters.findIndex(c => c.id === id);
+      const forMe = qs.filter(q => q.to === meName && q.status === "open" && !Store.pickupReply(b, q));
+      if (forMe.length) heads.unshift({ cls: "warn", html: `🔁 ${esc(forMe[0].asker)} asked you for <b>${forMe.length} pickup${forMe.length === 1 ? "" : "s"}</b> in ${esc(b.title)}`, go: "#/booth/" + b.id + "/" + Math.max(0, ch(forMe[0].chapterId)) + "?tab=pickups" });
+      const back = qs.filter(q => q.asker === meName && q.status === "open" && Store.pickupReply(b, q));
+      if (back.length) heads.unshift({ cls: "", html: `🔁 <b>${back.length} pickup${back.length === 1 ? "" : "s"}</b> came back from ${esc([...new Set(back.map(q => q.to))].join(" & "))} for ${esc(b.title)}: they go in when you open the chapter`, go: "#/booth/" + b.id + "/" + Math.max(0, ch(back[0].chapterId)) + "?tab=pickups" });
+    }
     const headCard = `<div class="dt-card"><div class="dt-label">Heads up</div>${heads.length ? heads.slice(0, 7).map(h => `<div class="head-row ${h.cls}" data-go="${esc(h.go)}">${h.html}</div>`).join("") + (heads.length > 7 ? `<div class="dt-empty"><a href="#/almanac">${heads.length - 7} more on the Almanac</a></div>` : "") : `<div class="dt-empty">All quiet.</div>`}</div>`;
     const ring = (id, label, sub) => `<div class="ring" id="${id}"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="trk" cx="32" cy="32" r="28.5" stroke-width="7"/><circle class="arc" cx="32" cy="32" r="28.5" stroke-width="7" transform="rotate(-90 32 32)" stroke-dasharray="179.07" stroke-dashoffset="179.07"/></svg><div class="ctr">—</div><div class="lbl">${label}</div><div class="sub">${sub}</div></div>`;
     const cb = (() => { try { return JSON.parse(Store.lsGet("lr-combo-best") || "null"); } catch (e) { return null; } })();
@@ -345,7 +353,10 @@
           <div class="mode-toggle"><button class="mode-btn ${mode !== "list" ? "on" : ""}" data-mode="cards">▦ Thumbnails</button><button class="mode-btn ${mode === "list" ? "on" : ""}" data-mode="list">☰ List</button></div>
           <select id="dash-sort">${[["opened", "Recently Opened"], ["due", "Due Date"], ["words", "Word Count"], ["client", "Client"], ["title", "Title"]].map(([k, l]) => `<option value="${k}" ${sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
           <button class="btn" id="newtitle" title="A title without a manuscript yet (or author work)">+ Title</button><a class="btn primary" href="#/import">+ New Project</a></div></div>
-      ${active.length ? list(active) : items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`}
+      ${(() => { const writing = x => !x.b && x.t && x.t.kind === "author", aud = active.filter(x => !writing(x)), wr = active.filter(writing);
+        if (!active.length) return items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`;
+        return `<div class="section-label proj-kind">🎙 Audio projects <span>${aud.length}</span></div>${aud.length ? list(aud) : `<p class="small muted">No audio projects in progress.</p>`}
+          ${wr.length ? `<div class="section-label proj-kind" style="margin-top:22px">✒ Writing projects <span>${wr.length}</span></div>${list(wr)}` : ""}`; })()}
       ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
       ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
@@ -483,12 +494,11 @@
     const S = Store.settings, found = Prep.partsInBook(book);
     if (!found.n) found.n = { passages: 0, words: 0 };
     const order = ["n", "m", "f", "s"], keys = Object.keys(found).sort((a, b) => (order.indexOf(a) + 1 || 9) - (order.indexOf(b) + 1 || 9));
-    const sw = { n: "transparent", m: "#BDD7EE", f: "#F8CBDE", s: "#FFF59D" };
     const rw = readerWords(book);
     return `<div style="margin-top:14px"><div class="row" style="align-items:center"><div class="small muted">Who reads what — from the highlight colours in the manuscript</div><div class="spacer"></div><button class="btn small quiet" id="noparts">Turn off parts</button></div>
       <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
-      ${keys.map(k => `<tr><td><span class="sw" style="background:${sw[k] || "#" + k.slice(2)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
-        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="">Same as narration</option>`}${S.narrators.map(n => `<option ${book.parts[k] === n.name ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></td></tr>`).join("")}
+      ${keys.map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
+        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k])}</select></td></tr>`).join("")}
       </tbody></table>
       <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(k) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
   }
@@ -591,6 +601,7 @@
     $("#im").onchange = e => { keep(); imp.method = e.target.value; viewImport(); };
     [["#o-sb", "sceneBreaks"], ["#o-np", "normalizePunct"], ["#o-jb", "joinBrokenLines"]].forEach(([id, k]) => $(id).onchange = e => { keep(); imp.opts[k] = e.target.checked; viewImport(); });
     $$("[data-ipart]").forEach(el => el.onchange = () => { keep(); imp.parts[el.dataset.ipart] = el.value; });
+    const fc = $("#fullcast"); if (fc) fc.onchange = async () => { keep(); imp.fullCast = fc.checked; imp.parts = {}; imp.raw = await window.readDocx(imp.buf.slice(0), { fullCast: imp.fullCast }); viewImport(); };
     $("#restart").onclick = () => { imp = null; viewImport(); };
     $("#create").onclick = async () => {
       keep();
@@ -616,6 +627,13 @@
       catch (err) { $("#create").disabled = false; toast("Couldn't save: " + err.message); }
     };
   }
+  // who can read a part: the two of you, plus outside cast who just send files
+  const CAST = ["Cast 1", "Cast 2", "Cast 3", "Cast 4"];
+  function readerOptions(sel) {
+    const S = Store.settings, names = S.narrators.map(n => n.name);
+    return `<optgroup label="Narrators">${names.map(n => `<option ${sel === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup><optgroup label="Outside cast (send files)">${CAST.map(n => `<option ${sel === n ? "selected" : ""}>${n}</option>`).join("")}</optgroup>`;
+  }
+  const partSwatch = k => ({ n: "transparent", m: "#BDD7EE", f: "#F8CBDE", s: "#FFF59D" }[k] || Prep.colorCss(k));
   // highlight colours found in the manuscript → who reads each
   function impParts() {
     const found = Prep.partsInBook({ chapters: imp.chapters.filter(c => c.included) });
@@ -625,19 +643,25 @@
     const S = Store.settings, me = Store.me() || (S.narrators[0] || {}).name;
     imp.parts = imp.parts || {};
     ["n", ...keys].forEach(k => { if (!imp.parts[k]) imp.parts[k] = me; });
-    const sw = { n: "transparent", m: "#BDD7EE", f: "#F8CBDE", s: "#FFF59D" };
     return `<div class="card" style="background:var(--panel2)"><h3>Highlights found — who reads each part?</h3>
+      ${imp.buf ? `<label class="check"><input type="checkbox" id="fullcast" ${imp.fullCast ? "checked" : ""}> <b>Full cast:</b> every highlight colour is a different voice${imp.colors ? ` (${imp.colors} colour${imp.colors === 1 ? "" : "s"} in this file)` : ""}. Off: blues, pinks and yellow are grouped as male, female and system.</label>` : ""}
       <table class="ch"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
-      ${["n", ...keys].map(k => `<tr><td><span class="sw" style="background:${sw[k] || "#" + k.slice(2)}"></span> ${esc(Prep.partLabel(k))}</td><td class="num">${num((found[k] || {}).passages || 0)}</td><td class="num">${num((found[k] || {}).words || 0)}</td>
-        <td><select data-ipart="${esc(k)}">${S.narrators.map(n => `<option ${imp.parts[k] === n.name ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></td></tr>`).join("")}
-      </tbody></table><p class="small muted">You can change this later in the book's details, and flip whole chapters to someone's POV.</p></div>`;
+      ${["n", ...keys].map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}</td><td class="num">${num((found[k] || {}).passages || 0)}</td><td class="num">${num((found[k] || {}).words || 0)}</td>
+        <td><select data-ipart="${esc(k)}">${readerOptions(imp.parts[k])}</select></td></tr>`).join("")}
+      </tbody></table><p class="small muted">Outside cast (Cast 1–4) never open the Lamp Room: they send you a recording and you drop it into the Booth's Co-narrator tab, where it's cut into their lines. You can change all of this later in the book's details.</p></div>`;
   }
   async function loadFile(file) {
     main().innerHTML = `<div class="card welcome"><p>Reading ${esc(file.name)}…</p></div>`;
     try {
       const ext = (file.name.split(".").pop() || "").toLowerCase();
       let raw;
-      if (ext === "docx") raw = await window.readDocx(await file.arrayBuffer());
+      if (ext === "docx") {
+        imp.buf = await file.arrayBuffer();
+        raw = await window.readDocx(imp.buf.slice(0), { fullCast: imp.fullCast });
+        // more highlight colours than blue/pink/yellow can hold? Then each colour is its own voice.
+        if (imp.fullCast == null) { const fam = new Set(raw.flatMap(b => (b.runs || []).map(r => r[1])).filter(k => k !== "n")); if (raw.colors.length >= 4 && raw.colors.length > fam.size) { imp.fullCast = true; raw = await window.readDocx(imp.buf.slice(0), { fullCast: true }); } }
+        imp.colors = raw.colors.length;
+      }
       else throw new Error("The Lamp Room reads Word .docx files. Save it as .docx, or paste the text instead.");
       if (!raw.length || raw.reduce((a, b) => a + b.text.length, 0) < 200) throw new Error("Hardly any text came out of that file.");
       imp.raw = raw; imp.file = file;

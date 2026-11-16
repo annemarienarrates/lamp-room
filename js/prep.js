@@ -300,8 +300,13 @@
   const SYSTEM = ["FFF59D"];
   const HL_NAMES = { cyan: "m", blue: "m", darkBlue: "m", darkCyan: "m", magenta: "f", red: "f", darkMagenta: "f", darkRed: "f", yellow: "s", darkYellow: "s" };
   const PART_LABEL = { n: "Narration", m: "Male lines", f: "Female lines", s: "System voice" };
-  function partOfColor(c) {
+  // Full cast: every distinct highlight colour is its own voice (no grouping into blue/pink/yellow families)
+  function partOfColor(c, fullCast) {
     if (!c) return "n";
+    if (fullCast || partOfColor.full) {
+      if (/^(none|auto|white|FFFFFF)$/i.test(c)) return "n";
+      return "c:" + (/^#?[0-9A-F]{6}$/i.test(c) ? c.toUpperCase().replace(/^#/, "") : c);
+    }
     if (HL_NAMES[c]) return HL_NAMES[c];
     if (/^(none|auto|white|FFFFFF)$/i.test(c)) return "n";
     const h = c.toUpperCase().replace(/^#/, "");
@@ -317,7 +322,21 @@
     if (hue >= 45 && hue <= 70) return "s";
     return "c:" + h;
   }
-  function partLabel(part) { return PART_LABEL[part] || (part.startsWith("r:") ? part.slice(2) + "'s lines" : "Colour " + part.slice(2)); }
+  // a friendly name for a highlight colour: Word's highlight names, or the hue of a hex shade
+  const WORD_HL = { yellow: ["Yellow", "#FFFF00"], green: ["Bright green", "#00FF00"], darkGreen: ["Dark green", "#008000"], cyan: ["Turquoise", "#00FFFF"], magenta: ["Pink", "#FF00FF"], blue: ["Blue", "#0000FF"], red: ["Red", "#FF0000"],
+    darkBlue: ["Dark blue", "#000080"], darkCyan: ["Teal", "#008080"], darkMagenta: ["Violet", "#800080"], darkRed: ["Dark red", "#800000"], darkYellow: ["Dark yellow", "#808000"], darkGray: ["Dark grey", "#808080"], lightGray: ["Grey", "#C0C0C0"], black: ["Black", "#000000"] };
+  function colorName(c) {
+    if (WORD_HL[c]) return WORD_HL[c][0];
+    const h = String(c).replace(/^#/, ""); if (!/^[0-9A-F]{6}$/i.test(h)) return c;
+    const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const light = (mx + mn) / 2 > 0.72 ? "Light " : (mx + mn) / 2 < 0.3 ? "Dark " : "";
+    if (d < 0.06) return light + "grey";
+    let hue = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hue = (hue * 60 + 360) % 360;
+    const nm = hue < 15 ? "red" : hue < 40 ? "orange" : hue < 70 ? "yellow" : hue < 160 ? "green" : hue < 195 ? "teal" : hue < 255 ? "blue" : hue < 290 ? "purple" : hue < 335 ? "pink" : "red";
+    return light ? light + nm : nm[0].toUpperCase() + nm.slice(1);
+  }
+  function colorCss(part) { const c = part.slice(2); return WORD_HL[c] ? WORD_HL[c][1] : /^[0-9A-F]{6}$/i.test(c) ? "#" + c : c; }
+  function partLabel(part) { return PART_LABEL[part] || (part.startsWith("r:") ? part.slice(2) + "'s lines" : colorName(part.slice(2)) + " lines"); }
 
   // Give tokens [from, to] (inclusive, chapter token indexes as tokens() numbers them) a new part.
   // Works on the characters, so the text and its spacing are untouched; the spaces between two retagged words go with them.
@@ -507,7 +526,7 @@
     return parts.map(p => ({ text: p.text, heading: /^h[1-3]$/i.test(p.tag) }));
   }
 
-  const Prep = { setPart, paraText, paraRuns, partOfColor, partLabel, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
+  const Prep = { setPart, paraText, paraRuns, partOfColor, partLabel, colorName, colorCss, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
     estimate, usFederalHolidays, isWorkday, workdaysUntil, addWorkdays, ymd, uid, METHOD_LABELS, SCENE_MARK };
   if (typeof module !== "undefined" && module.exports) module.exports = Prep; else root.Prep = Prep;
 })(typeof window !== "undefined" ? window : globalThis);

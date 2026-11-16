@@ -1,4 +1,4 @@
-THE LAMP ROOM  (v0.8: Booth, Studio, Effects, Duets, Celebrations, the Ledger & Lamp planner, two people one booth)
+THE LAMP ROOM  (v0.9: Booth, Studio, Effects, Duets, Celebrations, the Ledger & Lamp planner, two people one booth, full cast & pickups)
 ================================================
 
 Opening it
