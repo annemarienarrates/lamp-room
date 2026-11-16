@@ -1,4 +1,4 @@
-THE LAMP ROOM — private booth  (v0.4.1: Booth + Studio)
+THE LAMP ROOM — private booth  (v0.4.2: Booth + Studio)
 ================================================
 
 Opening it
