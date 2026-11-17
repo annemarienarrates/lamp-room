@@ -33,8 +33,8 @@ self.onmessage = async e => {
     if (cmd === "load") { await getPipe(kind || "fast"); self.postMessage({ id, ok: true }); return; }
     if (cmd === "asr") {
       const p = await getPipe(kind || "fast");
-      const out = await p(audio, { chunk_length_s: 30, stride_length_s: 5 });
-      self.postMessage({ id, ok: true, text: (out && out.text) || "" });
+      const out = await p(audio, e.data.stamps ? { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true } : { chunk_length_s: 30, stride_length_s: 5 });
+      self.postMessage({ id, ok: true, text: (out && out.text) || "", chunks: e.data.stamps ? ((out && out.chunks) || []).map(c => ({ text: c.text, t: c.timestamp })) : null });
     }
   } catch (err) { self.postMessage({ id, ok: false, err: String((err && err.message) || err) }); }
 };

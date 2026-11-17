@@ -90,6 +90,15 @@
         ["Slots & Splice all", "Lines that weren't there yet leave a slot. When they arrive, Splice all fills every slot at once."],
         ["Wrong reader?", "Select the words in the text and choose who reads them."]
       ] },
+    { id: "finished", icon: "📼", title: "Finished audio: corrections & assembly", lead: "Open a book that's already recorded, or a chapter someone else narrated, and work on it in the Booth like any other.",
+      items: [
+        ["Bring it in", "Import the manuscript as usual, then Tools ▸ 📼 Finished audio ▸ Bring in the whole book. Choose one file per chapter (MP3, M4A or WAV); they're matched to chapters in name order and you confirm first. Each chapter opens on its timeline when you go to it."],
+        ["Corrections book", "Tick it and nothing you read counts as words: your pickups count as booth time only."],
+        ["Map it", "Map the book listens through the audio on this computer and pins the text to it. It takes a while on a long book, so start it and get on with something else. Stop and pick up later any time."],
+        ["Find in the audio", "Type a word or name (the Japanese words, a character's name) and you get every place it appears, with times once mapped. Click one to jump there."],
+        ["Replace a bit", "Drag across what's wrong on the waveform, press Replace the selection, read the fix, press S. The chapter closes up to fit, and the new read is matched to the loudness around it. For a character's new voice, record on another track with its own effects."],
+        ["Assembling as cast", "When someone else narrates: set Reading as to the narrator's part, bring in their chapters as finished audio and map them. Your lines and Jack's arrive as usual (Send my lines); outside cast come in as their files. Then Splice all drops every line into place. Export the chapter as one."]
+      ] },
     { id: "cast", icon: "🎭", title: "Full cast & pickups", lead: "Up to six voices, and re-reads that travel between you without a single email.",
       items: [
         ["Full cast", "Highlight each voice in its own colour in Word (Turquoise, Pink, Yellow, Bright green, Teal, Violet…). On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],

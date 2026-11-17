@@ -113,6 +113,7 @@
     B.peaks = {};
     render();
     loadPeaks();
+    if (B.chap.orig && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
     if (amLead() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
@@ -356,7 +357,7 @@
   }
 
   // ---------------- side panels: Chapters & Tools ----------------
-  const TOOL_TABS = [["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "Track sound"], ["takes", "Takes"], ["levels", "Levels, fades & spacing"], ["mic", "Mic & reading"]];
+  const TOOL_TABS = [["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "Track sound"], ["takes", "Takes"], ["levels", "Levels, fades & spacing"], ["mic", "Mic & reading"]];
   function renderSide() {
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -371,7 +372,7 @@
       else {
         const tab = B.tab = B.tab || "fx";
         body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" ? (n => n ? " (" + n + ")" : "")(B.audio.markers.filter(m => !m.done && !m.slot).length + pkForMe().filter(q => !Store.pickupReply(B.book, q)).length) : ""}</option>`).join("")}</select>
-          <div class="bd-toolbody">${({ duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
+          <div class="bd-toolbody">${({ orig: origTabHtml, duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
       }
       el.innerHTML = `<div class="bd-tools">${head}${body}</div>`;
       const nt = $(".bd-tools", el); if (nt && keep && which === "tools") nt.scrollTop = top;
@@ -412,6 +413,14 @@
       case "bring": return bringLines();
       case "bringfrom": return pickLinesFolder();
       case "spliceall": return spliceAll();
+      case "oall": return bringOriginals(false);
+      case "oone": return bringOriginals(true);
+      case "omap": return mapBook(false);
+      case "omap1": return mapBook(true);
+      case "ostop": B.mapStop = true; toast("Stopping after this chapter."); return;
+      case "ofind": { B.findQ = (($("#ofind") || {}).value || "").trim(); B.findHits = findInBook(B.findQ); return renderSide(); }
+      case "ohit": return goHit(+x, +y);
+      case "orepl": return replaceSel();
       case "recut": return swapRecut(x);
       case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) playLine(l); return; }
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
@@ -442,6 +451,8 @@
     const t = e.target;
     if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
     if (t.dataset.duet) { setDuetOpt(t.dataset.duet, t.checked); renderSide(); return; }
+    if (t.dataset.p2 === "ocorr") { B.book.corrections = t.checked; Store.saveBook(B.book, true); renderSide(); return; }
+    if (t.dataset.p2 === "omatch") { Store.lsSet("lr-matchlvl", t.checked ? "1" : "0"); return; }
     if (t.dataset.dv) { const k = t.dataset.dv, d = Store.settings.duet = Object.assign({}, Store.settings.duet || {}); d[k] = k === "clean" ? t.checked : k === "vol" ? (+t.value || 0) / 100 : Math.max(0.3, +t.value || 0.8); Store.saveSettings(); if (k !== "vol" || e.type === "change") renderSide(); return; }
     if (t.dataset.pz) { const v = Math.max(0, parseFloat(t.value) || 0); setPause(t.dataset.pz, v); B.pausePreview = null; renderSide(); return; }
     if (t.dataset.pzc === "fill") { B.book.toneFill = t.checked; Store.saveBook(B.book); return; }
@@ -802,6 +813,7 @@
     if (newPos > p.readTo) {
       let n = 0; for (let i = p.readTo; i < newPos; i++) if (B.mine[i]) n++;
       p.readTo = newPos;
+      if (B.book.corrections) n = 0;            // fixing a finished book: pickups count as booth time, not words
       if (n) {
         ensureSession();
         const perWord = B.bookMine ? valueOfMyPart() / B.bookMine : 0;
@@ -914,8 +926,9 @@
     const clip = { file: name, off: 0, dur: 0, at };
     B.audio.tracks[B.track].clips.push(clip);
     delete B.audio.pad;
-    B.rec = { writer, clip, file: name, paused: false, dir: d, lastW: null, start: at, track: B.track, punch: !!punched || B.track > 0, anchors: [], clipFlags: 0, lastClipT: -9, pos0: B.f.pos, handled: new Set(), loud: 0, coUntil: 0 };
+    B.rec = { gapEnd: B.pendingGap != null ? B.pendingGap : null, match: !!B.pendingMatch, writer, clip, file: name, paused: false, dir: d, lastW: null, start: at, track: B.track, punch: !!punched || B.track > 0, anchors: [], clipFlags: 0, lastClipT: -9, pos0: B.f.pos, handled: new Set(), loud: 0, coUntil: 0 };
     B.peaks[name] = { mm: writer.mm };
+    B.pendingGap = null; B.pendingMatch = false;
     if (proofMode() === "live") B.rec.pf = { buf: [], n: 0, a: at };
     B.mic.onFrames = f => {
       const r = B && B.rec; if (!(r && r.writer === writer && !r.paused)) return;
@@ -976,6 +989,7 @@
     }
     // word timing: the take's anchors replace the old ones under it
     B.audio.anchors = B.audio.anchors.filter(p => !(p[0] >= r.start && p[0] < end)).concat(r.anchors).sort((x, y) => x[0] - y[0]);
+    if (r.gapEnd != null) { if (r.gapEnd > end + 0.01) T().deleteRange(B.audio, end, r.gapEnd); if (r.match) await matchLevel(r, end).catch(() => {}); }
     B.lastRecEnd = { ci: B.ci, track: r.track, t: end };
     if (r.punch && end < len() - 0.05) B.playhead = end;     // Finished Hour: after a punch the playhead sits at the end of it
     if (r.clipFlags) toast("⚠️ That take clipped (" + r.clipFlags + " samples at full scale). The spots are flagged — consider lowering the gain and re-reading them.");
@@ -1013,6 +1027,152 @@
     T().truncate(B.audio, t);
     await startRecording(t, false, pre);
   }
+  // ======================= finished audio: correct a book that's already recorded, or assemble on a narrator's audio =======================
+  async function origDir(create) { const bd = await Store.studio.getDirectoryHandle(B.book.folder, { create: true }); return bd.getDirectoryHandle("originals", { create: !!create }); }
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  function pickAudioFiles() {
+    return new Promise(res => { const inp = document.createElement("input"); inp.type = "file"; inp.multiple = true; inp.accept = "audio/*,.mp3,.m4a,.wav,.aif,.aiff,.flac"; inp.onchange = () => res([...inp.files]); inp.oncancel = () => res([]); inp.click(); });
+  }
+  // one file per chapter, in name order, onto the chapters in order; you confirm before anything is copied
+  async function bringOriginals(one) {
+    if (B.rec || B.busy || !(await ensureStudio())) return;
+    const files = (await pickAudioFiles()).sort((a, b) => natural(a.name, b.name)); if (!files.length) return;
+    const chs = one ? [B.ci] : B.book.chapters.map((c, i) => i).filter(i => B.book.chapters[i].included);
+    const pairs = one ? [[B.ci, files[0]]] : files.slice(0, chs.length).map((f, k) => [chs[k], f]);
+    if (!one && !confirm("Match these files to your chapters?\n\n" + pairs.map(([ci, f]) => B.book.chapters[ci].title + "  ←  " + f.name).join("\n") + (files.length > chs.length ? "\n\n" + (files.length - chs.length) + " extra file(s) left out." : files.length < chs.length ? "\n\n" + (chs.length - files.length) + " chapter(s) get no file." : "") + "\n\nIf a pair is wrong, rename the files so they sort in chapter order and try again.")) return;
+    B.busy = "orig"; renderSide(); let k = 0;
+    try {
+      const od = await origDir(true);
+      for (const [ci, f] of pairs) {
+        busyNote("Copying finished audio… " + (++k) + " / " + pairs.length);
+        const name = "ch" + String(ci + 1).padStart(3, "0") + "-" + f.name.replace(/[^\w.\- ]+/g, "");
+        const w = await (await od.getFileHandle(name, { create: true })).createWritable(); await w.write(f); await w.close();
+        const ch = B.book.chapters[ci]; ch.orig = { file: name, name: f.name }; delete ch.origMap;
+      }
+      Store.saveBook(B.book, true);
+    } finally { B.busy = null; busyNote(""); }
+    notice("📼 " + pairs.length + " chapter" + (pairs.length === 1 ? "" : "s") + " of finished audio brought in. Each one opens on its timeline when you go to that chapter.");
+    if (B.chap.orig && !B.audio.tracks.some(t => t.clips.some(c => c.base))) await unpackOrig();
+    renderSide();
+  }
+  // put this chapter's finished audio on the timeline (unpacked to WAV for this chapter only)
+  async function unpackOrig() {
+    if (!B.chap.orig || B.rec || B.busy) return;
+    if (!(await ensureStudio())) return;
+    B.busy = "orig"; busyNote("Opening this chapter's finished audio…");
+    try {
+      const f = await (await (await origDir(false)).getFileHandle(B.chap.orig.file)).getFile();
+      const x = await decodeFile(f), name = "orig-" + B.chap.id + ".wav", d = await dir();
+      const w = await LRAudio.WavWriter.create(d, name, LRAudio.RATE); w.push(x); await w.close();
+      const dur = x.length / LRAudio.RATE;
+      pushUndo();
+      T().overwrite(B.audio, 0, [{ file: name, off: 0, dur, at: 0, base: true }], 0);
+      if (B.chap.origMap && !(B.audio.anchors || []).length) B.audio.anchors = B.chap.origMap.map(p => p.slice());
+      Store.saveBook(B.book, true); loadPeaks();
+    } finally { B.busy = null; busyNote(""); renderEditBar(); renderTransport(); renderSide(); }
+  }
+  // map: listen through the finished audio and pin the text to it, so a word can be found in the audio
+  async function mapChapter(ci, onP) {
+    const ch = B.book.chapters[ci]; if (!ch.orig) return 0;
+    const f = await (await (await origDir(false)).getFileHandle(ch.orig.file)).getFile();
+    const ab = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(await f.arrayBuffer()), x = ab.getChannelData(0), L = x.length / 16000;
+    const toks = Prep.tokens(ch), mine = toks.map(t => isMine(t, ch)), out = []; let cur = 0;
+    for (let a = 0; a < L - 0.5; a += 30) {
+      const seg = x.subarray(Math.round(a * 16000), Math.round(Math.min(L, a + 30) * 16000));
+      const chunks = await LRProof.hearTimed(seg, 16000);
+      const words = [], when = [];
+      for (const c of chunks) { const ws = LRProof.split(c.text || ""), t0 = (c.t && c.t[0]) || 0, t1 = (c.t && c.t[1] != null ? c.t[1] : t0 + 2); ws.forEach((w, k) => { words.push(w); when.push(a + t0 + (t1 - t0) * k / Math.max(1, ws.length)); }); }
+      const text = []; for (let i = Math.max(0, cur - 15); i < toks.length && text.length < 260; i++) if (mine[i]) text.push({ w: toks[i].w, i });
+      const m = LRProof.matches(text, words);
+      let last = -9; for (const p of m) if (p.i > cur - 15 && when[p.h] - last >= 1.5) { out.push([+when[p.h].toFixed(2), p.i]); last = when[p.h]; }
+      if (m.length) cur = Math.max(cur, m[m.length - 1].i);
+      onP && onP(Math.min(1, (a + 30) / L));
+    }
+    // keep it in order (a stray match backwards is dropped)
+    const clean = []; for (const p of out) if (!clean.length || (p[1] > clean[clean.length - 1][1] && p[0] > clean[clean.length - 1][0])) clean.push(p);
+    ch.origMap = clean; ch.origMappedAt = new Date().toISOString();
+    if (ci === B.ci && B.audio.tracks.some(t => t.clips.length === 1 && t.clips[0].base && t.clips[0].at === 0 && t.clips[0].off === 0) && B.audio.tracks.every(t => t.clips.every(c => c.base))) B.audio.anchors = clean.map(p => p.slice());
+    Store.saveBook(B.book, true);
+    return clean.length;
+  }
+  async function mapBook(onlyThis) {
+    if (B.rec || B.busy) return;
+    const todo = B.book.chapters.map((c, i) => i).filter(i => B.book.chapters[i].orig && (onlyThis ? i === B.ci : !B.book.chapters[i].origMap));
+    if (!todo.length) { toast(onlyThis ? "This chapter has no finished audio yet." : "Every chapter with finished audio is mapped."); return; }
+    B.busy = "map"; B.mapStop = false; renderSide(); let k = 0;
+    try {
+      for (const ci of todo) {
+        if (B.mapStop || !B) break;
+        await mapChapter(ci, p => busyNote("Mapping " + B.book.chapters[ci].title + " (" + (++k > 0 ? todo.indexOf(ci) + 1 : 1) + " of " + todo.length + ")… " + Math.round(p * 100) + "%"));
+      }
+    } catch (e) { toast("Mapping stopped: " + e.message); }
+    finally { if (B) { B.busy = null; busyNote(""); renderSide(); } }
+    if (B) notice("🗺 Mapped " + todo.filter(ci => B.book.chapters[ci].origMap).length + " chapter" + (todo.length === 1 ? "" : "s") + ". Find in the audio works on them now.");
+  }
+  // find a word or phrase everywhere in the book; each hit knows roughly where it is in the audio
+  function findInBook(q) {
+    const want = LRProof.split(q); if (!want.length) return [];
+    const hits = [];
+    B.book.chapters.forEach((ch, ci) => {
+      if (!ch.included) return;
+      const toks = ci === B.ci ? B.toks : Prep.tokens(ch), flat = [];
+      toks.forEach((t, i) => LRProof.split(t.w).forEach(w => flat.push({ w, i })));
+      for (let k = 0; k + want.length <= flat.length; k++) {
+        if (!want.every((w, j) => flat[k + j].w === w || flat[k + j].w.replace(/'/g, "") === w.replace(/'/g, ""))) continue;
+        const i = flat[k].i, an = ci === B.ci && (B.audio.anchors || []).length ? B.audio.anchors : ch.origMap || [];
+        let t = null; for (const p of an) { if (p[1] > i) break; t = p[0]; }
+        hits.push({ ci, i, t, ctx: toks.slice(Math.max(0, i - 5), i + want.length + 5).map(z => z.w).join(" ") });
+      }
+    });
+    return hits;
+  }
+  async function goHit(ci, i) {
+    if (B.rec) return;
+    if (ci !== B.ci) { await openChapter(ci); await new Promise(r => setTimeout(r, 400)); }
+    const t = T().timeOfWord(B.audio, i), an = B.audio.anchors || []; let tt = null; for (const p of an) { if (p[1] > i) break; tt = p[0]; }
+    B.f.set(i); prog().pos = B.f.pos; markPos(true);
+    if (tt != null || t != null) { B.playhead = Math.max(0, (tt != null ? tt : t) - 0.5); B.sel = null; }
+    renderTransport(); drawWave();
+  }
+  // replace the selection with a new read: the selection goes, room opens, and it closes up to fit when you stop
+  async function replaceSel() {
+    if (B.rec || !B.sel) { toast("Select the part to replace first (drag across it on the waveform)."); return; }
+    const { a, b } = B.sel, pre = snap();
+    T().deleteRange(B.audio, a, b); T().insertGap(B.audio, a, 900);
+    B.pendingGap = a + 900; B.pendingMatch = Store.lsGet("lr-matchlvl") !== "0";
+    B.sel = null;
+    await startRecording(a, true, pre);
+  }
+  // the new read at the loudness of the audio around it
+  async function matchLevel(r, end) {
+    const d = await dir(), rms = x => { let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i]; return Math.sqrt(s / Math.max(1, x.length)); };
+    const others = B.audio.tracks.flatMap((tr, k) => tr.clips.filter(c => c.file !== r.file && !c.line));
+    const before = await LRAudio.renderRange(d, others, Math.max(0, r.start - 8), Math.min(8, r.start)), after = await LRAudio.renderRange(d, others, end, 8);
+    const voiced = x => { const out = []; const hop = 480; for (let i = 0; i + hop <= x.length; i += hop) { const v = rms(x.subarray(i, i + hop)); if (v > 0.01) out.push(v); } out.sort((p, q) => p - q); return out.length ? out[Math.floor(out.length * 0.6)] : 0; };
+    const ref = Math.max(voiced(before), voiced(after)); if (!ref) return;
+    for (const tr of B.audio.tracks) for (const c of tr.clips) if (c.file === r.file) {
+      const mine = voiced(await LRAudio.renderRange(d, [Object.assign({}, c, { at: 0, g: 1 })], 0, c.dur)); if (!mine) continue;
+      const g = Math.max(0.25, Math.min(4, ref / mine)); if (Math.abs(g - 1) > 0.06) c.g = +(g).toFixed(3);
+    }
+  }
+  function origTabHtml() {
+    const dis = B.rec || B.busy ? "disabled" : "", ch = B.chap, withO = B.book.chapters.filter(c => c.orig).length, mapped = B.book.chapters.filter(c => c.origMap).length;
+    const q = B.findQ || "", hits = B.findHits || [];
+    return `<div class="bd-sec"><b>Finished audio</b><div class="stu-note">For a book that's already recorded (corrections and pickups), or a chapter someone else narrated (cast assembly). The audio goes on the timeline and you edit it like any take. ${B.book.corrections ? "<b>This is a corrections book:</b> your pickups count as booth time, not words." : ""}</div>
+        <div class="co-chips"><span>${withO ? withO + " chapter" + (withO === 1 ? "" : "s") + " brought in" : "None yet"}</span>${withO ? `<span class="${mapped === withO ? "ok" : ""}">${mapped} mapped</span>` : ""}${ch.orig ? `<span class="ok">This chapter: ${esc(ch.orig.name)}</span>` : ""}</div>
+        <div class="fx-chips"><button class="stu-btn stu-rec" data-p="oall" ${dis}>📼 Bring in the whole book…</button><button class="stu-btn" data-p="oone" ${dis}>Just this chapter…</button></div>
+        <label class="check"><input type="checkbox" data-p2="ocorr" ${B.book.corrections ? "checked" : ""} ${dis}> Corrections book (don't count words)</label></div>
+      <div class="bd-sec"><b>Map it to the text</b><div class="stu-note">Listens through the finished audio (on this computer) and pins the text to it, so you can find any word in the audio. Roughly 1–3 hours for a 40-hour book; it can run while you do other things, and picks up where it stopped.</div>
+        <div class="fx-chips">${B.busy === "map" ? `<button class="stu-btn" data-p="ostop">Stop after this chapter</button>` : `<button class="stu-btn stu-rec" data-p="omap" ${dis} ${withO > mapped ? "" : "disabled"}>🗺 Map the book (${withO - mapped} to go)</button><button class="stu-btn" data-p="omap1" ${dis} ${ch.orig ? "" : "disabled"}>Map this chapter${ch.origMap ? " again" : ""}</button>`}</div></div>
+      <div class="bd-sec"><b>Find in the audio</b><div class="stu-note">Every place a word or name appears in the book: the Japanese words, a character's name. Click one to jump there.</div>
+        <div class="fx-chips"><input class="stu-in" id="ofind" placeholder="e.g. ojisan" value="${esc(q)}" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.click()}"><button class="stu-btn" data-p="ofind">Find</button></div>
+        ${q ? `<div class="stu-note">${hits.length} place${hits.length === 1 ? "" : "s"}${hits.some(h => h.t == null) ? " · times show once a chapter is mapped" : ""}</div>` : ""}
+        ${hits.slice(0, 200).map((h, k) => `<div class="co-line"><span class="n">${k + 1}</span><span><b data-p="ohit:${h.ci}:${h.i}" class="lnk">${esc(B.book.chapters[h.ci].title)}${h.t != null ? " · " + clock(h.t) : ""}</b><br><i>“…${esc(h.ctx)}…”</i></span><span></span></div>`).join("")}</div>
+      <div class="bd-sec"><b>Replace a bit</b><div class="stu-note">Drag across what's wrong on the waveform, then <b>Replace the selection</b>: it goes, you read the fix, and the chapter closes up to fit when you stop. Record on another track (with its own effects) for a character's new voice.</div>
+        <div class="fx-chips"><button class="stu-btn stu-rec" data-p="orepl" ${dis}>🎙 Replace the selection</button></div>
+        <label class="check"><input type="checkbox" data-p2="omatch" ${Store.lsGet("lr-matchlvl") !== "0" ? "checked" : ""}> Match the loudness of the audio around it</label></div>`;
+  }
+
   // ======================= proofing: listen back and flag what doesn't match the text =======================
   const PROOF_EVERY = 20;
   const proofMode = () => { const m = Store.settings.proofMode; return m === "live" || m === "stop" ? m : "off"; };
@@ -2554,5 +2714,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

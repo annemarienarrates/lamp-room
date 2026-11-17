@@ -33,6 +33,13 @@
     const r = await call({ cmd: "asr", kind: kind || "fast", audio: a }, [a.buffer]);
     return r.text;
   }
+  // with timing: [{text, t:[from,to]}] in seconds from the start of x (16 kHz audio passed straight through when rate is 16000)
+  async function hearTimed(x, rate, kind) {
+    if (LRProof._mockTimed) return LRProof._mockTimed(x, rate);
+    const a = rate === 16000 ? x.slice() : await to16k(x, rate || 48000);
+    const r = await call({ cmd: "asr", kind: kind || "careful", audio: a, stamps: true }, [a.buffer]);
+    return r.chunks && r.chunks.length ? r.chunks : [{ text: r.text, t: [0, a.length / 16000] }];
+  }
   const load = kind => loading[kind] = loading[kind] || call({ cmd: "load", kind: kind || "fast" });
 
   // ---------------- lining up what was heard with the text ----------------
@@ -89,7 +96,24 @@
     return out.filter(x => !(x.kind === "missed" && edgeT.has(x.from) && edgeT.has(x.to)));
   }
 
+  // which text word each heard word lines up with: [{h, i}] (h: index into heard words, i: token index)
+  function matches(text, heardWords) {
+    const T = []; for (const t of text) for (const p of split(t.w)) T.push({ w: p, i: t.i });
+    const H = heardWords; const n = T.length, m = H.length; if (!n || !m) return [];
+    const D = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let j = 1; j <= m; j++) D[0][j] = j;
+    for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) D[i][j] = Math.min(D[i - 1][j - 1] + (same(T[i - 1].w, H[j - 1]) ? 0 : 1), D[i - 1][j] + 1, D[i][j - 1] + 1);
+    let bi = 0; for (let i = 1; i <= n; i++) if (D[i][m] <= D[bi][m]) bi = i;
+    const out = []; let i = bi, j = m;
+    while (j > 0 && i > 0) {
+      const eq = same(T[i - 1].w, H[j - 1]);
+      if (D[i][j] === D[i - 1][j - 1] + (eq ? 0 : 1)) { if (eq) out.push({ h: j - 1, i: T[i - 1].i }); i--; j--; }
+      else if (D[i][j] === D[i - 1][j] + 1) i--; else j--;
+    }
+    return out.reverse();
+  }
   window.LRProof = {
+    hearTimed, matches, split: s => split(s).filter(h => !FILL.has(h)),
     hear, load, align, to16k, norm,
     set onProgress(f) { onProgress = f; },
     ready: kind => !!ready[kind || "fast"],
