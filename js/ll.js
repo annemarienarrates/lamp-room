@@ -1346,13 +1346,10 @@ function handLog(date) {
 
 // Claude, with the user's own API key (Settings ▸ Planning ▸ Claude API key), for reading free-written notes
 function makeSample() {
-  let key = ""; try { key = localStorage.getItem("lr-anthropic-key") || ""; } catch (e) {} if (!key) return null;
+  if (!window.LRAI || !LRAI.key()) return null;
   const fn = async (prompt) => {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: (localStorage.getItem("lr-anthropic-model") || "claude-sonnet-5-5"), max_tokens: 2000, messages: [{ role: "user", content: prompt }] }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { const e = new Error((j.error && j.error.message) || ("HTTP " + r.status)); e.text = ""; throw e; }
-    return { text: (j.content || []).map(c => c.text || "").join("") };
+    try { return { text: await LRAI.ask(prompt, 2000) }; }
+    catch (er) { const e = new Error(er.message); e.text = ""; throw e; }
   };
   fn.json = async (p) => extractJSON((await fn(p)).text);
   return fn;
