@@ -181,7 +181,7 @@
   const WORDNUM = (() => { const m = {}; ONES.forEach((w, i) => m[w] = i + 1);
     TENS.forEach((t, i) => { m[t] = (i + 2) * 10; ONES.slice(0, 9).forEach((o, j) => { m[t + "-" + o] = m[t + " " + o] = (i + 2) * 10 + j + 1; }); });
     m["one hundred"] = 100; return m; })();
-  const KEYWORD = /^(chapter|prologue|epilogue|interlude|part|book|act|afterword|foreword|introduction|preface|coda|author['’]s note|acknowledg(?:e)?ments|about the author)\b/i;
+  const KEYWORD = /^(chapter|prologue|epilogue|interlude|part|book|act|afterword|foreword|introduction|preface|coda|previously|recap|bonus|intermission|author['’]s note|acknowledg(?:e)?ments|about the author)\b/i;
 
   // keep the longest run where numbers go 1,2,3… (allowing a start other than 1 and the odd skip)
   function chain(cands) {
@@ -237,6 +237,8 @@
       // a later style must beat the current pick clearly to win (avoids stray "Part" lines beating real chapters)
       if (n >= 2 && (best === "none" || n > bestN * 1.5)) { best = k; bestN = n; }
     }
+    // Word headings that hold every keyword line and a few more ("Previously", a titled interlude): the headings are the chapters
+    if (best === "keyword" && res.headings.length > res.keyword.length && res.headings.length <= res.keyword.length * 1.5 && res.keyword.every(i => res.headings.includes(i))) { best = "headings"; bestN = res.headings.length; }
     // if keyword won but numbers/roman found many more, a "Part One" + "1, 2, 3" book: merge both
     if (best === "keyword") {
       for (const k of ["number", "roman", "spelled"]) {
