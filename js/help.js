@@ -66,6 +66,7 @@
       items: [
         ["👥 Co-narrator", "Duet lines: send yours, bring in your partner's. See Duets below."],
         ["🚩 Pickups", "Every flag in the chapter. Fix goes to the start of that sentence and punches in. ✓ marks it dealt with."],
+        ["Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
         ["🔎 Proofing", "Settings ▸ Proofing while I read, per person: Off, When I stop (each take is checked), or Live (every ~20 s). Misreads are underlined in red in the text and listed in Pickups. Always ignore stops a name being flagged again in that book."],
         ["🎛 Effects", "Pitch, double, reverb, echo, chorus, robot and placement. Preview first, then Apply (Undo brings the original back). Arm keeps an effect on a track so every new take there gets it. E repeats the last effect."],
         ["Track sound", "A live tone chain (rumble cut, warmth, presence, air…). Your recordings aren't changed. Auphonic masters for you, so leave it off unless a track needs its own sound."],

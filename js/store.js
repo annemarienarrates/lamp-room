@@ -26,7 +26,7 @@
   // (and two people sharing one computer each keep theirs).
   const PERSONAL = ["theme", "readFont", "confetti", "encouragement", "celebrations", "combo", "comboHidden", "calm", "goalEarn", "duet", "voiceWave", "confirmations", "progressNotes", "duetCues", "proofMode", "proofModel"];
   // browser-remembered things that are also personal (hotkeys, text size, track height, zoom, pre-roll…)
-  const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|done-open|dash-mode|dash-sort)$/;
+  const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|done-open|dash-mode|dash-sort|xproof|xspace)$/;
   const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
 
   // ---- tiny IndexedDB key/value for the folder handle ----
