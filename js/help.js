@@ -28,6 +28,8 @@
         ["+ New Project", "Import a Word file (.docx) or paste text. The Lamp Room finds the chapters and counts the words."],
         ["Who reads what", "Highlighted lines in the manuscript become parts (blues, pinks, yellow). The Lamp Room asks who reads each one. You can change it later on the book page."],
         ["Book page", "Chapters with status, words and time; the cast; pay; due date; the schedule badge. Untick a chapter to leave it out (front matter, for example)."],
+        ["Fix chapters", "Book page ▸ a chapter's Text button: ✂ at any paragraph starts a new chapter there (e.g. “Previously” hiding in the front matter; tick In to include it). ⤓ Merge joins a chapter to the next."],
+        ["Update the manuscript", "Book page ▸ Details ▸ Update the manuscript… Choose the corrected .docx: chapters are matched by title, and you tick which ones take the new text. Recordings, notes and status stay. Missing chapters are added."],
         ["POV chapters", "If a whole chapter is in your partner's voice, set the POV column on that chapter and it becomes theirs."],
         ["Put on the schedule", "📅 on a card links a book to its title in the planner, so booth time and words count toward that job."]
       ] },
@@ -67,15 +69,15 @@
         ["📼 Finished audio", "A book that's already recorded, or a narrator's chapters for cast assembly: bring it in, map it, find words in it, replace bits. See Finished audio below."],
         ["👥 Co-narrator", "Duet lines: send yours, bring in your partner's. See Duets below."],
         ["🚩 Pickups", "Every flag in the chapter. Fix goes to the start of that sentence and punches in. ✓ marks it dealt with."],
-        ["Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
+        ["⤓ Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
         ["🔎 Proofing", "Settings ▸ Proofing while I read, per person: Off, When I stop (each take is checked), or Live (every ~20 s). Misreads are underlined in red in the text and listed in Pickups. Always ignore stops a name being flagged again in that book."],
         ["🎛 Effects", "Pitch, double, reverb, echo, chorus, robot and placement. Preview first, then Apply (Undo brings the original back). Arm keeps an effect on a track so every new take there gets it. E repeats the last effect."],
-        ["Track sound", "A live tone chain (rumble cut, warmth, presence, air…). Your recordings aren't changed. Auphonic masters for you, so leave it off unless a track needs its own sound."],
-        ["Takes", "Every take on the timeline, with play and delete."],
-        ["Levels, fades & spacing", "Fades, Add space, room tone, Even out pauses, gain, and the ACX check (loudness, peaks, room noise)."],
+        ["🎚 Track sound", "A live tone chain (rumble cut, warmth, presence, air…). Your recordings aren't changed. Auphonic masters for you, so leave it off unless a track needs its own sound."],
+        ["🎞 Takes", "Every take on the timeline, with play and delete."],
+        ["📏 Levels, fades & spacing", "Fades, Add space, room tone, Even out pauses, gain, and the ACX check (loudness, peaks, room noise)."],
         ["Room tone", "Learn it once per book: select a quiet pause, or let it find one. Gaps, added space and the tail then fill with your room instead of dead silence."],
         ["Even out pauses", "Head 0.8 s, 2 s after the chapter heading, 1.5 s at scene breaks, 3.5 s tail, and any other pause over 0.7 s brought down to 0.7 (shorter ones left alone). Preview first, or tick it to happen when you mark a chapter complete. Change the lengths there too."],
-        ["Mic & reading", "Choose the microphone, who you're reading as, the theme and the reading font."]
+        ["🎙 Mic & reading", "Choose the microphone, who you're reading as, the theme and the reading font."]
       ] },
     { id: "duets", icon: "👥", title: "Duets", lead: "Whoever narrates the chapter is the lead. The other person records only their lines and sends them over.",
       items: [
@@ -98,13 +100,14 @@
         ["Map it", "Map the book listens through the audio on this computer and pins the text to it. It takes a while on a long book, so start it and get on with something else. Stop and pick up later any time."],
         ["Find in the audio", "Type a word or name (the Japanese words, a character's name) and you get every place it appears, with times once mapped. Click one to jump there."],
         ["Replace a bit", "Drag across what's wrong on the waveform, press Replace the selection, read the fix, press S. The chapter closes up to fit, and the new read is matched to the loudness around it. For a character's new voice, record on another track with its own effects."],
-        ["Assembling as cast", "When someone else narrates: set Reading as to the narrator's part, bring in their chapters as finished audio and map them. Your lines and Jack's arrive as usual (Send my lines); outside cast come in as their files. Then Splice all drops every line into place. Export the chapter as one."]
+        ["Assembling as cast", "When someone else narrates: 1) read your own lines as yourself and press 📤 Send my lines (Jack does the same). 2) Finished audio ▸ 🧩 Assemble this chapter: the timeline becomes the narrator's, so bring in their chapter audio and map it. 3) Outside cast come in as their files in Co-narrator. 4) Splice all drops every line into place, then export the chapter. Your booth time counts as yours; no words count while assembling. ← Back to my lines returns you to reading."],
       ] },
     { id: "cast", icon: "🎭", title: "Full cast & pickups", lead: "Up to six voices, and re-reads that travel between you without a single email.",
       items: [
         ["Full cast", "Highlight each voice in its own colour with Word's highlighter, in this order: Turquoise (main male), Pink (main female), Bright green, Gray 25%, Yellow, Red. Narration stays unhighlighted. On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],
         ["Cast 1–4", "Outside cast don't need the Lamp Room. Give their colour to Cast 1, Cast 2… on import or on the book page."],
         ["Their file", "Tools ▸ Co-narrator ▸ 🎧 Cast 2's file… Drop in what they sent (WAV, MP3, M4A, AIFF, FLAC). It's cut into their lines and auto-placed as you read, like your partner's. Tick “runs on into the next chapters” for a file that covers several."],
+        ["Matched by their words", "With the proofer on hand, every stretch in their file is listened to and matched to its line: a retake replaces the earlier read, and a skipped line is flagged as missing. Co-narrator ▸ Mark as pickups puts the missing ones on their list. (Untick “Match lines by their words” to go by order.)"],
         ["Clicks or pauses", "Best: ask cast to click or clap once between lines, and to redo a flubbed line before the click (the last read is kept). With no clicks, the pauses decide, which works for clean reads. Lines marked “check” deserve a listen."],
         ["Ask for a pickup", "Lead only. Click 🔁 on a line in Co-narrator, or select its words in the text. Add a note if you like."],
         ["Your partner gets it", "It shows on their Dashboard (Heads up) and in their Booth. They open Tools ▸ Pickups, press 🎙 Record, read it (R to record, S to stop), listen, and Send."],

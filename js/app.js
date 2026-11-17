@@ -437,7 +437,7 @@
           <button class="btn small" id="addcast">+ Narrator</button>
         </div>`}
         <label style="display:flex;margin-top:14px">Notes<textarea data-f="notes">${esc(book.notes || "")}</textarea></label>
-        <div class="row" style="margin-top:12px"><button class="btn small" id="redetect">Re-split chapters…</button><div class="spacer"></div>
+        <div class="row" style="margin-top:12px"><button class="btn small" id="redetect">Re-split chapters…</button><button class="btn small" id="updms" title="Bring in a corrected manuscript: replaces the text of the chapters you choose, keeping their recordings">Update the manuscript…</button><div class="spacer"></div>
           <button class="btn small quiet" id="archive">${book.status === "archived" ? "Restore from archive" : "Archive book"}</button></div>
       </details>
 
@@ -478,6 +478,7 @@
     const ac = $("#addcast"); if (ac) ac.onclick = () => { book.cast = book.cast || []; const used = book.cast.map(c => c.name); const n = S.narrators.find(x => !used.includes(x.name)) || S.narrators[0]; book.cast.push({ name: n.name, share: book.cast.length ? 0 : 100 }); save(true); };
     $("#archive").onclick = () => { book.status = book.status === "archived" ? "active" : "archived"; save(false); location.hash = "#/library"; };
     $("#redetect").onclick = () => openRedetect(book);
+    $("#updms").onclick = () => updateManuscript(book);
     // chapters
     $$("tr[data-i]").forEach(tr => {
       const i = +tr.dataset.i, c = book.chapters[i];
@@ -516,7 +517,7 @@
     ov.innerHTML = `<div class="card reader">
       <div class="row" style="align-items:center"><button class="btn small" data-nav="-1" ${i ? "" : "disabled"}>← Prev</button><div class="spacer" style="text-align:center"><h2 style="margin:0">${esc(c.title)}</h2><div class="small muted">${num(c.words)} words · ${fh(c.words / Store.settings.wpfh)} FH · hover a paragraph and click ✂ to start a new chapter there</div></div><button class="btn small" data-nav="1" ${i < book.chapters.length - 1 ? "" : "disabled"}>Next →</button><button class="btn small quiet" data-x>✕</button></div>
       <label style="display:flex;margin:14px 0">Chapter notes<textarea data-notes placeholder="Pickups, pronunciations, character reminders…">${esc(c.notes || "")}</textarea></label>
-      <div class="text">${c.paras.map((p, k) => p === Prep.SCENE_MARK ? `<div class="brk">⁂</div>` : `<div class="p">${esc(p)}${k ? `<button class="btn small cut" data-cut="${k}" title="Start a new chapter at this paragraph">✂</button>` : ""}</div>`).join("")}</div>
+      <div class="text">${c.paras.map((p, k) => p === Prep.SCENE_MARK ? `<div class="brk">⁂</div>` : `<div class="p">${esc(Prep.paraText(p))}${k ? `<button class="btn small cut" data-cut="${k}" title="Start a new chapter at this paragraph">✂</button>` : ""}</div>`).join("")}</div>
     </div>`;
     document.body.appendChild(ov);
     const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); viewBook(); };
@@ -527,12 +528,49 @@
     $("[data-notes]", ov).onchange = e => { c.notes = e.target.value; Store.saveBook(book); };
     $$("[data-nav]", ov).forEach(b => b.onclick = () => { ov.remove(); document.removeEventListener("keydown", onKey); openReader(book, i + Number(b.dataset.nav)); });
     $$("[data-cut]", ov).forEach(b => b.onclick = () => {
-      const k = +b.dataset.cut, first = c.paras[k];
+      const k = +b.dataset.cut, first = Prep.paraText(c.paras[k]);
       const title = first.length <= 70 ? first : first.slice(0, 50).replace(/\s+\S*$/, "") + "…";
       book.chapters.splice(i, 1, ...Prep.splitChapter(c, k, title));
       Store.saveBook(book); ov.remove(); document.removeEventListener("keydown", onKey); openReader(book, i + 1);
       toast("Split. Rename the new chapter in the list if you like.");
     });
+  }
+
+  // a corrected manuscript: chapters are matched by title; you choose which ones take the new text (recordings stay)
+  async function updateManuscript(book) {
+    const file = await new Promise(res => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".docx"; inp.onchange = () => res(inp.files[0]); inp.click(); });
+    if (!file) return;
+    let raw;
+    try { const full = Object.keys(book.parts || {}).some(k => k.startsWith("c:")); raw = await window.readDocx(await file.arrayBuffer(), { fullCast: full }); }
+    catch (e) { toast("Couldn't read that file: " + e.message); return; }
+    const blocks = raw.map(b => Object.assign({}, b)), det = Prep.detect(blocks, "auto"), fresh = Prep.buildChapters(blocks, det.starts);
+    const key = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const textOf = c => c.paras.map(Prep.paraText).join("\n");
+    const rows = [];
+    fresh.forEach((nc, k) => {
+      const old = book.chapters.find(c => key(c.title) === key(nc.title));
+      if (old) { if (textOf(old) !== textOf(nc)) rows.push({ nc, old, rec: Object.values(old.audio || {}).some(a => a && (a.tracks || []).some(t => (t.clips || []).length)) }); }
+      else if (nc.title !== "Front matter") rows.push({ nc, k, add: true, prev: k ? fresh[k - 1].title : null });
+    });
+    if (!rows.length) { toast("Nothing's different: every chapter in that file matches what's here."); return; }
+    const ov = document.createElement("div"); ov.className = "overlay";
+    ov.innerHTML = `<div class="card reader" style="max-width:640px"><h2>Update the manuscript</h2>
+      <p class="small muted">From ${esc(file.name)}. Ticked chapters take the new text. Recordings, notes and status stay. A chapter that's already recorded keeps its audio, but its word timing may drift where the text changed, so it's unticked to start.</p>
+      <table class="ch"><tbody>${rows.map((r, i) => `<tr><td><input type="checkbox" data-u="${i}" ${r.rec ? "" : "checked"}></td><td><b>${esc(r.nc.title)}</b>${r.add ? ` <span class="small muted">new chapter${r.prev ? ", after " + esc(r.prev) : ""}</span>` : ""}${r.rec ? ` <span class="small" style="color:var(--warn)">recorded</span>` : ""}</td>
+        <td class="num">${r.add ? "" : num(r.old.words) + " →"} ${num(r.nc.words)} words</td></tr>`).join("")}</tbody></table>
+      <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" data-go>Update ticked chapters</button></div></div>`;
+    document.body.appendChild(ov);
+    $("[data-x]", ov).onclick = () => ov.remove();
+    $("[data-go]", ov).onclick = () => {
+      let n = 0;
+      rows.forEach((r, i) => {
+        if (!$(`[data-u="${i}"]`, ov).checked) return; n++;
+        if (r.add) { const at = r.prev ? book.chapters.findIndex(c => key(c.title) === key(r.prev)) + 1 : 0; book.chapters.splice(at > 0 ? at : book.chapters.length, 0, r.nc); }
+        else { r.old.paras = r.nc.paras; r.old.words = r.nc.words; }
+      });
+      ov.remove(); if (!n) return;
+      Store.saveBook(book, true); viewBook(); toast("Updated " + n + " chapter" + (n === 1 ? "" : "s") + ".");
+    };
   }
 
   function openRedetect(book) {

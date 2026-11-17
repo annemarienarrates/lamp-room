@@ -113,7 +113,7 @@
     B.peaks = {};
     render();
     loadPeaks();
-    if (B.chap.orig && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
+    if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
     if (amLead() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
@@ -357,7 +357,7 @@
   }
 
   // ---------------- side panels: Chapters & Tools ----------------
-  const TOOL_TABS = [["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "Track sound"], ["takes", "Takes"], ["levels", "Levels, fades & spacing"], ["mic", "Mic & reading"]];
+  const TOOL_TABS = [["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
   function renderSide() {
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -421,6 +421,8 @@
       case "ofind": { B.findQ = (($("#ofind") || {}).value || "").trim(); B.findHits = findInBook(B.findQ); return renderSide(); }
       case "ohit": return goHit(+x, +y);
       case "orepl": return replaceSel();
+      case "asmon": return assemble(true);
+      case "asmoff": return assemble(false);
       case "recut": return swapRecut(x);
       case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) playLine(l); return; }
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
@@ -441,6 +443,7 @@
       case "pkin": return applyPickups();
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
+      case "miss": return markMissing(x);
       case "pgo": { const m = B.audio.markers.find(m => m.id === x); if (m) seek(m.t); return; }
       case "pfix": return pickupFix(x);
       case "pign": return proofIgnoreWord(x);
@@ -452,6 +455,7 @@
     if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
     if (t.dataset.duet) { setDuetOpt(t.dataset.duet, t.checked); renderSide(); return; }
     if (t.dataset.p2 === "ocorr") { B.book.corrections = t.checked; Store.saveBook(B.book, true); renderSide(); return; }
+    if (t.dataset.p2 === "castwords") { Store.lsSet("lr-castwords", t.checked ? "1" : "0"); return; }
     if (t.dataset.p2 === "omatch") { Store.lsSet("lr-matchlvl", t.checked ? "1" : "0"); return; }
     if (t.dataset.dv) { const k = t.dataset.dv, d = Store.settings.duet = Object.assign({}, Store.settings.duet || {}); d[k] = k === "clean" ? t.checked : k === "vol" ? (+t.value || 0) / 100 : Math.max(0.3, +t.value || 0.8); Store.saveSettings(); if (k !== "vol" || e.type === "change") renderSide(); return; }
     if (t.dataset.pz) { const v = Math.max(0, parseFloat(t.value) || 0); setPause(t.dataset.pz, v); B.pausePreview = null; renderSide(); return; }
@@ -569,6 +573,7 @@
   });
   // someone else sat down at this computer: their hotkeys, sizes and look come with them
   document.addEventListener("lr-me", async e => {
+    if (B) B.assembling = false;
     KEYS = null;
     if (!B || !/^#\/booth\//.test(location.hash)) return;
     B.laneH = num0(Store.lsGet("lr-laneh"), 72); B.prerollSec = num0(Store.lsGet("lr-preroll"), 3); B.follow = Store.lsGet("lr-follow") !== "0";
@@ -730,7 +735,7 @@
     el.innerHTML = `<div class="sb-grp">${item("Remaining", num(bkLeft), "Your words left in this book · " + num(chLeft) + " in this chapter")}${item("Pace", pace ? num(pace) : "—", st.paceSrc)}${item("Time Left", pace ? hm(bkLeft / pace * 3600) : "—", "Booth time to finish your part at this pace")}</div>
       <div class="sb-grp">${item("Earned", money(st.earnedToday), "Earned today")}${item("Est. Value", money(st.bookValue), "Your share of this book")}${item("Next Goal", st.milestone ? num(st.milestone.left) : "—", st.milestone ? "Words to " + st.milestone.pct + "% of your part" : "")}</div>
       <div class="sb-grp sb-small">${item("This Chapter Time", hm(prog().boothSec))}${item("This Book Time", hm(st.bookSec))}${item("Booth Today", hm(st.boothToday))}${item("Words Today", num(st.wordsToday))}${item("FH Today", (st.wordsToday / (Store.settings.wpfh || 9300)).toFixed(2))}</div>
-      <span style="flex:1"></span><span class="sb-as">Reading as <b>${esc(B.readingAs)}</b></span>`;
+      <span style="flex:1"></span><span class="sb-as">${B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
   }
   function statsNow() {
     const today = Prep.ymd(new Date()), S = Store.settings;
@@ -783,7 +788,7 @@
   function ensureSession() {
     if (B.session) return;
     const now = new Date();
-    B.session = { id: Prep.uid(), person: B.readingAs, date: Prep.ymd(now), start: now.toISOString(), end: now.toISOString(),
+    B.session = { id: Prep.uid(), person: B.assembling ? (Store.me() || B.readingAs) : B.readingAs, date: Prep.ymd(now), start: now.toISOString(), end: now.toISOString(),
       titleId: B.book.id, title: B.book.title, chapters: [], words: 0, boothSec: 0, recSec: 0, value: 0 };
   }
   function tick() {
@@ -813,7 +818,7 @@
     if (newPos > p.readTo) {
       let n = 0; for (let i = p.readTo; i < newPos; i++) if (B.mine[i]) n++;
       p.readTo = newPos;
-      if (B.book.corrections) n = 0;            // fixing a finished book: pickups count as booth time, not words
+      if (B.book.corrections || B.assembling) n = 0;            // fixing a finished book: pickups count as booth time, not words
       if (n) {
         ensureSession();
         const perWord = B.bookMine ? valueOfMyPart() / B.bookMine : 0;
@@ -1047,12 +1052,12 @@
         busyNote("Copying finished audio… " + (++k) + " / " + pairs.length);
         const name = "ch" + String(ci + 1).padStart(3, "0") + "-" + f.name.replace(/[^\w.\- ]+/g, "");
         const w = await (await od.getFileHandle(name, { create: true })).createWritable(); await w.write(f); await w.close();
-        const ch = B.book.chapters[ci]; ch.orig = { file: name, name: f.name }; delete ch.origMap;
+        const ch = B.book.chapters[ci]; ch.orig = { file: name, name: f.name, for: B.readingAs }; delete ch.origMap;
       }
       Store.saveBook(B.book, true);
     } finally { B.busy = null; busyNote(""); }
     notice("📼 " + pairs.length + " chapter" + (pairs.length === 1 ? "" : "s") + " of finished audio brought in. Each one opens on its timeline when you go to that chapter.");
-    if (B.chap.orig && !B.audio.tracks.some(t => t.clips.some(c => c.base))) await unpackOrig();
+    if (B.chap.orig && B.chap.orig.for === B.readingAs && !B.audio.tracks.some(t => t.clips.some(c => c.base))) await unpackOrig();
     renderSide();
   }
   // put this chapter's finished audio on the timeline (unpacked to WAV for this chapter only)
@@ -1155,10 +1160,22 @@
       const g = Math.max(0.25, Math.min(4, ref / mine)); if (Math.abs(g - 1) > 0.06) c.g = +(g).toFixed(3);
     }
   }
+  // assembling: the chapter's timeline is the narrator's (their finished audio), every cast line drops into it; your time is still yours
+  async function assemble(on) {
+    if (B.rec || B.busy) return;
+    const narr = Prep.readerOf("n", B.chap, B.book), me = Store.me() || B.readingAs;
+    if (on && (!narr || narr === me)) { toast("You narrate this chapter, so its timeline is already yours."); return; }
+    B.assembling = !!on; await switchReader(on ? narr : me);
+    B.side = null; B.tab = on ? "duet" : "orig"; act("tools");
+    if (on) notice("🧩 Assembling " + B.chap.title + ": the timeline is " + narr + "'s narration. Bring in their chapter audio (📼 Finished audio), map it, then Splice all in Co-narrator.");
+  }
   function origTabHtml() {
     const dis = B.rec || B.busy ? "disabled" : "", ch = B.chap, withO = B.book.chapters.filter(c => c.orig).length, mapped = B.book.chapters.filter(c => c.origMap).length;
     const q = B.findQ || "", hits = B.findHits || [];
-    return `<div class="bd-sec"><b>Finished audio</b><div class="stu-note">For a book that's already recorded (corrections and pickups), or a chapter someone else narrated (cast assembly). The audio goes on the timeline and you edit it like any take. ${B.book.corrections ? "<b>This is a corrections book:</b> your pickups count as booth time, not words." : ""}</div>
+    const narr = Prep.readerOf("n", ch, B.book), me = Store.me() || B.readingAs;
+    const asm = B.assembling ? `<div class="bd-sec recut"><b>🧩 Assembling ${esc(ch.title)}</b><div class="stu-note">This timeline is ${esc(B.readingAs)}'s narration. Cast lines (yours too, once you've sent them) drop into it with Splice all in 👥 Co-narrator.</div><div class="fx-chips"><button class="stu-btn" data-p="asmoff" ${dis}>← Back to my lines</button></div></div>`
+      : narr && narr !== me ? `<div class="bd-sec"><b>🧩 Assemble this chapter</b><div class="stu-note">${esc(narr)} narrates it. 1) Read your own lines here as ${esc(me)} and press 📤 Send my lines. 2) Assemble: the timeline becomes ${esc(narr)}'s audio, and every cast member's lines, yours included, splice into it. Your booth time still counts as yours; no words count while assembling.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="asmon" ${dis}>🧩 Assemble this chapter</button></div></div>` : "";
+    return asm + `<div class="bd-sec"><b>Finished audio</b><div class="stu-note">For a book that's already recorded (corrections and pickups), or a chapter someone else narrated (cast assembly). The audio goes on the timeline and you edit it like any take. ${B.book.corrections ? "<b>This is a corrections book:</b> your pickups count as booth time, not words." : ""}</div>
         <div class="co-chips"><span>${withO ? withO + " chapter" + (withO === 1 ? "" : "s") + " brought in" : "None yet"}</span>${withO ? `<span class="${mapped === withO ? "ok" : ""}">${mapped} mapped</span>` : ""}${ch.orig ? `<span class="ok">This chapter: ${esc(ch.orig.name)}</span>` : ""}</div>
         <div class="fx-chips"><button class="stu-btn stu-rec" data-p="oall" ${dis}>📼 Bring in the whole book…</button><button class="stu-btn" data-p="oone" ${dis}>Just this chapter…</button></div>
         <label class="check"><input type="checkbox" data-p2="ocorr" ${B.book.corrections ? "checked" : ""} ${dis}> Corrections book (don't count words)</label></div>
@@ -1743,18 +1760,20 @@
     if (!runs.length) return `<div class="bd-sec"><b>Co-narrator</b><div class="stu-note">No one else reads in this chapter.</div></div>`;
     const arrived = runs.filter(x => lineFor(x)).length, placed = runs.filter(x => placedClip(x)).length, slots = runs.filter(x => !placedClip(x) && slotOf(x)).length, who = [...new Set(runs.map(x => x.r))].join(" & ");
     const rcs = [...new Set(runs.map(x => x.r))].map(r => [r, recutOf(r).length]).filter(z => z[1]);
-    return `${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
+    const miss = [...new Set(runs.map(x => x.r))].map(r => [r, runs.filter(x => x.r === r && ((duetData()[r] || {}).missing || []).includes(x.from) && !lineFor(x)).length]).filter(z => z[1]);
+    return `${miss.map(([r, n]) => `<div class="bd-sec recut"><b>⚠ ${n} line${n === 1 ? "" : "s"} missing from ${esc(r)}'s file</b><div class="stu-note">Their file had no take of ${n === 1 ? "this line" : "these lines"} (marked below). Mark them as pickups and they go on ${esc(r)}'s list${isNarrator(r) ? "" : " for you to send"}.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="miss:${esc(r)}" ${dis}>🔁 Mark as pickups</button></div></div>`).join("")}${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
         <div class="co-chips"><span>${runs.length} in this chapter</span><span class="${arrived === runs.length ? "ok" : arrived ? "" : "warn"}">${arrived} arrived</span><span class="${placed ? "ok" : ""}">${placed} in</span>${slots ? `<span class="warn">${slots} slots waiting</span>` : ""}</div>
         <label class="check"><input type="checkbox" data-duet="auto" ${duetOpt("auto") ? "checked" : ""}> <b>Auto-place while I record</b></label>
         <div class="stu-note">Read through. When you've finished the line before theirs and gone quiet, their line drops in on their track${duetOpt("hear") ? " and plays in your headphones" : ""}; wait for “Your turn”. If their audio isn't in yet, a slot is marked and it splices in later. <b>${esc(kl("click"))}</b> drops their next line in by hand.</div>
         <label class="check"><input type="checkbox" data-duet="hear" ${duetOpt("hear") ? "checked" : ""}> Play their line in my headphones</label>
         <div class="fx-chips"><button class="stu-btn stu-rec" data-p="spliceall" ${dis} ${arrived > placed ? "" : "disabled"} title="Fill the slots, and place any line not yet in by your word timing">⤓ Splice all</button><button class="stu-btn" data-p="bring" ${dis}>Check for new lines</button><button class="stu-btn" data-p="bringfrom" ${dis}>Load from a folder…</button></div></div>
       <div class="bd-sec">${runs.map((x, i) => { const l = lineFor(x), p = placedClip(x), sl = !p && slotOf(x);
-        return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(x.r)} · ${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" + (l.check ? ' · <b class="warn-t">check</b>' : "") + (l.pk ? " · pickup" : "") : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
-          <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}${l || p ? `<button class="stu-btn" data-p="lask:${i}" title="Ask ${esc(x.r)} to re-record this line">🔁</button>` : ""}</span></div>`; }).join("")}</div>
+        return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(x.r)} · ${!l && !p && ((duetData()[x.r] || {}).missing || []).includes(x.from) ? '<b class="warn-t">missing from their file</b> · ' : ""}${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" + (l.check ? ' · <b class="warn-t">check</b>' : "") + (l.pk ? " · pickup" : "") : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
+          <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}<button class="stu-btn" data-p="lask:${i}" title="Mark as a pickup for ${esc(x.r)}">🔁</button></span></div>`; }).join("")}</div>
       <div class="bd-sec"><b>A recording from outside the Lamp Room</b><div class="stu-note">Cast who don't use the Lamp Room send you a file. Drop it here and it's cut into their lines: at the clicks or claps between lines if there are any, otherwise at the pauses. WAV, MP3, M4A, AIFF or FLAC.</div>
         <div class="fx-chips">${[...new Set(runs.map(x => x.r))].map(r => `<button class="stu-btn" data-p="castdrop:${esc(r)}" ${dis}>🎧 ${esc(r)}'s file…</button>`).join("")}</div>
-        <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label></div>
+        <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label>
+        <label class="check"><input type="checkbox" data-p2="castwords" ${Store.lsGet("lr-castwords") !== "0" ? "checked" : ""}> Match lines by their words (handles retakes and missed lines; uses the proofer)</label></div>
       <div class="bd-sec"><b>While their lines play</b>
         <div class="fx-chips"><span class="stu-note">Their lines in my headphones</span><input type="range" min="0" max="100" step="5" data-dv="vol" value="${Math.round(coVol() * 100)}"><span class="stu-note">${Math.round(coVol() * 100)}%</span></div>
         <div class="fx-chips"><span class="stu-note">“Your turn” shows for</span><input class="stu-in pz" type="number" min="0.3" max="3" step="0.1" data-dv="turn" value="${turnSecs()}"><span class="stu-note">s</span></div>
@@ -2551,9 +2570,20 @@
       if (!targets.length) { toast(r + " has no lines here."); return; }
       busyNote("Finding " + r + "'s lines…");
       const { segs, mode, clicks } = cutTakes(x, targets.length), stamp = Date.now().toString(36), made = new Date().toISOString(), per = {};
-      const n = Math.min(segs.length, targets.length);
-      for (let i = 0; i < n; i++) {
-        const { ci, c, run } = targets[i], s = segs[i], d = await Store.chapterAudioDir(B.book, c);
+      // which stretch is which line: by the words in it (retakes and skipped lines sort themselves out), or in order if it can't listen
+      let pairs = null, byWords = false;
+      if (window.LRProof && Store.lsGet("lr-castwords") !== "0") {
+        try { pairs = await matchByWords(x, segs, targets, r); byWords = true; }
+        catch (e) { console.warn(e); toast("Couldn't listen to the file (" + e.message + "), so lines were matched in order."); }
+      }
+      if (!pairs) pairs = segs.slice(0, targets.length).map((s, i) => [i, i]);
+      const missing = targets.filter((t, j) => !pairs.some(p => p[1] === j));
+      for (const t of targets) { const a = t.c === B.chap ? B.audio : (t.c.audio = t.c.audio || {}, t.c.audio[B.readingAs] = T().normalize(t.c.audio[B.readingAs])); const du = a.duet = a.duet || {}, rec = du[r] = du[r] || { lines: [] }; rec.missing = (rec.missing || []).filter(f => f !== t.run.from); }
+      for (const t of missing) { const a = t.c === B.chap ? B.audio : t.c.audio[B.readingAs]; a.duet[r].missing.push(t.run.from); }
+      const n = pairs.length;
+      for (let k = 0; k < n; k++) {
+        const [si, ti0] = pairs[k], i = k;
+        const { ci, c, run } = targets[ti0], s = segs[si], d = await Store.chapterAudioDir(B.book, c);
         const name = "co-" + r.replace(/[^\w-]+/g, "") + "-" + stamp + "-" + String(i + 1).padStart(3, "0") + ".wav";
         const L0 = x.length / LRAudio.RATE, hin = Math.min(0.5, s.a), hout = Math.min(0.5, L0 - s.b);
         await writeSeg(d, name, x, s.a - Math.max(0, hin), s.b + Math.max(0, hout)); const dur = s.b - s.a;
@@ -2564,14 +2594,38 @@
         rec.made = made; rec.got = made; per[ci] = (per[ci] || 0) + 1;
         busyNote("Cutting " + r + "'s lines… " + (i + 1) + " / " + n);
       }
+      const extra = segs.length - n;
       Store.saveBook(B.book); B.peaks = B.peaks || {}; loadPeaks();
-      const checks = segs.slice(0, n).filter(s => s.check).length, chs = Object.keys(per).map(ci => B.book.chapters[ci].title.replace(/^Chapter\s+/i, "Ch ") + ": " + per[ci]).join(", ");
-      notice(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"} (${chs}).` +
-        (segs.length > targets.length ? ` ${segs.length - targets.length} more stretch${segs.length - targets.length === 1 ? "" : "es"} than lines: listen to the last few.` : segs.length < targets.length ? ` ${targets.length - segs.length} line${targets.length - segs.length === 1 ? "" : "s"} still missing.` : "") +
+      const checks = pairs.filter(p => segs[p[0]].check).length, chs = Object.keys(per).map(ci => B.book.chapters[ci].title.replace(/^Chapter\s+/i, "Ch ") + ": " + per[ci]).join(", ");
+      notice(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"}${byWords ? " and matched by their words" : ""} (${chs}).` +
+        (byWords ? (extra > 0 ? ` ${extra} extra take${extra === 1 ? "" : "s"} or stray bit${extra === 1 ? "" : "s"} left out (the last good take of each line is kept).` : "") : (segs.length > targets.length ? ` ${segs.length - targets.length} more stretch${segs.length - targets.length === 1 ? "" : "es"} than lines: listen to the last few.` : "")) +
+        (missing.length ? ` <b>${missing.length} line${missing.length === 1 ? "" : "s"} missing</b> from the file: Co-narrator lists them, with Mark as pickups.` : "") +
         (checks ? ` ${checks} marked “check”.` : "") + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : ""));
       return { n, mode, clicks, segs: segs.length, want: targets.length };
     } catch (e) { console.error(e); toast("Couldn't read that file: " + e.message); }
     finally { B.busy = null; busyNote(""); renderSide(); }
+  }
+  // listen to each stretch and line them up with the script: in order, skipping missed lines, keeping the last of several takes
+  async function matchByWords(x, segs, targets, r) {
+    const R = LRAudio.RATE, heard = [];
+    for (let i = 0; i < segs.length; i++) { busyNote("Listening to " + r + "'s file… " + (i + 1) + " / " + segs.length); heard.push(LRProof.split(await LRProof.hear(x.slice(Math.round(segs[i].a * R), Math.round(segs[i].b * R)), "careful"))); }
+    const words = targets.map(t => t.run.text.split(/\s+/).filter(Boolean).map((w, i) => ({ w, i })));
+    const score = (i, j) => { const tw = words[j]; if (!tw.length || !heard[i].length) return 0; const m = LRProof.matches(tw, heard[i]).length; return Math.min(m / tw.length, m / heard[i].length * 1.5); };
+    const S = segs.length, N = targets.length, F = Array.from({ length: S + 1 }, () => new Float64Array(N + 1)), sc = Array.from({ length: S }, (_, i) => targets.map((_, j) => score(i, j)));
+    for (let i = 1; i <= S; i++) for (let j = 1; j <= N; j++) { const v = sc[i - 1][j - 1]; F[i][j] = Math.max(F[i - 1][j], F[i][j - 1], v >= 0.45 ? F[i - 1][j - 1] + v + i * 1e-4 : -1); }
+    const pairs = []; let i = S, j = N;
+    while (i > 0 && j > 0) { const v = sc[i - 1][j - 1]; if (v >= 0.45 && Math.abs(F[i][j] - (F[i - 1][j - 1] + v + i * 1e-4)) < 1e-9) { pairs.push([i - 1, j - 1]); i--; j--; } else if (F[i][j] === F[i - 1][j]) i--; else j--; }
+    return pairs.reverse();
+  }
+  async function markMissing(r) {
+    const runs = theirRuns().filter(x => x.r === r && ((duetData()[r] || {}).missing || []).includes(x.from) && !lineFor(x));
+    if (!runs.length) return;
+    const list = pkMine().map(q => Object.assign({}, q)); let n = 0;
+    for (const run of runs) { if (list.some(q => q.chapterId === B.chap.id && q.r === run.r && q.w0 === run.from && q.status === "open")) continue;
+      list.push({ id: Prep.uid(), to: run.r, r: run.r, chapterId: B.chap.id, chapter: B.chap.title, w0: run.from, w1: run.to, text: run.text, ctx: B.toks.slice(Math.max(0, run.from - 12), run.from).map(t => t.w).join(" "), note: "Missing from your file", made: new Date().toISOString(), status: "open" }); n++; }
+    await saveMine(list);
+    toast("🔁 " + n + " missing line" + (n === 1 ? "" : "s") + " added to " + r + "'s pickups." + (isNarrator(r) ? "" : " Pickups ▸ Copy the list to send them."));
+    renderSide();
   }
   async function castDropPick(r) { const f = await pickAudioFile(); if (f) return castDrop(r, f); }
 
