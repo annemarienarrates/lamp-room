@@ -105,7 +105,7 @@
     const fc = $("#folderchip"); fc.textContent = "📁 " + (Store.testMode ? "test library" : Store.folderName()); fc.classList.remove("hidden");
     if (route.name !== "booth") window.scrollTo(0, 0);
     if (!["almanac", "titles", "log", "ledger", "key", "help"].includes(route.name) && LL.views) LL.views.el = null;
-    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), help: viewHelp, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci, route.q.get("tab")),
+    ({ library: viewLibrary, book: viewBook, almanac: () => llView("almanac"), titles: () => llView("titles"), log: () => llView("worklog"), ledger: () => llView("ledger"), key: () => llView("guide"), help: viewHelp, goals: () => { main().innerHTML = '<p class="muted">Adding it up…</p>'; return LRGoals.view(main()); }, import: viewImport, calc: viewCalc, settings: viewSettings, booth: () => Booth.open(route.id, route.ci, route.q.get("tab")),
       workspace: () => { const id = Store.lsGet("lr-last-book"); if (id && Store.byId(id)) location.hash = "#/booth/" + id; else { toast("Open a book first — its Booth becomes your Workspace."); location.hash = "#/library"; } } }[route.name] || viewLibrary)();
   }
 
@@ -357,7 +357,7 @@
         if (!active.length) return items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`;
         return `<div class="section-label proj-kind">🎙 Audio projects <span>${aud.length}</span></div>${aud.length ? list(aud) : `<p class="small muted">No audio projects in progress.</p>`}
           ${wr.length ? `<div class="section-label proj-kind" style="margin-top:22px">✒ Writing projects <span>${wr.length}</span></div>${list(wr)}` : ""}`; })()}
-      ${done.length ? `<div class="section-label">Completed (${done.length})</div>${list(done)}` : ""}
+      ${done.length ? `<details style="margin-top:22px" ${ls("lr-done-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-done-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Finished (${done.length})</summary>${list(done)}</details>` : ""}
       ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
     const stop = e => e.target.closest("[data-star],[data-booth],[data-restore],[data-coverpick],[data-link]");
@@ -709,6 +709,12 @@
         <label class="check"><input type="checkbox" id="cf" ${S.confetti ? "checked" : ""}> Confetti</label>
         <label class="check"><input type="checkbox" id="calm" ${S.calm ? "checked" : ""}> Calm: keep the words, drop the sparks, lightning and flashes</label>
         <label class="check"><input type="checkbox" id="en" ${S.encouragement ? "checked" : ""}> Small encouraging lines</label>
+        <label class="check"><input type="checkbox" id="vw" ${S.voiceWave !== false ? "checked" : ""}> Voice wave across the bottom of the page while recording</label>
+        <div class="section-label" style="margin-top:10px">Notices</div>
+        <p class="small muted" style="margin:0 0 6px">Warnings (microphone, dropouts, clipping, anything that failed) always show. Everything else waits until you stop recording.</p>
+        <label class="check"><input type="checkbox" id="conf" ${S.confirmations === true ? "checked" : ""}> Confirmations: “copied”, “fades set”, “lines spliced”, “marker dropped”…</label>
+        <label class="check"><input type="checkbox" id="prog" ${S.progressNotes !== false ? "checked" : ""}> Progress lines in the Booth's top bar: “Splicing…”, “Checking…”</label>
+        <label>Duet cues (“JACK · 2.1 s”, “YOUR TURN”)<select id="cues">${[["full", "Big, in the middle"], ["small", "Small, in the corner"], ["off", "Off"]].map(([v, l]) => `<option value="${v}" ${(S.duetCues || "full") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Daily earnings goal ($, for the celebration; 0 = none)<input type="number" id="gearn" min="0" step="10" value="${esc(S.goalEarn || 0)}" style="max-width:120px"></label>
         <div class="row"><button class="btn quiet small" id="try2">Try a celebration</button><button class="btn quiet small" id="try3">Try the big one</button><button class="btn quiet small" id="tryc">Try a combo tier</button></div>
         <button class="btn small" id="try">Try it</button>
@@ -752,6 +758,10 @@
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
     $("#cf").onchange = e => { S.confetti = e.target.checked; save(); };
     $("#cele").onchange = e => { S.celebrations = e.target.checked; save(); };
+    $("#vw").onchange = e => { S.voiceWave = e.target.checked; save(); };
+    $("#conf").onchange = e => { S.confirmations = e.target.checked; save(); };
+    $("#prog").onchange = e => { S.progressNotes = e.target.checked; save(); };
+    $("#cues").onchange = e => { S.duetCues = e.target.value; save(); };
     $("#combo").onchange = e => { S.combo = e.target.checked; S.comboHidden = false; save(); };
     $("#calm").onchange = e => { S.calm = e.target.checked; save(); };
     $("#gearn").onchange = e => { S.goalEarn = Math.max(0, +e.target.value || 0); save(); };

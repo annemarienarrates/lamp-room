@@ -220,6 +220,8 @@
     split: ["Split the take at the playhead", "B"], addSpace: ["Add space at the playhead (room tone if learned)", "G"], track: ["Next track", "T"], addTrack: ["Add a track", "Shift+T"],
     smaller: ["Shorter tracks", "["], bigger: ["Taller tracks", "]"], zoomOut: ["Zoom out (time)", "-"], zoomIn: ["Zoom in (time)", "="],
     textSmaller: ["Smaller manuscript text", "Ctrl+-"], textBigger: ["Larger manuscript text", "Ctrl+="],
+    nextLine: ["Jump to your next line", "ArrowDown"], prevLine: ["Back to your previous line", "ArrowUp"],
+    nudgeL: ["Nudge the selected take earlier (50 ms)", "Alt+ArrowLeft"], nudgeR: ["Nudge the selected take later (50 ms)", "Alt+ArrowRight"],
     home: ["Playhead to the start", "Home"], end: ["Playhead to the end", "End"], prevFlag: ["Previous flag", ","], nextFlag: ["Next flag", "."],
     tools: ["Open / close the Tools panel", "Shift+P"], escape: ["Stop playback, clear the selection", "Escape"]
   };
@@ -269,7 +271,7 @@
     switch (name) {
       case "rec": return recordToggle();
       case "stop": return B.rec ? stopRecording() : (B.player.stop(), stopPreview(), renderTransport());
-      case "play": return togglePlay();
+      case "play": if (B.rec) { skipLine(); return; } return togglePlay();
       case "punch": return punchAt(playhead());
       case "flub": return flub();
       case "fxLast": return fxLast();
@@ -296,6 +298,10 @@
       case "zoomIn": return setZoom(1.5);
       case "textSmaller": return textZoom(-0.1);
       case "textBigger": return textZoom(0.1);
+      case "nextLine": return jumpLine(1);
+      case "prevLine": return jumpLine(-1);
+      case "nudgeL": return nudge(-0.05);
+      case "nudgeR": return nudge(0.05);
       case "home": return seek(0);
       case "end": return seek(len());
       case "prevFlag": return jumpFlag(-1);
@@ -396,6 +402,7 @@
     const t = e.target;
     if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
     if (t.dataset.duet) { setDuetOpt(t.dataset.duet, t.checked); renderSide(); return; }
+    if (t.dataset.dv) { const k = t.dataset.dv, d = Store.settings.duet = Object.assign({}, Store.settings.duet || {}); d[k] = k === "clean" ? t.checked : k === "vol" ? (+t.value || 0) / 100 : Math.max(0.3, +t.value || 0.8); Store.saveSettings(); if (k !== "vol" || e.type === "change") renderSide(); return; }
     if (t.dataset.pz) { const v = Math.max(0, parseFloat(t.value) || 0); setPause(t.dataset.pz, v); B.pausePreview = null; renderSide(); return; }
     if (t.dataset.pzc === "fill") { B.book.toneFill = t.checked; Store.saveBook(B.book); return; }
     if (t.dataset.pzc === "onComplete") { setPause("onComplete", t.checked); return; }
@@ -487,6 +494,21 @@
         <div class="stu-note">Text size: A− / A+ in the bar above, ${esc(kl("textSmaller"))} / ${esc(kl("textBigger"))}, or ⌘ + scroll over the text.</div></div>
       <a class="stu-btn" href="#/book/${esc(B.book.id)}">Book page →</a>`;
   }
+  // after a take with co-narrator lines in it: honour skips, and (if asked) clear your own track under their lines,
+  // where you were silent and the mic only heard their line in your headphones
+  function afterDuetTake(r) {
+    if (!r || !r.drops || !r.drops.length) return;
+    const tr = r.track;
+    for (const sk of (r.skips || []).slice().sort((a, b) => b.at - a.at)) {
+      T().insertGapExcept(B.audio, sk.at, sk.need, sk.ti);
+      for (const d of r.drops) { if (d.t >= sk.at - 1e-3) d.t += sk.need; if (d.speak != null && d.speak >= sk.at - 1e-3) d.speak += sk.need; }
+    }
+    if ((Store.settings.duet || {}).clean === false) return;
+    for (const d of r.drops) {
+      const a = d.t + 0.05, b = Math.min(d.t + d.dur, d.speak != null ? d.speak - 0.12 : d.t + d.dur) - 0.05;
+      if (b - a > 0.2) T().clear(B.audio, [tr], a, b);
+    }
+  }
   // pickups changed in the shared folder: new asks for me, or replies for my asks
   document.addEventListener("lr-external", e => {
     if (!B || !/^#\/booth\//.test(location.hash) || !(e.detail || []).includes("pickups")) return;
@@ -516,7 +538,7 @@
     B.audio.tracks[al.track].clips.sort((a, b) => a.at - b.at); al.clips = cur;
     B.sel = { a: al.a, b: al.a + al.len }; B.playhead = al.a; B.track = al.track;
     Store.saveBook(B.book); loadPeaks(); renderEditBar(); renderTransport(); renderSide();
-    toast("🔁 Swapped the take at " + clock(al.a) + ". Swap again to go back.");
+    notice("🔁 Swapped the take at " + clock(al.a) + ". Swap again to go back.");
   }
 
   // ---------------- manuscript ----------------
@@ -578,6 +600,7 @@
       `<label class="bd-link" title="Start and stop follow-along together with recording"><input type="checkbox" data-b="link" ${B.follow ? "checked" : ""}> with listening</label>` +
       `<div class="bd-right">` + G("", bt("home", ICON.home, { tip: "Playhead to start (Home)", dis: rec }) + bt("end", ICON.end, { tip: "Playhead to end (End)", dis: rec })) +
         G("", bt("undo", ICON.undo, { tip: "Undo (⌘Z)", dis: rec || !B.undo.length }) + bt("redo", ICON.redo, { tip: "Redo (⌘⇧Z)", dis: rec || !B.redo.length }) + bt("split", ICON.split + " Split", { tip: "Split the take at the playhead (B)", dis: rec || !has })) +
+        G("", bt("zoomOut", "−", { tip: "Zoom out (−, or ⌘-scroll)" }) + bt("zoomIn", "+", { tip: "Zoom in (=, or ⌘-scroll)" }) + bt("fit", "⤢ Fit", { tip: "See the whole chapter" })) +
         G("", bt("prevFlag", ICON.chevL, { tip: "Previous flag (,)", dis: rec || !flags }) + `<button class="stu-btn" data-b="flags" title="See every flag in this chapter">${ICON.flag} ${flags} flag${flags === 1 ? "" : "s"}</button>` + bt("nextFlag", ICON.chevR, { tip: "Next flag (.)", dis: rec || !flags })) +
       `</div></div>`;
     tp.onclick = dockClick;
@@ -617,7 +640,7 @@
     const a = b.dataset.b;
     ({ rec: () => recordToggle(), stop: () => B.rec ? stopRecording() : (B.player.stop(), renderTransport()), play: () => togglePlay(), flub,
       punch: () => punchAt(B.playhead != null ? B.playhead : len()), marker: () => addMarker(), custom: customMarker,
-      clock: clockClick, level: levelToggle, split: splitHere, click: () => act("click"),
+      clock: clockClick, level: levelToggle, split: splitHere, click: () => act("click"), zoomOut: () => setZoom(1 / 1.5), zoomIn: () => setZoom(1.5), fit: fitZoom,
       home: () => seek(0), end: () => seek(len()), undo, redo, prevFlag: () => jumpFlag(-1), nextFlag: () => jumpFlag(1), flags: flagList }[a] || (() => {}))();
   }
   async function levelToggle() {
@@ -857,7 +880,7 @@
       const r = B && B.rec; if (!(r && r.writer === writer && !r.paused)) return;
       let hot = 0; for (let i = 0; i < f.length; i++) if (f[i] >= 0.999 || f[i] <= -0.999) hot++;
       writer.push(f); r.clip.dur = writer.duration - r.clip.off;
-      let pk = 0; for (let i = 0; i < f.length; i += 4) { const a = f[i] < 0 ? -f[i] : f[i]; if (a > pk) pk = a; } if (pk > 0.012) r.loud = r.clip.at + r.clip.dur;
+      let pk = 0; for (let i = 0; i < f.length; i += 4) { const a = f[i] < 0 ? -f[i] : f[i]; if (a > pk) pk = a; } if (pk > 0.012) { r.loud = r.clip.at + r.clip.dur; if (r.drops) for (const dp of r.drops) if (dp.speak == null && r.loud > dp.t + 0.15) dp.speak = r.loud - 0.04; }
       // Finished Hour flagged clipping as you went
       if (hot > 1) { r.clipFlags += hot; const t = r.clip.at + r.clip.dur; if (t - r.lastClipT > 3) { r.lastClipT = t; B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx: "", note: "Clipped — too loud here", auto: true, done: false }); } }
     };
@@ -880,14 +903,15 @@
     const nc = { file: r.file, off: r.writer.duration, dur: 0, at: now };
     B.audio.tracks[ti].clips.push(nc);
     r.clip = nc; r.track = ti; B.track = ti; r.punch = true;
-    toast("🎙 Now recording on track " + (ti + 1) + (trackSet()[ti] ? " · " + trackSet()[ti].name : ""));
+    notice("🎙 Now recording on track " + (ti + 1) + (trackSet()[ti] ? " · " + trackSet()[ti].name : ""));
     renderEditBar(); renderTransport();
   }
   async function stopRecording() {
     if (!B || !B.rec) return;
     if (B.rec && !B.rec.paused) await B.mic.flush();          // the last few milliseconds still in the capture buffer
     if (!B || !B.rec) return;
-    const r = B.rec; B.rec = null; B.mic.onFrames = null; B.mic.onDrop = null; document.body.classList.remove("booth-recording"); drawVoice();
+    const r = B.rec; B.rec = null; B.mic.onFrames = null; B.mic.onDrop = null;
+    afterDuetTake(r); document.body.classList.remove("booth-recording"); drawVoice();
     try { await r.writer.close(); } catch (e) { toast("Saving the take failed: " + e.message); }
     r.clip.dur = r.writer.duration - r.clip.off;
     B.audio.alts = B.audio.alts || [];
@@ -914,13 +938,14 @@
     renderEditBar(); renderTransport();
     if (trackSet().some(t => t && t.armed && t.armed.length)) {
       B.busy = "armed";
-      try { if (await processArmed(r.file)) toast("🎛 Armed effects applied to the new take. Undo takes the take away; the dry recording is kept in your Studio folder."); }
+      try { if (await processArmed(r.file)) notice("🎛 Armed effects applied to the new take. Undo takes the take away; the dry recording is kept in your Studio folder."); }
       catch (e) { console.error(e); toast("Armed effects failed: " + e.message + ". The take is kept dry."); }
       B.busy = null; renderTransport();
     }
     Store.saveBook(B.book, true);
     flushSession();
     if (window.LRCele) { LRCele.comboEnd(); setTimeout(() => LRCele.flush(), 300); }
+    if (window.flushNotes) setTimeout(flushNotes, 900);
     stopLine(); const db = $("#duet-banner"); if (db) db.remove();
   }
   async function flub() {
@@ -942,7 +967,7 @@
     B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx, note: note || "", done: false });
     B.audio.markers.sort((a, b) => a.t - b.t);
     Store.saveBook(B.book);
-    toast("⚑ " + (note ? note + " · " : "Marker at ") + clock(t) + " — “…" + ctx + "…”");
+    notice("⚑ " + (note ? note + " · " : "Marker at ") + clock(t) + " — “…" + ctx + "…”");
     renderTransport();
   }
 
@@ -987,7 +1012,7 @@
   async function redo() { if (B.rec) return; if (!B.redo.length) { toast("Nothing to redo."); return; } B.undo.push(snap()); restore(B.redo.pop()); }
   function edited() { B.selTake = null; Store.saveBook(B.book); renderEditBar(); renderTransport(); if (B.side === "tools") renderSide(); }
   // the clipboard holds every track's audio in the selected range, so duet lines stay with their narration
-  function copy() { if (!B.sel || B.rec) return false; B.clip = B.audio.tracks.map((_, ti) => T().extract(B.audio, ti, B.sel.a, B.sel.b)); B.clipLen = B.sel.b - B.sel.a; toast("Copied " + clock(B.clipLen) + "."); renderEditBar(); return true; }
+  function copy() { if (!B.sel || B.rec) return false; B.clip = B.audio.tracks.map((_, ti) => T().extract(B.audio, ti, B.sel.a, B.sel.b)); B.clipLen = B.sel.b - B.sel.a; notice("Copied " + clock(B.clipLen) + "."); renderEditBar(); return true; }
   function cut() { if (!copy()) return; pushUndo(); T().deleteRange(B.audio, B.sel.a, B.sel.b); B.playhead = B.sel.a; B.sel = null; edited(); }
   function deleteSel() { if (!B.sel || B.rec) return; pushUndo(); T().deleteRange(B.audio, B.sel.a, B.sel.b); B.playhead = B.sel.a; B.sel = null; edited(); }
   function paste(over) {
@@ -1030,7 +1055,8 @@
     const L = T().trackLen(B.audio.tracks[ti]); return L ? { ti, a: 0, b: L } : null;
   }
   const fxTi = () => Math.min(B.fxTrack != null ? B.fxTrack : B.track, B.audio.tracks.length - 1);
-  function busyNote(txt) { B.busyTxt = txt; const n = $("#bd-busy"); if (n) n.textContent = txt || ""; }
+  // progress lines ("Splicing…", "Checking…") — hidden while recording, and if you've switched them off
+  function busyNote(txt) { B.busyTxt = txt; const n = $("#bd-busy"); if (n) n.textContent = txt && Store.settings.progressNotes !== false && !B.rec ? txt : ""; }
   // process [a, b) of one track and lay the result over it as a new file; tails ring on into silence, never over the next take
   async function processRegion(list, tgt) {
     const d = await dir(), tr = B.audio.tracks[tgt.ti], dur = tgt.b - tgt.a, R = RATE();
@@ -1055,7 +1081,7 @@
       const clip = await processRegion(list, tgt);
       pushUndo(); T().overwrite(B.audio, tgt.ti, [clip], tgt.a);
       B.lastFx = list.map(e => ({ k: e.k, p: Object.assign({}, e.p) })); B.sel = { a: tgt.a, b: tgt.a + clip.dur }; B.track = tgt.ti;
-      toast("🎛 " + list.map(e => LRFx.KINDS[e.k].name).join(" + ") + " applied. Undo brings the original back.");
+      notice("🎛 " + list.map(e => LRFx.KINDS[e.k].name).join(" + ") + " applied. Undo brings the original back.");
     } catch (e) { console.error(e); toast("That effect failed: " + e.message); }
     B.busy = null; busyNote(""); edited(); renderSide();
   }
@@ -1069,7 +1095,7 @@
   }
   function armFx(kind, on) {
     const st = trackSet()[fxTi()]; st.armed = (st.armed || []).filter(e => e.k !== kind);
-    if (on) { st.armed.push({ k: kind, p: Object.assign({}, B.fxp[kind]) }); toast("⏻ " + LRFx.KINDS[kind].name + " armed on " + (st.name || "track " + (fxTi() + 1)) + ": new takes there get it when you press Stop."); }
+    if (on) { st.armed.push({ k: kind, p: Object.assign({}, B.fxp[kind]) }); notice("⏻ " + LRFx.KINDS[kind].name + " armed on " + (st.name || "track " + (fxTi() + 1)) + ": new takes there get it when you press Stop."); }
     Store.saveBook(B.book); renderSide(); renderHeads();
   }
   async function previewFx(kind) {
@@ -1094,13 +1120,13 @@
       const list = (ts[ti] || {}).armed || []; if (!list.length) continue;
       const tr = B.audio.tracks[ti];
       for (const c of tr.clips.filter(c => c.file === file)) {
-        busyNote("Armed effects on track " + (ti + 1) + "…"); toast("🎛 Applying armed effects to the take on track " + (ti + 1) + "…");
+        B.fxBusy = ti; drawWave();     // a small "🎛 …" on the take's label while it works, nothing else
         const nc = await processRegion(list, { ti, a: c.at, b: c.at + c.dur });
         Object.assign(c, { file: nc.file, off: 0, dur: nc.dur, fx: nc.fx, src: { file: file, off: c.off, dur: c.dur } });
         done++;
       }
     }
-    busyNote("");
+    B.fxBusy = null; busyNote(""); if (B) drawWave();
     return done;
   }
   function chainChanged() { if (B.player.playing) { B.playhead = B.player.time; togglePlay(true); } }
@@ -1108,12 +1134,12 @@
     const st = trackSet()[fxTi()], name = (prompt("Name this voice preset (it saves the track's armed effects and track sound):", st.name || "") || "").trim(); if (!name) return;
     const ps = Store.settings.fxPresets = Store.settings.fxPresets || {};
     ps[name] = { armed: JSON.parse(JSON.stringify(st.armed || [])), chain: JSON.parse(JSON.stringify(LRFx.chainOf(st))) };
-    Store.saveSettings(); renderSide(); toast("Saved the voice preset “" + name + "”.");
+    Store.saveSettings(); renderSide(); notice("Saved the voice preset “" + name + "”.");
   }
   function loadPreset(name) {
     const pr = (Store.settings.fxPresets || {})[name]; if (!pr) return;
     const st = trackSet()[fxTi()]; st.armed = JSON.parse(JSON.stringify(pr.armed || [])); st.chain = JSON.parse(JSON.stringify(pr.chain || LRFx.CHAIN_DEFAULT()));
-    Store.saveBook(B.book); chainChanged(); renderSide(); renderHeads(); toast("“" + name + "” is on " + (st.name || "track " + (fxTi() + 1)) + ".");
+    Store.saveBook(B.book); chainChanged(); renderSide(); renderHeads(); notice("“" + name + "” is on " + (st.name || "track " + (fxTi() + 1)) + ".");
   }
 
   // ======================= duets: the co-narrator's lines =======================
@@ -1155,19 +1181,22 @@
   async function playLine(l, onEnd) {
     stopLine();
     try {
-      const x = await LRAudio.renderRange(await dir(), [{ file: l.file, off: 0, dur: l.dur, at: 0 }], 0, l.dur);
+      const x = await LRAudio.renderRange(await dir(), [{ file: l.file, off: l.hin || 0, dur: l.dur, at: 0 }], 0, l.dur);
       const ctx = new AudioContext({ sampleRate: LRAudio.RATE }), buf = ctx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0);
-      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start();
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const gn = ctx.createGain(); gn.gain.value = coVol(); src.connect(gn); gn.connect(ctx.destination); src.start();   // their line, at your headphone level
       B.coPlay = ctx; src.onended = () => { if (B && B.coPlay === ctx) stopLine(); onEnd && onEnd(); };
     } catch (e) { toast("Couldn't play that line: " + e.message); }
   }
   function stopLine() { if (B && B.coPlay) { B.coPlay.close().catch(() => {}); B.coPlay = null; } }
   function duetBanner(title, text, secs, go) {
     let b = $("#duet-banner"); if (b) b.remove();
-    b = document.createElement("div"); b.id = "duet-banner"; b.className = "duet-banner" + (go ? " go" : "");
+    const mode = Store.settings.duetCues || "full"; if (mode === "off") return null;
+    b = document.createElement("div"); b.id = "duet-banner"; b.className = "duet-banner" + (go ? " go" : "") + (mode === "small" ? " small" : "");
     b.innerHTML = `<b>${esc(title)}</b>${text ? `<i>${esc(text)}</i>` : ""}${secs ? `<div class="db-bar"><span style="animation-duration:${secs}s"></span></div>` : ""}`;
     document.body.appendChild(b);
     clearTimeout(B.bannerT); B.bannerT = setTimeout(() => b.remove(), (secs || 2.2) * 1000);
+    return b;
   }
   const short = (t, n) => { const w = t.split(" "); return w.length > n ? w.slice(0, n).join(" ") + "…" : t; };
   const qt = t => /^[“"‘']/.test(t) ? t : "“" + t + "”";
@@ -1176,6 +1205,7 @@
   function duetLive() {
     const r = B.rec; if (!r || r.paused || !amLead() || !duetOpt("auto")) return;
     const now = r.clip.at + r.clip.dur;
+    if (B.turnAt != null && r.loud > B.turnAt + 0.15) { const bn = $("#duet-banner.go"); if (bn) bn.remove(); B.turnAt = null; }
     if (r.coUntil && now < r.coUntil + 0.2) return;
     const pos = B.f.pos, x = theirRuns().find(x => x.from >= r.pos0 && x.from < pos && !r.handled.has(runKey(x)) && !placedClip(x));
     if (!x) return;
@@ -1187,15 +1217,31 @@
   function liveDrop(x, l, t) {
     const r = B.rec; r.handled.add(runKey(x));
     const ti = coTrack(x.r); if (ti < 0 || ti === r.track) { toast("Their lines need a track of their own: record on track 1 and keep a track free for " + x.r + "."); return; }
-    T().overwrite(B.audio, ti, [{ file: l.file, off: 0, dur: l.dur, at: 0, line: { r: x.r, from: x.from } }], t);
+    T().overwrite(B.audio, ti, [{ file: l.file, off: l.hin || 0, dur: l.dur, at: 0, line: { r: x.r, from: x.from } }], t);
     r.coUntil = t + l.dur;
+    r.drops = r.drops || []; const drop = { t, dur: l.dur, ti, speak: null }; r.drops.push(drop); r.coNow = drop;
     const sl = slotOf(x); if (sl) B.audio.markers = B.audio.markers.filter(m => m !== sl);
     if (window.LRCele) LRCele.comboHold(l.dur * 1000 + 6000);
     duetBanner(x.r.toUpperCase() + " · " + l.dur.toFixed(1) + " s", qt(short(x.text, 14)), l.dur);
-    const yourTurn = () => { if (B && B.rec === r) { const nx = B.toks.slice(x.to + 1).findIndex((_, k) => B.mine[x.to + 1 + k]); const w = nx >= 0 ? B.toks.slice(x.to + 1 + nx, x.to + 1 + nx + 6).map(t => t.w).join(" ") : ""; duetBanner("YOUR TURN", w ? "“" + w + "…”" : "", 1.8, true); } };
-    if (duetOpt("hear")) playLine(l, yourTurn); else setTimeout(yourTurn, l.dur * 1000);
+    const yourTurn = () => { if (B && B.rec === r) { const nx = B.toks.slice(x.to + 1).findIndex((_, k) => B.mine[x.to + 1 + k]); const w = nx >= 0 ? B.toks.slice(x.to + 1 + nx, x.to + 1 + nx + 6).map(t => t.w).join(" ") : ""; duetBanner("YOUR TURN", w ? "“" + w + "…”" : "", turnSecs(), true); B.turnAt = r.clip.at + r.clip.dur; } if (r.coNow === drop) r.coNow = null; };
+    drop.yourTurn = yourTurn;
+    const bn = $("#duet-banner"); if (bn) { bn.classList.add("skippable"); bn.onclick = () => skipLine(); bn.insertAdjacentHTML("beforeend", `<div class="db-skip">Space or click to skip</div>`); }
+    if (duetOpt("hear")) playLine(l, () => { if (!drop.skipped) yourTurn(); }); else drop.timer = setTimeout(() => { if (!drop.skipped) yourTurn(); }, l.dur * 1000);
     renderTransport();
   }
+  // Space or a click while their line plays: carry on now. When you stop, your audio after this moment moves along by the
+  // part you didn't wait for, so the chapter comes out exactly as if you'd waited.
+  function skipLine() {
+    const r = B && B.rec, d = r && r.coNow; if (!d || d.skipped) return false;
+    const now = r.clip.at + r.clip.dur, remain = d.t + d.dur - now; if (remain < 0.05) return false;
+    d.skipped = true; clearTimeout(d.timer); stopLine();
+    (r.skips = r.skips || []).push({ at: now, need: remain, ti: d.ti });
+    r.coUntil = now; d.yourTurn && d.yourTurn();
+    return true;
+  }
+  const notice = m => { if (window.note) window.note(m); };
+  const coVol = () => { const v = (Store.settings.duet || {}).vol; return v == null ? 0.6 : Math.max(0, Math.min(1, v)); };
+  const turnSecs = () => { const v = (Store.settings.duet || {}).turn; return v == null ? 0.8 : Math.max(0.3, Math.min(3, v)); };
   function liveSlot(x, t) {
     const r = B.rec; r.handled.add(runKey(x));
     if (slotOf(x)) return;
@@ -1205,6 +1251,12 @@
   }
   // C: their next line, now (or a slot if it hasn't arrived); not recording: at the playhead
   async function duetClick() {
+    if (!amLead() && myRuns().length) {            // reading your own lines: C marks "that line ends here" for the cutter
+      const t = B.rec ? B.rec.clip.at + B.rec.clip.dur : B.playhead != null ? B.playhead : len();
+      B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx: "", note: "✂ line ends", cut: true, done: true });
+      B.audio.markers.sort((a, b) => a.t - b.t); if (!B.rec) Store.saveBook(B.book);
+      const bn = duetBanner("✂ CUT", "", 0.6); return;
+    }
     const runs = theirRuns().filter(x => !placedClip(x));
     if (!runs.length) { toast(theirRuns().length ? "Every co-narrator line in this chapter is already in." : "This chapter has no co-narrator lines."); return; }
     const pos = B.f.pos, ahead = runs.filter(x => x.to >= pos - 1 && !(B.rec && B.rec.handled.has(runKey(x)))), x = ahead.find(x => x.from - pos <= 40) || ahead[0] || runs[0];
@@ -1226,7 +1278,7 @@
     t = Math.max(0, Math.min(t, len()));
     const ti = coTrack(x.r);
     T().insertGap(B.audio, t, l.dur + 0.35);
-    T().overwrite(B.audio, ti, [{ file: l.file, off: 0, dur: l.dur, at: 0, line: { r: x.r, from: x.from } }], t);
+    T().overwrite(B.audio, ti, [{ file: l.file, off: l.hin || 0, dur: l.dur, at: 0, line: { r: x.r, from: x.from } }], t);
     const sl = slotOf(x); if (sl) B.audio.markers = B.audio.markers.filter(m => m !== sl);
     return t;
   }
@@ -1243,7 +1295,7 @@
       await spliceAt(x, lineFor(x), near, false); done++;
     }
     B.busy = null; busyNote(""); edited(); renderSide();
-    toast("⤓ " + done + " line" + (done === 1 ? "" : "s") + " spliced in" + (missed ? ". " + missed + " couldn't be placed (no word timing there yet): put the playhead where each goes and press " + kl("click") + "." : "."));
+    notice("⤓ " + done + " line" + (done === 1 ? "" : "s") + " spliced in" + (missed ? ". " + missed + " couldn't be placed (no word timing there yet): put the playhead where each goes and press " + kl("click") + "." : "."));
   }
   function unplace(x) { const p = placedClip(x); if (p) deleteTake(p.ti, p.ci); }
 
@@ -1282,22 +1334,36 @@
         const merged = segs.filter(s => s[1] - s[0] > 0.25);
         spans.forEach((s, i) => { if (s.a == null || s.b == null) { const g = merged[i]; if (g) { s.a = g[0] + 0.3; s.b = g[1] - 0.05; s.guess = true; } } });
       }
+      // ✂ marks from C: when there's one between every line, they decide the cuts outright
+      const cuts = B.audio.markers.filter(m => m.cut).map(m => m.t).sort((a, b) => a - b);
+      if (cuts.length) {
+        const bounds = [0].concat(cuts, [L]), segs = [];
+        for (let i = 0; i < bounds.length - 1; i++) {
+          let f = Math.round(bounds[i] / 0.01), l = Math.round(bounds[i + 1] / 0.01) - 1; while (f < l && E.env[f] < E.thr) f++; while (l > f && E.env[l] < E.thr) l--;
+          if (l - f >= 15) segs.push([f * 0.01, (l + 1) * 0.01, bounds[i], bounds[i + 1]]);
+        }
+        if (segs.length === spans.length) spans.forEach((s, i) => { s.a = segs[i][0] + 0.3; s.b = segs[i][1] - 0.05; s.lo = segs[i][2]; s.hi = segs[i][3]; s.guess = false; s.cut = true; });
+        else spans.forEach(s => { if (s.a == null) return; const lo = cuts.filter(c => c <= s.a).pop(), hi = cuts.find(c => c >= s.b); if (lo != null) s.lo = lo; if (hi != null) s.hi = hi; });
+      }
       const out = [];
       spans.forEach((s, i) => {
         if (s.a == null) return;
         const prevEnd = i ? (out.length ? out[out.length - 1].b : 0) : 0, nextA = spans.slice(i + 1).find(z => z.a != null);
         const a = Math.max(prevEnd, quietBack(E, Math.max(0, s.a - 0.35), 0.22, Math.max(prevEnd, s.a - 6)) - 0.12);
         const b = Math.min(nextA ? nextA.a - 0.6 : L, quietFwd(E, Math.max(s.b - 0.15, a + 0.2), 0.38, Math.min(L, s.b + 6)) + 0.2);
-        out.push({ x: s.x, a: Math.max(0, a), b: Math.min(L, Math.max(b, a + 0.25)), guess: s.guess });
+        let a2 = Math.max(0, a), b2 = Math.min(L, Math.max(b, a + 0.25));
+        if (s.lo != null) a2 = Math.max(a2, s.lo + 0.05); if (s.hi != null) b2 = Math.min(b2, s.hi - 0.03);
+        out.push({ x: s.x, a: a2, b: Math.max(b2, a2 + 0.25), guess: s.guess });
       });
       const d = await Store.duetDir(B.book, B.chap, B.readingAs, true);
       for await (const [name] of d.entries()) await d.removeEntry(name).catch(() => {});
       const R = LRAudio.RATE, lines = [];
       for (let i = 0; i < out.length; i++) {
-        const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", x = await render(o.a, o.b - o.a);
+        // each line carries ~0.6 s of handle either side, hidden: drag its edge out on the lead's side to get a clipped word back
+        const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
         const fade = Math.min(x.length, Math.round(R * 0.012)); for (let k = 0; k < fade; k++) { x[k] *= k / fade; x[x.length - 1 - k] *= k / fade; }
         for (const dd of [d].concat(copyTo ? [copyTo] : [])) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
-        lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: x.length / R, guess: !!o.guess });
+        lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: +(o.b - o.a).toFixed(4), hin: +hin.toFixed(4), hout: +hout.toFixed(4), guess: !!o.guess });
         busyNote("Cutting line " + n + " / " + out.length);
       }
       const pack = { v: 1, book: B.book.title, bookId: B.book.id, chapter: B.chap.title, chapterId: B.chap.id, reader: B.readingAs, made: new Date().toISOString(), rate: R, lines };
@@ -1327,12 +1393,12 @@
         const name = "co-" + r.replace(/[^\w-]+/g, "") + "-" + stamp + "-" + String(l.n).padStart(3, "0") + ".wav";
         const src = await (await d.getFileHandle(l.file)).getFile(), fh = await cd.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(src); await w.close();
         try { const ps = await (await d.getFileHandle(l.file.replace(/\.wav$/, ".peaks2"))).getFile(), ph = await cd.getFileHandle(name.replace(/\.wav$/, ".peaks2"), { create: true }), pw = await ph.createWritable(); await pw.write(ps); await pw.close(); } catch (e) {}
-        lines.push({ n: l.n, file: name, from: x.from, to: x.to, text: x.text, dur: l.dur });
+        lines.push({ n: l.n, file: name, from: x.from, to: x.to, text: x.text, dur: l.dur, hin: l.hin || 0, hout: l.hout || 0 });
       }
       duetData()[r] = { made: pack.made, got: new Date().toISOString(), lines }; got += lines.length; fresh += lines.length;
       B.peaks = B.peaks || {};
     }
-    if (fresh) { Store.saveBook(B.book); renderSide(); toast("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
+    if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;
   }
@@ -1362,7 +1428,12 @@
           <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}${l || p ? `<button class="stu-btn" data-p="lask:${i}" title="Ask ${esc(x.r)} to re-record this line">🔁</button>` : ""}</span></div>`; }).join("")}</div>
       <div class="bd-sec"><b>A recording from outside the Lamp Room</b><div class="stu-note">Cast who don't use the Lamp Room send you a file. Drop it here and it's cut into their lines: at the clicks or claps between lines if there are any, otherwise at the pauses. WAV, MP3, M4A, AIFF or FLAC.</div>
         <div class="fx-chips">${[...new Set(runs.map(x => x.r))].map(r => `<button class="stu-btn" data-p="castdrop:${esc(r)}" ${dis}>🎧 ${esc(r)}'s file…</button>`).join("")}</div>
-        <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label></div>`;
+        <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label></div>
+      <div class="bd-sec"><b>While their lines play</b>
+        <div class="fx-chips"><span class="stu-note">Their lines in my headphones</span><input type="range" min="0" max="100" step="5" data-dv="vol" value="${Math.round(coVol() * 100)}"><span class="stu-note">${Math.round(coVol() * 100)}%</span></div>
+        <div class="fx-chips"><span class="stu-note">“Your turn” shows for</span><input class="stu-in pz" type="number" min="0.3" max="3" step="0.1" data-dv="turn" value="${turnSecs()}"><span class="stu-note">s</span></div>
+        <label class="check"><input type="checkbox" data-dv="clean" ${(Store.settings.duet || {}).clean !== false ? "checked" : ""}> Clean up my track under their lines (removes headphone bleed; stops the moment I start speaking)</label>
+        <div class="stu-note">Space, or a click on their banner, skips the rest of their line. The chapter still comes out as if you'd waited.</div></div>`;
   }
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot), done = B.audio.markers.filter(m => m.done && !m.slot);
@@ -1388,7 +1459,7 @@
     if (!shared) T().deleteRange(B.audio, c.at, c.at + c.dur);
     B.selTake = null; B.sel = null; B.playhead = c.at;
     edited(); renderSide();
-    toast("🗑 Take deleted" + (shared ? " (left as silence so the other tracks stay in sync)" : "") + ". Undo brings it back.");
+    notice("🗑 Take deleted" + (shared ? " (left as silence so the other tracks stay in sync)" : "") + ". Undo brings it back.");
   }
   function gainSel(db) {
     if (B.rec) return; let ti = B.track, a, b;
@@ -1446,7 +1517,7 @@
     Prep.setPart(B.chap, from, to, part);
     const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos);
     Store.saveBook(B.book); bookCounts(); renderManuscript(); renderStats();
-    toast((to - from + 1) + " word" + (to > from ? "s" : "") + " now read by " + (who === "__n" ? "the narrator" : who) + ". Select them again to change it.");
+    notice((to - from + 1) + " word" + (to > from ? "s" : "") + " now read by " + (who === "__n" ? "the narrator" : who) + ". Select them again to change it.");
   }
 
   // ======================= the voice waveform over the page while you record (Finished Hour drew one too) =======================
@@ -1455,7 +1526,7 @@
   function drawVoice() {
     const cv = $("#voice-wave"), an = B.mic && B.mic.analyser;
     if (!cv) return;
-    const on = !!(B.rec && !B.rec.paused && an);
+    const on = !!(B.rec && !B.rec.paused && an) && Store.settings.voiceWave !== false;
     cv.classList.toggle("on", on); if (!on) { B.sparks = []; return; }
     const dock = $("#booth-dock"), dockTop = dock ? dock.getBoundingClientRect().top : innerHeight, W = innerWidth, H = 360, dpr = Math.min(2, window.devicePixelRatio || 1);
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + "px"; cv.style.height = H + "px"; }
@@ -1521,6 +1592,15 @@
     }
     g.restore();
   }
+  // where the other tracks are quiet (from the waveform peaks): pauses a co-narrator line can drop into
+  function quietRanges(exceptTi) {
+    const L = len(), N = Math.ceil(L * 100) + 1, amp = new Float32Array(N);
+    B.audio.tracks.forEach((tr, ti) => { if (ti === exceptTi) return; for (const c of tr.clips) { const pk = B.peaks[c.file]; const k0 = Math.max(0, Math.floor(c.at * 100)), k1 = Math.min(N, Math.ceil((c.at + c.dur) * 100));
+      for (let k = k0; k < k1; k++) { let v = pk ? 0 : 1; if (pk) { const j = Math.floor((c.off + k / 100 - c.at) * LRAudio.PEAKS_PER_SEC); if (pk.mm) { const n = pk.mm.length / 2; if (j >= 0 && j < n) v = Math.max(Math.abs(pk.mm[2 * j]), Math.abs(pk.mm[2 * j + 1])) / 127; } else if (pk.abs && j >= 0 && j < pk.abs.length) v = pk.abs[j] / 255; } if (v > amp[k]) amp[k] = v; } } });
+    const nz = Array.from(amp).filter(v => v > 0.001).sort((a, b) => a - b), thr = Math.max(0.02, (nz[Math.floor(nz.length * 0.1)] || 0) * 3);
+    const out = []; let s0 = -1; for (let k = 0; k <= N; k++) { const q = k < N && amp[k] < thr; if (q && s0 < 0) s0 = k; if (!q && s0 >= 0) { if (k - s0 >= 25) out.push({ a: s0 / 100, b: k / 100 }); s0 = -1; } }
+    return out;
+  }
   // how long a clip's whole recording is (from its waveform peaks), so an edge can't be dragged past it
   function srcDurOf(file) { const p = B.peaks[file]; return p ? (p.mm ? p.mm.length / 2 : p.abs.length) / LRAudio.PEAKS_PER_SEC : null; }
   function drawWave() {
@@ -1568,13 +1648,20 @@
         if (picked) { g.fillStyle = "rgba(255,244,214,.10)"; g.fillRect(xa, top + 1, xb - xa, LH - 2); }
         g.strokeStyle = `rgba(${frame},.7)`; g.lineWidth = 1; g.strokeRect(Math.round(xa) + .5, top + 1.5, Math.max(2, Math.round(xb - xa)), LH - 3);
         g.fillStyle = `rgba(${frame},.55)`; g.fillRect(Math.round(xa), top + 2, 3, LH - 4); g.fillRect(Math.round(xb) - 2, top + 2, 3, LH - 4);
-        if (LH >= 30 && xb - xa > 46) { g.fillStyle = "rgba(255,255,255,.55)"; g.font = "10px system-ui"; g.fillText(live ? "● Recording" : (c.fx ? "🎛 " : "") + (c.line ? "👥 " + c.line.r : "Take " + (ci + 1)) + (c.g ? "  " + (c.g > 0 ? "+" : "") + c.g + " dB" : ""), Math.max(xa, 0) + 6, top + 10); }
+        if (LH >= 30 && xb - xa > 46) { g.fillStyle = "rgba(255,255,255,.55)"; g.font = "10px system-ui"; g.fillText(live ? "● Recording" : (B.fxBusy === ti && ci === B.audio.tracks[ti].clips.length - 1 ? "🎛 … " : c.fx ? "🎛 " : "") + (c.line ? "👥 " + c.line.r : "Take " + (ci + 1)) + (c.g ? "  " + (c.g > 0 ? "+" : "") + c.g + " dB" : ""), Math.max(xa, 0) + 6, top + 10); }
         if (!live) drawFades(g, c, xa, xb, top, LH, pps);
       });
       g.restore();
     });
     if (B.sel) { const xa = X(B.sel.a), xb = X(B.sel.b); g.fillStyle = "rgba(245,236,214,.16)"; g.fillRect(xa, RULER, xb - xa, H - RULER); g.fillStyle = "rgba(245,236,214,.7)"; g.fillRect(xa, RULER, 1, H - RULER); g.fillRect(xb - 1, RULER, 1, H - RULER); }
-    if (B.ghost) { const gx = X(B.ghost.at), gw = B.ghost.dur * pps, top = RULER + B.ghost.ti * LH; g.strokeStyle = "rgba(245,236,214,.9)"; g.setLineDash([4, 3]); g.strokeRect(gx, top + 1, gw, LH - 2); g.setLineDash([]); }
+    if (B.ghost) { const gx = X(B.ghost.at), gw = B.ghost.dur * pps, top = RULER + B.ghost.ti * LH; g.strokeStyle = "rgba(245,236,214,.9)"; g.setLineDash([4, 3]); g.strokeRect(gx, top + 1, gw, LH - 2); g.setLineDash([]);
+      if (B.ghost.mode) { g.fillStyle = B.ghost.mode === "snap" ? "rgba(90,200,190,.25)" : "rgba(255,190,90,.22)"; g.fillRect(gx, top + 1, gw, LH - 2); g.fillStyle = "#fff"; g.font = "11px system-ui"; g.fillText(B.ghost.mode === "snap" ? "👥 drops into this pause" : B.ghost.mode === "move" ? "👥 slides the line (nothing else moves)" : "👥 opens space here", Math.max(4, gx + 6), top + 14); } }
+    if (B.trimView) { const tv = B.trimView, xa = X(tv.a), xb = X(tv.b);
+      g.fillStyle = tv.open ? "rgba(70,200,190,.32)" : "rgba(229,71,59,.35)";
+      for (const ln of tv.lanes) g.fillRect(Math.min(xa, xb), RULER + ln * LH, Math.max(2, Math.abs(xb - xa)), LH);
+      const ex = X(tv.edge); g.strokeStyle = "rgba(255,255,255,.75)"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(ex + .5, RULER); g.lineTo(ex + .5, H); g.stroke(); g.setLineDash([]);
+      g.font = "600 12px system-ui"; const txt = tv.label, tw = g.measureText(txt).width + 12, lx = Math.min(W - tw - 4, Math.max(4, X(tv.cursor) + 10));
+      g.fillStyle = "rgba(10,10,10,.82)"; g.fillRect(lx, RULER + 4, tw, 20); g.fillStyle = tv.open ? "#7fe3d8" : "#ff8a7a"; g.fillText(txt, lx + 6, RULER + 18); }
     for (const m of B.audio.markers) { const x = X(m.t); if (x < -8 || x > W + 8) continue; g.fillStyle = "#e5473b"; g.fillRect(x - 1, RULER, 2, H - RULER); g.beginPath(); g.moveTo(x, RULER); g.lineTo(x + 8, RULER + 4.5); g.lineTo(x, RULER + 9); g.fill(); }
     const ph = head();
     if (ph != null) { const x = X(ph); g.fillStyle = B.rec ? "#ff5a4d" : "#f5ecd6"; g.fillRect(x - 1, 0, 2, H); if (B.rec) { g.shadowColor = "#ff3b57"; g.shadowBlur = 12; g.fillRect(x - 1, 0, 2, H); g.shadowBlur = 0; } }
@@ -1618,8 +1705,9 @@
       if (h && h.kind === "edge") { const c = B.audio.tracks[h.ti].clips[h.ci]; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false, orig: JSON.stringify(B.audio), src: srcDurOf(c.file), t0: h.edge === "start" ? c.at : c.at + c.dur }); B.track = h.ti; return; }
       if (ci >= 0 && (inStrip || e.altKey)) {
         const c = B.audio.tracks[p.ti].clips[ci];
-        B.dragging = { kind: "move", ti: p.ti, ci, grab: p.t - c.at, x0: e.clientX };
+        B.dragging = { kind: "move", ti: p.ti, ci, grab: p.t - c.at, x0: e.clientX, co: !!c.line };
         B.ghost = { at: c.at, ti: p.ti, dur: c.dur };
+        if (c.line) B.dragging.pz = quietRanges(p.ti);
       } else B.dragging = { kind: "sel", a: p.t, x0: e.clientX, ti: p.ti };
       drawWave();
     };
@@ -1637,9 +1725,18 @@
         const v = view(); let dd = (e.clientX - d.x0) / v.pps; dd = snapTo(d.t0 + dd, d.ti, d.ci) - d.t0;
         B.chap.audio[B.readingAs] = B.audio = T().normalize(JSON.parse(d.orig));
         d.applied = T().trimEdge(B.audio, d.ti, d.ci, d.edge, dd, !e.altKey, d.src); cv.style.cursor = "ew-resize";
+        { const ap = d.applied, oe = d.t0, open = d.edge === "end" ? ap > 0 : ap < 0, a = d.edge === "end" ? oe : oe, b = d.edge === "end" ? oe + ap : oe - ap;
+          B.trimView = Math.abs(ap) < 0.005 ? null : { a: Math.min(a, b), b: Math.max(a, b), open, lanes: e.altKey ? [d.ti] : B.audio.tracks.map((_, i) => i), edge: oe, cursor: view().t0 + (e.clientX - cv.getBoundingClientRect().left) / view().pps,
+            label: (open ? "+" : "−") + Math.abs(ap).toFixed(2) + " s" + (e.altKey ? " · this take only" : " · everything after moves") }; }
         drawWave(); return;
       }
-      if (d.kind === "move") { B.ghost.at = Math.max(0, p.t - d.grab); B.ghost.ti = p.ti; cv.style.cursor = "grabbing"; }
+      if (d.kind === "move") {
+        let at = Math.max(0, p.t - d.grab); B.ghost.ti = p.ti; cv.style.cursor = "grabbing";
+        if (d.co) { B.ghost.ti = d.ti; const v = view(), pz = (d.pz || []).filter(q => Math.abs((q.a + q.b) / 2 - at) < Math.max(1, 30 / v.pps)).sort((x, y) => Math.abs((x.a + x.b) / 2 - at) - Math.abs((y.a + y.b) / 2 - at))[0];
+          const c0 = B.audio.tracks[d.ti].clips[d.ci], near = c0 && at > c0.at - c0.dur && at < c0.at + c0.dur;
+          if (near) B.ghost.mode = "move"; else if (pz) { at = (pz.a + pz.b) / 2; B.ghost.mode = "snap"; } else B.ghost.mode = "open"; }
+        B.ghost.at = at;
+      }
       else if (Math.abs(e.clientX - d.x0) > 3) { B.selTake = null; B.sel = { a: Math.max(0, Math.min(d.a, p.t)), b: Math.min(len(), Math.max(d.a, p.t)) }; }
       drawWave();
     };
@@ -1647,9 +1744,20 @@
       const d = B && B.dragging; if (!d) return; B.dragging = null;
       const p = pos(e);
       if (d.kind === "fade" || d.kind === "edge") {
+        B.trimView = null;
         if (!d.moved) { B.undo.pop(); if (d.kind === "edge") { const c = B.audio.tracks[d.ti].clips[d.ci]; if (c) selectTake(d.ti, d.ci); } return; }
         edited(); B.peaks = B.peaks || {};
-        if (d.kind === "edge" && d.applied) toast((d.applied > 0 ? "Opened " : "Tightened ") + Math.abs(d.applied).toFixed(2) + " s" + (e.altKey ? " on this track only." : ", everything after moved with it."));
+        if (d.kind === "edge" && d.applied) notice((d.applied > 0 ? "Opened " : "Tightened ") + Math.abs(d.applied).toFixed(2) + " s" + (e.altKey ? " on this track only." : ", everything after moved with it."));
+        return;
+      }
+      if (d.kind === "move" && d.co && Math.abs(e.clientX - d.x0) > 3) {     // a co-narrator line: lift it out, drop it into a pause, open room for it
+        const g = B.ghost; B.ghost = null; pushUndo();
+        const c0 = B.audio.tracks[d.ti].clips[d.ci], oa = c0.at, ob = c0.at + c0.dur; let at = g.at;
+        if (g.mode === "move") { T().moveClip(B.audio, d.ti, d.ci, d.ti, at); edited(); notice("👥 Line moved " + (at > oa ? "later" : "earlier") + " by " + Math.abs(at - oa).toFixed(2) + " s."); return; }
+        const c = B.audio.tracks[d.ti].clips.splice(d.ci, 1)[0];
+        if ((d.pz || []).some(q => q.a <= oa + 0.05 && q.b >= ob - 0.05)) { T().deleteRange(B.audio, oa, ob); if (at >= ob) at -= c.dur; }
+        T().insertGap(B.audio, at, c.dur); T().overwrite(B.audio, d.ti, [Object.assign({}, c, { at: 0 })], at);
+        edited(); notice("👥 Line moved to " + clock(at) + (g.mode === "snap" ? ", into the pause." : ", with room opened for it."));
         return;
       }
       if (d.kind === "move") {
@@ -1679,7 +1787,25 @@
     const lm = $("#lm-msg"); if (lm && (B.lmOn || B.rec)) { const h = B.mic.peakHold; lm.textContent = B.mic.clip ? "Clipping — lower the gain" : h < -40 ? "Say a line…" : h > -3 ? "Too hot" : h > -12 ? "Good level" : "Too quiet"; if (Date.now() - (B.lmT || 0) > 2500) { B.mic.peakHold = -90; B.mic.clip = false; B.lmT = Date.now(); } }
   }
   function startAnim() { if (B && !B.raf) B.raf = requestAnimationFrame(animate); }
-  function setZoom(f) { const v = view(); v.pps = Math.max(2, Math.min(400, v.pps * f)); Store.lsSet("lr-pps", v.pps.toFixed(1)); drawWave(); }
+  // ↓ / ↑: the start of your next / previous line (a run of your words, or a new paragraph of them)
+  function jumpLine(dir) {
+    const toks = B.toks, mine = B.mine, isStart = i => mine[i] && (i === 0 || !mine[i - 1] || toks[i].p !== toks[i - 1].p);
+    let cur = B.f.pos; while (cur > 0 && !isStart(cur) && mine[cur]) cur--;
+    let i = dir > 0 ? B.f.pos + 1 : cur - 1;
+    while (i >= 0 && i < toks.length && !isStart(i)) i += dir;
+    if (i < 0 || i >= toks.length) return;
+    B.f.set(i); prog().pos = B.f.pos; markPos(true);
+    if (!B.rec) { const t = T().timeOfWord(B.audio, i); if (t != null && t <= len()) seek(Math.max(0, t - 0.3)); }
+    if (B.rec) B.rec.lastW = null;
+  }
+  // ⌥← / ⌥→: slide the selected take (handy for a co-narrator line that landed a hair early or late)
+  function nudge(d) {
+    if (B.rec || !B.selTake) return; const { ti, ci } = B.selTake, c = B.audio.tracks[ti] && B.audio.tracks[ti].clips[ci]; if (!c) return;
+    pushUndo(); const at = Math.max(0, c.at + d); T().moveClip(B.audio, ti, ci, ti, at);
+    const k = B.audio.tracks[ti].clips.findIndex(x => Math.abs(x.at - at) < 1e-4); B.selTake = k >= 0 ? { ti, ci: k } : null; Store.saveBook(B.book); drawWave();
+  }
+  function setZoom(f) { const v = view(); v.pps = Math.max(0.2, Math.min(400, v.pps * f)); Store.lsSet("lr-pps", v.pps.toFixed(2)); drawWave(); }
+  function fitZoom() { const cv = $("#wave"), v = view(), W = cv ? cv.getBoundingClientRect().width : 1000, L = Math.max(10, len() + (B.audio.pad || 0)); v.pps = Math.max(0.2, (W - 24) / L); v.t0 = 0; Store.lsSet("lr-pps", v.pps.toFixed(2)); drawWave(); }
   function laneSize(f) { B.laneH = Math.max(34, Math.min(200, Math.round(B.laneH * f))); Store.lsSet("lr-laneh", B.laneH); renderTransport(); }
   function setHint(s) { const h = $(`.trk-head[data-t="${B.track}"] .th-sub`); if (h) h.textContent = s; }
 
@@ -1720,7 +1846,7 @@
         const order = ["todo", "recorded", "edited", "mastered", "proofed", "delivered"];
         if (order.indexOf(B.chap.status) < 2) B.chap.status = "edited";
         Store.saveBook(B.book, true);
-        ov.remove(); toast("Exported " + name + (st.dest === "folder" ? " to the book's exports folder." : "."));
+        ov.remove(); notice("Exported " + name + (st.dest === "folder" ? " to the book's exports folder." : "."));
       } catch (e) { toast("Export failed: " + e.message); $("#xgo", ov).disabled = false; $("#xgo", ov).textContent = "Try again"; }
     };
     draw(); document.body.appendChild(ov);
@@ -1827,17 +1953,17 @@
     pushUndo(); const c = tg.c, mx = c.dur / 2;
     if (fiMs != null) { const v = Math.min(mx, fiMs / 1000); if (v > 0) c.fi = +v.toFixed(3); else delete c.fi; }
     if (foMs != null) { const v = Math.min(mx, foMs / 1000); if (v > 0) c.fo = +v.toFixed(3); else delete c.fo; }
-    edited(); toast("Fades set on that take. Drag the white dots to adjust them.");
+    edited(); notice("Fades set on that take. Drag the white dots to adjust them.");
   }
   function resetGainFades() {
     const tg = targetClip(); if (!tg || B.rec) { toast("Select a take first, or put the playhead inside one."); return; }
-    pushUndo(); delete tg.c.g; delete tg.c.fi; delete tg.c.fo; edited(); toast("Gain and fades reset on that take.");
+    pushUndo(); delete tg.c.g; delete tg.c.fi; delete tg.c.fo; edited(); notice("Gain and fades reset on that take.");
   }
   // G: open some space at the playhead (every track moves along; room tone fills it if you've taught it your room)
   function addSpace(sec) {
     if (B.rec) return; sec = sec || pz().space; const t = B.playhead != null ? B.playhead : len();
     pushUndo(); T().insertGap(B.audio, t, sec); B.playhead = t + sec; edited();
-    toast("Added " + sec.toFixed(2) + " s at " + clock(t) + (toneOn() ? ", filled with your room tone." : ". Teach it your room tone (Levels) and gaps fill with it."));
+    notice("Added " + sec.toFixed(2) + " s at " + clock(t) + (toneOn() ? ", filled with your room tone." : ". Teach it your room tone (Levels) and gaps fill with it."));
   }
   // ---- room tone: per reader, a few seconds of your room, kept in the Studio folder ----
   const toneRec = () => ((B.book.roomTone || {})[B.readingAs]) || null;
@@ -1849,7 +1975,7 @@
       B.tone = { key: r.file + r.made, buf: LRAudio.loopTone(x) }; return B.tone.buf; } catch (e) { return null; }
   }
   async function learnTone() {
-    if (B.rec || B.busy) return; if ((await Store.studioStatus()) !== "ready") return;
+    if (B.rec || B.busy) return; if (!(await ensureStudio())) return;
     B.busy = "tone"; renderSide();
     try {
       const d = await dir(), tr = B.audio.tracks[B.track] || B.audio.tracks[0]; let a, b;
@@ -1869,7 +1995,7 @@
       const bd = await Store.studio.getDirectoryHandle(B.book.folder, { create: true }), name = "roomtone-" + B.readingAs.replace(/[^\w-]+/g, "") + ".wav";
       const w = await LRAudio.WavWriter.create(bd, name, LRAudio.RATE); w.push(x); await w.close();
       B.book.roomTone = B.book.roomTone || {}; B.book.roomTone[B.readingAs] = { file: name, made: new Date().toISOString(), db: +db.toFixed(1), dur: +(b - a).toFixed(2) };
-      Store.saveBook(B.book); B.tone = null; toast("🔇 Room tone learned (" + db.toFixed(0) + " dB, " + (b - a).toFixed(1) + " s). Gaps now fill with it when you play and export.");
+      Store.saveBook(B.book); B.tone = null; notice("🔇 Room tone learned (" + db.toFixed(0) + " dB, " + (b - a).toFixed(1) + " s). Gaps now fill with it when you play and export.");
     } catch (e) { toast("Couldn't learn room tone: " + e.message); }
     finally { B.busy = null; renderSide(); }
   }
@@ -1920,6 +2046,7 @@
   }
   async function evenPauses(preview) {
     if (B.rec || B.busy) return null;
+    if (!(await ensureStudio())) return null;
     B.busy = "pauses"; renderSide();
     try {
       const r = await pausePlan(); if (!r) { toast("Nothing recorded in this chapter yet."); return null; }
@@ -1939,7 +2066,7 @@
         if (cur > x.target) T().deleteRange(a, x.a + x.target / 2, x.b - x.target / 2);
         else T().insertGap(a, (x.a + x.b) / 2, x.target - cur);
       }
-      edited(); toast("⏱ Pauses evened: " + summary + ". Undo puts them back.");
+      edited(); notice("⏱ Pauses evened: " + summary + ". Undo puts them back.");
       return r;
     } catch (e) { console.error(e); toast("Couldn't even out the pauses: " + e.message); return null; }
     finally { B.busy = null; busyNote(""); renderSide(); }
@@ -2056,6 +2183,7 @@
   // a recording from outside the Lamp Room → that reader's lines, in this chapter (and on into the next ones if it runs on)
   async function castDrop(r, file, spill) {
     if (B.rec || B.busy || !file) return;
+    if (!(await ensureStudio())) return;
     if (spill == null) spill = spillOn();
     B.busy = "cast"; renderSide(); busyNote("Reading " + file.name + "…");
     try {
@@ -2069,17 +2197,18 @@
       for (let i = 0; i < n; i++) {
         const { ci, c, run } = targets[i], s = segs[i], d = await Store.chapterAudioDir(B.book, c);
         const name = "co-" + r.replace(/[^\w-]+/g, "") + "-" + stamp + "-" + String(i + 1).padStart(3, "0") + ".wav";
-        const dur = await writeSeg(d, name, x, s.a, s.b);
+        const L0 = x.length / LRAudio.RATE, hin = Math.min(0.5, s.a), hout = Math.min(0.5, L0 - s.b);
+        await writeSeg(d, name, x, s.a - Math.max(0, hin), s.b + Math.max(0, hout)); const dur = s.b - s.a;
         c.audio = c.audio || {}; const a = c === B.chap ? B.audio : (c.audio[B.readingAs] = T().normalize(c.audio[B.readingAs]));
         const du = a.duet = a.duet || {}, rec = du[r] = du[r] || { lines: [] };
         rec.lines = rec.lines.filter(l => l.from !== run.from);
-        rec.lines.push({ n: i + 1, file: name, from: run.from, to: run.to, text: run.text, dur, check: s.check || undefined, src: file.name });
+        rec.lines.push({ n: i + 1, file: name, from: run.from, to: run.to, text: run.text, dur, hin: Math.max(0, hin), hout: Math.max(0, hout), check: s.check || undefined, src: file.name });
         rec.made = made; rec.got = made; per[ci] = (per[ci] || 0) + 1;
         busyNote("Cutting " + r + "'s lines… " + (i + 1) + " / " + n);
       }
       Store.saveBook(B.book); B.peaks = B.peaks || {}; loadPeaks();
       const checks = segs.slice(0, n).filter(s => s.check).length, chs = Object.keys(per).map(ci => B.book.chapters[ci].title.replace(/^Chapter\s+/i, "Ch ") + ": " + per[ci]).join(", ");
-      toast(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"} (${chs}).` +
+      notice(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"} (${chs}).` +
         (segs.length > targets.length ? ` ${segs.length - targets.length} more stretch${segs.length - targets.length === 1 ? "" : "es"} than lines: listen to the last few.` : segs.length < targets.length ? ` ${targets.length - segs.length} line${targets.length - segs.length === 1 ? "" : "s"} still missing.` : "") +
         (checks ? ` ${checks} marked “check”.` : "") + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : ""));
       return { n, mode, clicks, segs: segs.length, want: targets.length };
@@ -2135,7 +2264,7 @@
         const lq = list.find(z => z.id === q.id); lq.status = "in"; lq.in = new Date().toISOString(); put++;
       } catch (e) { console.warn("pickup", q.id, e); }
     }
-    if (put) { await saveMine(list); B.peaks = B.peaks || {}; loadPeaks(); edited(); renderSide(); if (!quiet || put) toast("🔁 " + put + " pickup" + (put === 1 ? "" : "s") + " in, replacing the old read" + (put === 1 ? "" : "s") + (undone ? ". Undo takes them out." : ".")); }
+    if (put) { await saveMine(list); B.peaks = B.peaks || {}; loadPeaks(); edited(); renderSide(); if (!quiet || put) notice("🔁 " + put + " pickup" + (put === 1 ? "" : "s") + " in, replacing the old read" + (put === 1 ? "" : "s") + (undone ? ". Undo takes them out." : ".")); }
     return put;
   }
   // the reader's side: record one pickup in a small booth of its own, then send it
@@ -2169,7 +2298,7 @@
       try { const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, x, a, b);
         await Store.savePickupReply(book, me, q.id, { file: name, dur, made: new Date().toISOString() });
         close(); if (!B) return; renderSide(); const left = pkForMe().filter(z => !Store.pickupReply(B.book, z)).length;
-        if (window.LRCele && !left) LRCele.celebrate({ title: "PICKUPS SENT", sub: "All of them, to " + q.asker, level: 1, noConfetti: true }); else toast("✓ Sent to " + q.asker + "." + (left ? " " + left + " to go." : ""));
+        if (window.LRCele && !left) LRCele.celebrate({ title: "PICKUPS SENT", sub: "All of them, to " + q.asker, level: 1, noConfetti: true }); else notice("✓ Sent to " + q.asker + "." + (left ? " " + left + " to go." : ""));
       } catch (e) { sending = false; toast("Couldn't send it: " + e.message); if (B) draw(); }
     };
     const key = e => { if (e.target.closest && e.target.closest("input,textarea")) return; const k = e.key.toLowerCase();
@@ -2185,14 +2314,15 @@
     const qs = pkMine().filter(q => q.to === r && q.status === "open" && !Store.pickupReply(B.book, q)).sort((a, b) => chIndex(a.chapterId) - chIndex(b.chapterId) || a.w0 - b.w0);
     return { qs, text: `Pickups for ${B.book.title} — ${r}\nRecord them in this order, with a click (or a clap) between each one.\n\n` + qs.map((q, i) => `${i + 1}. ${q.chapter}: ${qt(q.text)}${q.note ? "\n   Note: " + q.note : ""}`).join("\n") };
   }
-  async function copyCastList(r) { const { qs, text } = castPickupList(r); if (!qs.length) { toast("Nothing waiting for " + r + "."); return; } try { await navigator.clipboard.writeText(text); toast("📋 " + qs.length + " pickup" + (qs.length === 1 ? "" : "s") + " for " + r + " copied. Paste it into an email or message."); } catch (e) { toast("Couldn't copy: " + e.message); } return text; }
+  async function copyCastList(r) { const { qs, text } = castPickupList(r); if (!qs.length) { toast("Nothing waiting for " + r + "."); return; } try { await navigator.clipboard.writeText(text); notice("📋 " + qs.length + " pickup" + (qs.length === 1 ? "" : "s") + " for " + r + " copied. Paste it into an email or message."); } catch (e) { toast("Couldn't copy: " + e.message); } return text; }
   async function castPickupDrop(r, file) {
+    if (!(await ensureStudio())) return;
     const { qs } = castPickupList(r); if (!qs.length || !file || B.busy) { if (!qs.length) toast("No open pickups for " + r + "."); return; }
     B.busy = "cast"; renderSide(); busyNote("Reading " + file.name + "…");
     try {
       const x = await decodeFile(file), { segs, mode } = cutTakes(x, qs.length), d = await Store.pickupsDir(B.book, r, true), n = Math.min(segs.length, qs.length);
       for (let i = 0; i < n; i++) { const name = qs[i].id + ".wav", dur = await writeSeg(d, name, x, segs[i].a, segs[i].b); await Store.savePickupReply(B.book, r, qs[i].id, { file: name, dur, made: new Date().toISOString(), src: file.name }); }
-      toast(`🔁 ${n} of ${qs.length} pickup${qs.length === 1 ? "" : "s"} from ${r} cut ${mode === "clicks" ? "at the clicks" : "at the pauses"}.` + (segs.length !== qs.length ? ` The file had ${segs.length}: listen to them.` : "") + " Each goes in when you open its chapter.");
+      notice(`🔁 ${n} of ${qs.length} pickup${qs.length === 1 ? "" : "s"} from ${r} cut ${mode === "clicks" ? "at the clicks" : "at the pauses"}.` + (segs.length !== qs.length ? ` The file had ${segs.length}: listen to them.` : "") + " Each goes in when you open its chapter.");
     } catch (e) { toast("Couldn't read that file: " + e.message); }
     finally { B.busy = null; busyNote(""); renderSide(); }
     await applyPickups();
@@ -2226,5 +2356,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

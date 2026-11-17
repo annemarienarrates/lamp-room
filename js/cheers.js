@@ -21,7 +21,17 @@
   const recording = () => !!(window.Booth && Booth.state && Booth.state.rec);
   const cssv = k => getComputedStyle(document.body).getPropertyValue(k).trim();
 
-  function toast(msg) {
+  // Notices. Warnings always show. Anything else that turns up while you're recording waits until you stop.
+  // Confirmations ("copied", "fades set", "lines spliced"…) go through note(), and only show if you've switched them on.
+  const WARN = /^(⚠|🎤)|couldn't|failed|isn't|is off|need|clipp|glitch|microphone|blocked|not available|limit/i;
+  let held = [];
+  function toast(msg, force) {
+    if (!force && recording() && !WARN.test(msg)) { if (!held.includes(msg)) held.push(msg); return; }
+    showToast(msg);
+  }
+  function note(msg) { if (S().confirmations !== true) return; toast(msg); }
+  function flushNotes() { const h = held.slice(-3); held = []; h.forEach((m, i) => setTimeout(() => showToast(m), i * 350)); }
+  function showToast(msg) {
     let box = document.getElementById("toasts");
     if (!box) { box = document.createElement("div"); box.id = "toasts"; document.body.appendChild(box); }
     const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
@@ -190,6 +200,6 @@
     if (kind === "bookDone") return celebrate({ title: "BOOK DELIVERED", sub: pick(LINES.bookDone), level: 3 });
     if (s.encouragement && LINES[kind]) toast(pick(LINES[kind]));
   };
-  window.toast = toast;
+  window.toast = toast; window.note = note; window.flushNotes = flushNotes;
   window.LRCele = { celebrate, flush, comboWords, comboEnd, comboHold, drawCombo, lightning, shootingStars, rainbow, spark, TIERS, state: C };
 })();

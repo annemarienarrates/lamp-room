@@ -20,6 +20,7 @@
         ["Heads up", "Anything that needs attention: titles running late, checks due, bills due, money owed between you, a day with no log."],
         ["Rings", "Today's words, booth hours and earnings against your goals."],
         ["Projects", "Every book and title. Switch between cards and a list, and sort them. Archived books fold away at the bottom; open one and press Unarchive to bring it back."],
+        ["Finished", "Finished titles fold into a Finished dropdown under the active ones, like Archived."],
         ["Covers", "Click 🖼 on a card (or the cover on a book page) to add a cover image."]
       ] },
     { id: "books", icon: "📖", title: "Books & manuscripts", lead: "A book here is a manuscript you'll record. Each one is linked to a title in the planner.",
@@ -42,6 +43,7 @@
         ["Level check", "🎚 Level: speak at narration volume and aim for the green band."],
         ["Mark complete", "When the chapter's done, press Mark Ch complete. It stops the booth clock, celebrates and offers to export."],
         ["Text size", "A− and A+ in the top bar, ⌘− / ⌘=, or hold ⌘ and scroll over the text. Drag the line above the tracks to make them taller or shorter."],
+        ["↓ and ↑", "Jump to the start of your next line, or back to your previous one. Not recording, the playhead follows if that line is recorded."],
         ["Chapters", "The Chapters tab on the right lists every chapter with words left and time spent. Click one to jump to it."]
       ] },
     { id: "editing", icon: "✂", title: "The Booth: editing", lead: "The tracks at the bottom are a full editor. Nothing is ever lost: Undo goes back step by step.",
@@ -52,10 +54,10 @@
         ["Delete", "Delete removes the selection, or the selected take. If nothing else plays under it, the gap closes."],
         ["Split", "B splits the take at the playhead."],
         ["Tracks", "T moves to the next track, Shift+T adds one. 1–6 pick a track. ⌥1–6 records straight onto that track (handy for a character voice)."],
-        ["Zoom", "− and = zoom time out and in. [ and ] make tracks shorter or taller."],
+        ["Zoom", "− and = (or the − + buttons on the timeline, or ⌘-scroll) zoom time out and in. ⤢ Fit shows the whole chapter. [ and ] make tracks shorter or taller."],
         ["Flags", ", and . jump to the previous and next flag. The flag button lists them all."],
         ["Edit the text", "✎ Text editor fixes typos in the manuscript. Select words to change who reads them."],
-        ["Trim and space", "Drag either edge of a take. Everything after it moves along on every track: drag in to tighten a pause, out to open it. Hold ⌥ to trim just that take. Edges snap to other takes and markers."],
+        ["Trim and space", "Drag either edge of a take. Everything after it moves along on every track: drag in to tighten a pause, out to open it. Red shows what's coming out, teal the space opening, with a live ± seconds readout. Hold ⌥ to trim just that take. Edges snap to other takes and markers."],
         ["Fades", "Drag the small white dots at a take's bottom corners, or type fade lengths in Tools ▸ Levels, fades & spacing. Every cut already gets a tiny fade so it never clicks."],
         ["Add space", "G adds half a second (or your length) at the playhead, filled with your room tone."],
         ["Export", "Export chapter: WAV, MP3, or raw for Auphonic. File names follow the pattern in Settings."]
@@ -74,8 +76,11 @@
       ] },
     { id: "duets", icon: "👥", title: "Duets", lead: "Whoever narrates the chapter is the lead. The other person records only their lines and sends them over.",
       items: [
-        ["If you're not the lead", "Record all your lines straight through, with a breath between them. Then Tools ▸ Co-narrator ▸ 📤 Send my lines. Each line is cut out and lands in the shared folder."],
+        ["If you're not the lead", "Record all your lines straight through, with a breath between them, and press C at the end of each one: the cutter splits exactly there. Then Tools ▸ Co-narrator ▸ 📤 Send my lines. Each line is cut out and lands in the shared folder."],
         ["If you're the lead", "Your partner's lines arrive on their own. Just read: when you finish the line before theirs and go quiet, their line drops in on their track (and plays in your headphones if you like). Wait for “Your turn”, then carry on."],
+        ["Skip their line", "While their line plays, Space or a click on their banner skips the rest. The chapter still comes out exactly as if you'd waited."],
+        ["Headphone bleed", "Tools ▸ Co-narrator ▸ While their lines play: turn their volume down, and leave “Clean up my track under their lines” on. It swaps your track for room tone while they speak, and stops the moment you start."],
+        ["Fix a splice", "Drag the edge of their line out to get a clipped word or breath back (every line carries hidden handles). Drag the line itself: it drops into a pause or opens space. ⌥← / ⌥→ nudges a selected line by 50 ms."],
         ["C", "Drops their next line in by hand, right now. If it hasn't arrived yet, it marks a slot instead. You rarely need it: auto-place usually does it."],
         ["Slots & Splice all", "Lines that weren't there yet leave a slot. When they arrive, Splice all fills every slot at once."],
         ["Wrong reader?", "Select the words in the text and choose who reads them."]
@@ -97,6 +102,15 @@
         ["Combo", "Your own words read without a 10-second break build a combo, with Finished Hour's tier names. Click the meter to hide it."],
         ["Turn them down", "Settings ▸ Look & feel: celebrations, combo, confetti, and Calm (keeps the words, drops the sparks and flashes). These are yours alone."]
       ] },
+    { id: "goals", icon: "🎯", title: "Goals", lead: "Am I on track today, this week, this month, this year? And what would it take to catch up?",
+      items: [
+        ["Who", "Both of us, Anne or Jack, at the top. Each has a yearly goal; Both of us uses the revenue goal from Settings ▸ Planning & money."],
+        ["Where you're at", "Today, this week, this month and this year, each with a bar, a tick where the goal expects you by yesterday, and On track, Ahead or Behind by $X."],
+        ["Today's target", "Dollars, booth hours, finished hours and words for today. Remaining workdays rises if you fall behind and eases off when you're ahead; Same every day doesn't move."],
+        ["Catch-up plan", "What you'd need to average over the next 30 workdays (or your number) to bring the year back on pace, next to what you've been averaging."],
+        ["Charts", "The year (earned against the goal's pace, and checks received), 30 or 90 days of words, booth hours and pace, earnings by month, and a year of activity. Hover for numbers."],
+        ["Earned", "The value of what you've recorded: each session's words × what that title pays per word. The Year's Reckoning (checks received and forecast) sits at the bottom."]
+      ] },
     { id: "planner", icon: "📅", title: "The planner (Ledger & Lamp)", lead: "The business side. It schedules every stage of every title around your hours, days off and holidays.",
       items: [
         ["Almanac", "The calendar. Each day shows who's doing what. “Today I…” logs your day in a sentence. The year's reckoning sits at the bottom."],
@@ -113,7 +127,8 @@
         ["Writing and audio", "The Dashboard and Titles keep audio projects and writing projects in separate sections."],
         ["One booth, two people", "Click 👤 in the top bar (or ☰ Menu in the Booth) and pick who's recording. Switch before you press Record."],
         ["Moving takes home", "Recordings stay on the computer they were made on. Afterwards: Settings ▸ Recordings on this computer ▸ Copy their takes to a folder (a USB stick or Drive). On the other Mac: Bring takes in. Nothing gets overwritten."],
-        ["Hotkeys", "⌨ Hotkeys in the Booth: click an action, press the new key."]
+        ["Hotkeys", "⌨ Hotkeys in the Booth: click an action, press the new key."],
+        ["Notices", "Settings ▸ Look & feel ▸ Notices. Warnings always show. Nothing else interrupts a take: it waits until you stop. Confirmations (“copied”, “marker dropped”) are off unless you switch them on. Duet cues can be big, small or off. The voice wave can be switched off there too."]
       ] },
     { id: "trouble", icon: "🔧", title: "If something's off", lead: "",
       items: [

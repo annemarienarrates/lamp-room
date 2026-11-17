@@ -68,6 +68,11 @@
     a.tracks.forEach((_, ti) => splitAt(a, ti, t));
     shiftAfter(a, t, L);
   }
+  // open d seconds at t on every track except one (whose clip spanning t stays whole): used when you skip the rest of a co-narrator line
+  function insertGapExcept(a, t, d, keepTi) {
+    a.tracks.forEach((_, ti) => { if (ti !== keepTi) splitAt(a, ti, t); });
+    shiftAfter(a, t, d);
+  }
   // put clips (relative) onto track ti starting at t, replacing whatever is under them (paste over)
   function overwrite(a, ti, clips, t) {
     const L = clips.reduce((m, c) => Math.max(m, c.at + c.dur), 0);
@@ -125,6 +130,6 @@
   function timeOfWord(a, w) { const x = (a.anchors || []).find(p => p[1] >= w); return x ? x[0] : null; }
   function wordAt(a, t) { let w = null; for (const p of a.anchors || []) { if (p[0] > t) break; w = p[1]; } return w; }
 
-  const Timeline = { normalize, trackLen, length, hasAudio, splitAt, extract, clear, shiftAfter, deleteRange, insertGap, overwrite, insert, truncate, moveClip, trimEdge, clipAt, timeOfWord, wordAt, clone };
+  const Timeline = { normalize, trackLen, length, hasAudio, splitAt, extract, clear, shiftAfter, deleteRange, insertGap, insertGapExcept, overwrite, insert, truncate, moveClip, trimEdge, clipAt, timeOfWord, wordAt, clone };
   if (typeof module !== "undefined" && module.exports) module.exports = Timeline; else root.LRTimeline = Timeline;
 })(typeof window !== "undefined" ? window : globalThis);
