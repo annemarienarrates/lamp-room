@@ -149,3 +149,8 @@
 .ll .modal label { font-size: 13px; }
 #cele-words, #cele-fx { pointer-events: none; }
 .ll h3.kind-h { display: flex; gap: 8px; align-items: baseline; margin: 6px 0 10px; } .ll h3.kind-h span { opacity: .6; font-weight: 500; }
+/* late bills */
+.ll .mk.billlate{color:var(--overdue);border-color:color-mix(in srgb,var(--overdue) 45%,transparent);background:color-mix(in srgb,var(--overdue) 9%,transparent)}
+.ll .pstamp.late{border-color:var(--overdue);color:var(--overdue)}
+.ll .mk.ghost{opacity:.5;font-style:italic;font-size:12px}
+.ll .mk.ghost .late{color:var(--overdue);font-style:normal}

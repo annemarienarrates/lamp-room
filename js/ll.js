@@ -364,6 +364,7 @@ function alertsHTML(){
   }
   for(const pr of (S.sim.protections||[])){const v=tById(pr.tid),st=S.sim.star;if(!v||!st)continue;
     add(`prot:${pr.tid}:${pr.from}`,'info',pr.aim?`⭐ <b>${esc(shortOf(st))}</b> is starred. <b>${esc(shortOf(v))}</b> gets whole days from ${fmtShort(pr.from)} so it still makes its ${fmtShort(targetOf(v))} aim.`:`⭐ <b>${esc(shortOf(st))}</b> is starred. <b>${esc(shortOf(v))}</b> gets whole days from ${fmtShort(pr.from)} so the star doesn't make it any later.`);}
+  for(const o of billsOverdue())add(`billlate:${o.b.id}:${o.ym}:${TODAY}`,'',`🧾 <b>${esc(o.b.name)}</b> for ${monthName(o.ym)} is <b>${o.days} days late</b> (${money(o.amt)}, due ${fmtShort(o.due)}). <button class="lnk" data-act="bill-pop" data-id="${o.b.id}" data-ym="${o.ym}">Mark paid</button>`);
   if(S.me){
     let d=addDays(TODAY,-1),n=0;while(!isWorkday(S.me,d)&&n++<7)d=addDays(d,-1);
     if(isWorkday(S.me,d)&&!S.logs.some(l=>l.date===d&&(l.person===S.me||(l.entries||[]).some(e=>e.person===S.me)))&&d>='2026-11-12')
@@ -422,21 +423,37 @@ function monthEvents(start,end){
       if(m.partner>0&&!t.partnerPaidByClient)push(t.partnerPaidDate||cd,{k:'payout',t,amt:m.partner,actual:!!t.partnerPaidDate});}}
   for(const dp of S.deposits)if(dp.date>=start&&dp.date<=end)push(dp.date,{k:'roy',dp,amt:+dp.amount||0,actual:true});
   for(const f of royaltyForecasts(start,end))push(f.date,{k:'roy',amt:f.amount,actual:false});
-  let d=start;
-  while(d<=end){
-    for(const b of S.bills){if(b.active===false)continue;const ym=d.slice(0,7);const ed=billDate(b,ym);if(ed===d)push(d,{k:'bill',b,ym,amt:billAmount(b,ym),paid:!!b.paid?.[ym]});}
-    d=addDays(d,1);
-  }
+  for(const b of S.bills){if(b.active===false)continue;
+    for(let ym=ymAdd(start.slice(0,7),-6);ym<=end.slice(0,7);ym=ymAdd(ym,1)){const p=b.paid?.[ym],due=billDue(b,ym),amt=billAmount(b,ym);
+      if(p){const late=billLateDays(b,ym);if(p.date>=start&&p.date<=end)push(p.date,{k:'bill',b,ym,amt,paid:true,late});
+        if(late&&due>=start&&due<=end&&due!==p.date)push(due,{k:'billghost',b,ym,paidOn:p.date});continue;}
+      const over=due<TODAY&&ym>=trackFrom(b)&&billLateDays(b,ym);
+      if(over){if(TODAY>=start&&TODAY<=end)push(TODAY,{k:'bill',b,ym,amt,paid:false,owed:true,late:billLateDays(b,ym)});
+        if(due>=start&&due<=end)push(due,{k:'billghost',b,ym,late:billLateDays(b,ym)});continue;}
+      if(due>=start&&due<=end)push(due,{k:'bill',b,ym,amt,paid:false});}}
   return ev;
 }
-function billMonthFor(b,date){
-  // which month's bill this payment covers: the unpaid one whose due date is nearest
+function billMonthFor(b,date,named){
+  if(named&&/^\d{4}-\d{2}$/.test(named))return named;
+  const old=billsOverdue().filter(x=>x.b.id===b.id&&x.due<=date);if(old.length)return old[0].ym;
+  // otherwise the unpaid one whose due date is nearest
   const ym=date.slice(0,7);const [y,m]=ym.split('-').map(Number);
   const cands=[-1,0,1].map(k=>iso(new Date(y,m-1+k,1,12)).slice(0,7));
   const exp=c=>{const last=new Date(+c.slice(0,4),+c.slice(5,7),0).getDate();return `${c}-${pad(Math.min(billExpectedDay(b),last))}`;};
   const open=cands.filter(c=>!b.paid?.[c]);const pool=open.length?open:cands;
   return pool.sort((a,c)=>Math.abs(D(exp(a))-D(date))-Math.abs(D(exp(c))-D(date)))[0];
 }
+
+const BILL_TRACK_FROM='2026-11';const LATE_GRACE=5;
+function trackFrom(b){return b.trackFrom||BILL_TRACK_FROM;}
+function ymAdd(ym,k){const [y,m]=ym.split('-').map(Number);return iso(new Date(y,m-1+k,1,12)).slice(0,7);}
+function billDue(b,ym){const [y,m]=ym.split('-').map(Number);const last=new Date(y,m,0).getDate();return `${ym}-${pad(Math.min(billExpectedDay(b),last))}`;}
+function billLateDays(b,ym){const p=b.paid?.[ym];const due=billDue(b,ym);const on=p?.date||(D(due)<D(TODAY)?TODAY:null);if(!on)return 0;const n=Math.round((D(on)-D(due))/864e5);return n>LATE_GRACE?n:0;}
+// unpaid months, oldest first, from the month the bill is tracked from, whose due date has passed
+function billsOverdue(){const out=[];for(const b of S.bills){if(b.active===false)continue;
+  for(let ym=trackFrom(b);ym<=TODAY.slice(0,7);ym=ymAdd(ym,1)){if(b.paid?.[ym])continue;const due=billDue(b,ym);if(due<TODAY&&billLateDays(b,ym))out.push({b,ym,due,days:billLateDays(b,ym),amt:billAmount(b,ym)});}}
+  return out.sort((a,c)=>a.due.localeCompare(c.due));}
+function monthName(ym){return MON[+ym.slice(5,7)-1];}
 function bdBetween(a,b){let n=0,d=a;while(d<b){d=addDays(d,1);if(isBizDay(d))n++;}return n;}
 function clearDaysFor(client){
   // learned per client from checks marked received: invoice -> cleared, in business days (last 3)
@@ -471,8 +488,8 @@ function royaltyForecasts(start,end){
   return out;
 }
 function billExpectedAmount(b){const xs=Object.keys(b.paid||{}).sort().slice(-3).map(k=>+b.paid[k].amount).filter(x=>x>0);return xs.length>=2?Math.round(xs.reduce((a,c)=>a+c,0)/xs.length*100)/100:+b.amount||0;}
-function billExpectedDay(b){const ds=Object.values(b.paid||{}).map(x=>+x.date?.slice(8,10)).filter(Boolean).slice(-3);return ds.length>=2?Math.round(ds.reduce((a,c)=>a+c,0)/ds.length):+b.day;}
-function billDate(b,ym){const p=b.paid?.[ym];if(p?.date)return p.date;const [y,m]=ym.split('-').map(Number);const last=new Date(y,m,0).getDate();return `${ym}-${pad(Math.min(billExpectedDay(b),last))}`;}
+function billExpectedDay(b){const ds=Object.entries(b.paid||{}).sort().filter(([k,x])=>x.date&&x.date.slice(0,7)===k&&!x.late).map(([k,x])=>+x.date.slice(8,10)).filter(Boolean).slice(-3);return ds.length>=2?Math.round(ds.reduce((a,c)=>a+c,0)/ds.length):+b.day;}
+function billDate(b,ym){const p=b.paid?.[ym];if(p?.date)return p.date;return billDue(b,ym);}
 function billAmount(b,ym){return +(b.paid?.[ym]?.amount??billExpectedAmount(b))||0;}
 function unitsFor(start,end){
   // {date: {person: {tid: stageType}}}
@@ -530,7 +547,8 @@ function calendarHTML(){
         if(x.k==='check')return `<button class="mk num ${x.actual?'paid':''}" data-act="check-pop" data-id="${x.t.id}" title="Net: the check minus partner share, software and editor. Click for the breakdown.">💰 <span class="amt">${money(x.amt)}</span>${x.actual?' <span class="pstamp">In</span>':''}</button>`;
         if(x.k==='roy')return x.actual?`<button class="mk num paid" data-act="roy-pop" data-id="${x.dp.id}">💰 <span class="amt">${money(x.amt)}</span> <span class="pstamp">R</span></button>`:`<button class="mk num" data-act="roy-pop" style="font-style:italic;opacity:.8" title="Forecast from recent royalties">💰 ~${money(x.amt)} royalties</button>`;
         if(x.k==='payout')return `<button class="mk num ${x.actual?'paid':''}" data-act="check-pop" data-id="${x.t.id}" style="opacity:.7;font-style:italic" title="Partner's share passes through; not counted in totals">↪ <span class="amt">${esc(x.t.partnerName||'Partner')} ${money(x.amt)}</span>${x.actual?' <span class="pstamp">Paid</span>':''}</button>`;
-        if(x.k==='bill')return `<button class="mk num ${x.paid?'paid':''}" data-act="bill-pop" data-id="${x.b.id}" data-ym="${x.ym}" title="${x.paid?'Paid. Click to undo.':'Click to mark paid'}">🧾 <span class="amt">${esc(x.b.name)} ${money(x.amt)}</span>${x.paid?' <span class="pstamp">Paid</span>':''}</button>`;
+        if(x.k==='bill'){const lbl=x.owed||x.late?' <span class="muted">('+monthName(x.ym)+')</span>':'';return `<button class="mk num ${x.paid?'paid':''} ${x.owed?'billlate':''}" data-act="bill-pop" data-id="${x.b.id}" data-ym="${x.ym}" title="${x.owed?monthName(x.ym)+"'s bill, "+x.late+' days late. Click to mark paid.':x.paid?(x.late?'Paid '+x.late+' days late. ':'Paid. ')+'Click to undo.':'Click to mark paid'}">🧾 <span class="amt">${esc(x.b.name)}${lbl} ${money(x.amt)}</span>${x.owed?' <span class="pstamp late">Late</span>':x.paid?` <span class="pstamp">${x.late?'Paid late':'Paid'}</span>`:''}</button>`;}
+        if(x.k==='billghost')return `<button class="mk ghost" data-act="bill-pop" data-id="${x.b.id}" data-ym="${x.ym}" title="${x.paidOn?'Paid late, on '+fmt(x.paidOn):'Not paid yet: '+x.late+' days late'}">🧾 ${esc(x.b.name)} ${x.paidOn?'→ paid '+fmtShort(x.paidOn):'<span class="late">late</span>'}</button>`;
         return '';}).join('');
       html+=`<div class="day ${out?'out':''} ${(off||hol||we)?'off':''} ${d===TODAY?'today':''}"><div class="dn"><b>${+d.slice(8)}</b>${hol?`<span class="hol">${esc(hol)}</span>`:off?`<span class="hol">${off.person==='both'?'Both off':PNAME[off.person]+' off'}</span>`:''}</div><div style="height:${spacer}px;flex:none"></div><div class="marks">${marks}</div></div>`;
     }
@@ -732,7 +750,7 @@ Signed titles and their stages:
 ${JSON.stringify(titleContext())}
 Household bills: ${JSON.stringify(S.bills.map(b=>({id:b.id,name:b.name,amount:b.amount})))}
 
-Return: {"entries":[{"person":"anne|jack","titleId":"id or null","stageId":"id or null","kind":"work|admin|author|other","hours":number or null,"finished":true|false,"finishedOn":"YYYY-MM-DD or null","note":"short description"}],"payments":[{"titleId":"id","date":"YYYY-MM-DD","amount":number or null}],"billsPaid":[{"billId":"id","date":"YYYY-MM-DD","amount":number or null}],"royalties":[{"date":"YYYY-MM-DD","amount":number,"note":"source if named"}],"daysOff":[{"person":"anne|jack|both","date":"YYYY-MM-DD","reason":"text"}]}
+Return: {"entries":[{"person":"anne|jack","titleId":"id or null","stageId":"id or null","kind":"work|admin|author|other","hours":number or null,"finished":true|false,"finishedOn":"YYYY-MM-DD or null","note":"short description"}],"payments":[{"titleId":"id","date":"YYYY-MM-DD","amount":number or null}],"billsPaid":[{"billId":"id","date":"YYYY-MM-DD","amount":number or null,"month":"YYYY-MM or null"}],"royalties":[{"date":"YYYY-MM-DD","amount":number,"note":"source if named"}],"daysOff":[{"person":"anne|jack|both","date":"YYYY-MM-DD","reason":"text"}]}
 Rules:
 - One entry per distinct activity. The person is the writer unless the note names the other person ("Jack recorded…").
 - Match shorthand to titles (MGIS9 = Monster Girls in Space 9, EoD2 = The Earl of Dracumont 2, SAB1 = Sunfire Academy Book 1). Pick the stage that fits: recording/booth = the person's Record stage, editing/clean-up = Edit, invoicing/sending files = Deliver & invoice, pickups/corrections = Pickups; writing work = the book's matching stage.
@@ -742,7 +760,7 @@ Rules:
 - Notes often report events from other days ("submitted on the 9th", "invoice sent on the 10th"). Make an entry for each with finished true, finishedOn set to that date (the year is ${date.slice(0,4)}; the month is the log's month unless stated) and hours 0. Recording, editing, delivering or invoicing a title all count, and so does "X is recorded" or "X is done" for a person's part.
 - "Paid", "check came", "got paid" for a title goes in payments with that date (default ${date}); amount only if stated.
 - If the note says someone did not record or did no project work today ("neither of us recorded", "Jack didn't record"), add an entry for EACH person named, with titleId null, kind "other", hours null and a note like "No recording today", unless the note says what they did instead. "Admin", "email", "accounts" and similar are kind "admin" entries.
-- "Paid the electric bill $312 on the 9th" goes in billsPaid with the matching bill id, that date (default ${date}) and the amount if stated. Paying a bill is not an entry unless hours are given.
+- "Paid the electric bill $312 on the 9th" goes in billsPaid with the matching bill id, that date (default ${date}) and the amount if stated. If the note names which month's bill it was ("paid October's mortgage", "the Oct 1 payment"), set month to that month (YYYY-MM); otherwise month is null. Paying a bill is not an entry unless hours are given.
 - "Alaric submitted his lines", "the partner's lines are in" means that title's "Partner records" stage is finished (finishedOn that date).
 - Royalty money ("received $214 in royalties", "KDP royalties came in, $80", "ACX paid $55") goes in royalties with that date (default ${date}). Never tie royalties to a title.
 - Every activity in the note must appear somewhere. Never return an empty entries list for a note that describes work.
@@ -823,7 +841,7 @@ function logPreview(l){
    <input class="in" data-f="note" value="${esc(e.note||'')}" aria-label="Note">
    <button class="lnk" data-act="ent-del" data-i="${i}" aria-label="Remove">×</button></div>`;}).join('');
   const pays=(PREV.payments||[]).map(x=>`<div class="chip">💰 ${esc(shortOf(tById(x.titleId)))} paid ${fmtShort(x.date)}${x.amount?' · '+money(x.amount):''}</div>`).join(' ');
-  const billChips=(PREV.billsPaid||[]).map(x=>{const b=S.bills.find(y=>y.id===x.billId);return `<div class="chip">🧾 ${esc(b?.name||'Bill')} paid ${fmtShort(x.date)} · ${money(x.amount??b?.amount??0)}</div>`;}).join(' ');
+  const billChips=(PREV.billsPaid||[]).map(x=>{const b=S.bills.find(y=>y.id===x.billId);const ym=b?billMonthFor(b,x.date,x.month):null;return `<div class="chip">🧾 ${esc(b?.name||'Bill')}${ym?' for '+monthName(ym):''} paid ${fmtShort(x.date)} · ${money(x.amount??b?.amount??0)}</div>`;}).join(' ');
   const royChips=(PREV.royalties||[]).map(r=>`<div class="chip">💰 Royalties ${money(r.amount)} · ${fmtShort(r.date)}</div>`).join(' ');
   const offs=(PREV.daysOff||[]).map(o=>`<div class="chip">Day off · ${o.person==='both'?'Both':PNAME[o.person]||o.person} · ${fmt(o.date)}</div>`).join(' ');
   modal(`<h2>Here's how I read it</h2><p class="raw" style="font-style:italic;margin-top:0">"${esc(PREV.raw)}"</p>
@@ -863,8 +881,8 @@ async function saveLog(){
   S.logs=[...S.logs.filter(x=>x.id!==id),{id,...doc}];buildIndex();
   for(const e of doc.entries)if(e.finished&&e.titleId&&e.stageId){const s=tById(e.titleId)?.stages.find(x=>x.id===e.stageId);if(s&&!s.done)await setStageDone(e.titleId,e.stageId,true,e.finishedOn||doc.date);}
   for(const r of (l.royalties||[]))await put('deposits','dep-'+r.date+'-'+uid().slice(0,6),{date:r.date,amount:r.amount,kind:'royalty',note:r.note||'',by:S.me||''});
-  for(const bp of (l.billsPaid||[])){const b=S.bills.find(x=>x.id===bp.billId);if(!b)continue;const ym=billMonthFor(b,bp.date);
-    await patch('bills',b.id,{paid:{...(b.paid||{}),[ym]:{date:bp.date,amount:+(bp.amount??b.amount)||0}}});}
+  for(const bp of (l.billsPaid||[])){const b=S.bills.find(x=>x.id===bp.billId);if(!b)continue;const ym=billMonthFor(b,bp.date,bp.month);const n=Math.round((D(bp.date)-D(billDue(b,ym)))/864e5);
+    await patch('bills',b.id,{paid:{...(b.paid||{}),[ym]:{date:bp.date,amount:+(bp.amount??b.amount)||0,...(n>LATE_GRACE?{late:n}:{})}}});}
   for(const pmt of (l.payments||[])){const t=tById(pmt.titleId);if(t&&!t.checkDate)await patch('titles',t.id,{checkDate:pmt.date,checkAmount:+pmt.amount||moneyOf(t).gross});}
   const qa=$('#qlog');if(qa)qa.value='';
   toast('Entered in the Ledger.');
@@ -903,7 +921,7 @@ function viewLedger(){
     if(x.k==='roy')rows.push({d,dir:'in',what:'💰 Royalties',amt:x.amt,status:x.actual?'received':'forecast',act:x.actual?`data-act="roy-pop" data-id="${x.dp.id}"`:'data-act="roy-pop"'});
     if(x.k==='check')rows.push({d,dir:'in',what:`💰 ${x.t.name} (net)`,amt:x.amt,status:x.actual?'received':'forecast',act:`data-act="check-pop" data-id="${x.t.id}"`});
     if(x.k==='payout')rows.push({d,dir:'pass',what:`↪ ${x.t.partnerName||'Partner'}'s share of ${x.t.name} (${money(x.amt)})`,amt:x.amt,status:x.actual?'passed on':'pass on when it clears',act:`data-act="check-pop" data-id="${x.t.id}"`});
-    if(x.k==='bill')rows.push({d,dir:'out',what:`🧾 ${x.b.name}`,amt:x.amt,status:x.paid?'paid':'expected',act:`data-act="bill-pop" data-id="${x.b.id}" data-ym="${x.ym}"`});}
+    if(x.k==='bill')rows.push({d,dir:'out',what:`🧾 ${x.b.name}${x.owed||x.late?' ('+monthName(x.ym)+')':''}`,amt:x.amt,status:x.owed?`<span style="color:var(--overdue)">late · ${x.late} days · owed</span>`:x.paid?(x.late?`paid late · ${x.late} days`:'paid'):'expected',act:`data-act="bill-pop" data-id="${x.b.id}" data-ym="${x.ym}"`});}
   rows.sort((a,b)=>a.d.localeCompare(b.d));
   const tin=rows.filter(r=>r.dir==='in').reduce((a,r)=>a+r.amt,0),tout=rows.filter(r=>r.dir==='out').reduce((a,r)=>a+r.amt,0);
   let run=0;
@@ -1129,9 +1147,9 @@ function titlePopHTML(t){const o=S.sim.out[t.id]||{};
   <div style="margin:4px 0">${o.late?`<span class="stamp over">Overdue · ${fmtShort(o.finish)}</span> needs ~${hrs(o.ot)} overtime`:o.amber?`<span class="stamp amb">Into the week · ${fmtShort(o.finish)}</span> ~${hrs(o.otTarget)} overtime gets it back`:o.finish?`<span class="stamp ok">${t.kind==='author'?'Ready':'Delivers'} ${fmtShort(o.finish)}</span>`:''}</div>
   <div style="font-size:13px">${(t.stages||[]).map(s=>`${s.done?'✓':'·'} ${esc(stageLabel(s))}${s.done?'':' → '+fmtShort(S.sim.byKey[t.id+'|'+s.id]?.finish)}`).join('<br>')}</div>
   <div style="margin-top:6px"><button class="btn small" data-act="edit-title" data-id="${t.id}">Open card</button></div>`;}
-function billPopHTML(b,ym){const p=b.paid?.[ym];return `<b>${esc(b.name)}</b><div class="num">${money(billAmount(b,ym))} · ${p?'paid '+fmt(p.date):'expected '+fmt(billDate(b,ym))}</div>
+function billPopHTML(b,ym){const p=b.paid?.[ym],late=billLateDays(b,ym),due=billDue(b,ym),owed=!p&&late&&ym>=trackFrom(b);return `<b>${esc(b.name)} · ${monthName(ym)}</b><div class="num">${money(billAmount(b,ym))} · ${p?'paid '+fmt(p.date)+(late?` <span class="stamp over">${late} days late</span>`:''):owed?'was due '+fmt(due)+` <span class="stamp over">Late · ${late} days</span>`:'expected '+fmt(due)}</div>
   ${p?`<div style="margin-top:6px"><button class="btn small" data-act="bill-unpay" data-id="${b.id}" data-ym="${ym}">Undo paid</button></div>`:
-  `<div class="row" style="margin-top:6px"><input type="date" id="bp-date" class="in" value="${TODAY<=billDate(b,ym)?TODAY:billDate(b,ym)}" aria-label="Paid on"><input type="number" id="bp-amt" class="in" style="width:90px" value="${b.amount}" aria-label="Amount"><button class="btn small primary" data-act="bill-pay" data-id="${b.id}" data-ym="${ym}">Paid</button></div>`}`;}
+  `<div class="row" style="margin-top:6px"><input type="date" id="bp-date" class="in" value="${TODAY<=billDue(b,ym)||owed?TODAY:billDue(b,ym)}" aria-label="Paid on"><input type="number" id="bp-amt" class="in" style="width:90px" value="${b.amount}" aria-label="Amount"><button class="btn small primary" data-act="bill-pay" data-id="${b.id}" data-ym="${ym}">Paid</button></div>`}`;}
 function noticeDraft(t){const o=S.sim.out[t.id];const nd=addBD(o.finish,2);
   return `Hi ${t.client||'there'},
 
@@ -1158,11 +1176,12 @@ document.addEventListener('click',async ev=>{
     case 'title-pop':{const t=tById(id);if(t)pop(titlePopHTML(t),a);break;}
     case 'check-pop':{const t=tById(id);if(t)pop(checkPopHTML(t),a);break;}
     case 'bill-pop':{const b=S.bills.find(x=>x.id===id);if(b)pop(billPopHTML(b,a.dataset.ym),a);break;}
-    case 'bill-pay':{const b=S.bills.find(x=>x.id===id);const ym=a.dataset.ym;closePop();await patch('bills',id,{paid:{...(b.paid||{}),[ym]:{date:val('bp-date')||TODAY,amount:+val('bp-amt')||b.amount}}});break;}
+    case 'bill-pay':{const b=S.bills.find(x=>x.id===id);const ym=a.dataset.ym;const date=val('bp-date')||TODAY;const n=Math.round((D(date)-D(billDue(b,ym)))/864e5);closePop();await patch('bills',id,{paid:{...(b.paid||{}),[ym]:{date,amount:+val('bp-amt')||b.amount,...(n>LATE_GRACE?{late:n}:{})}}});break;}
     case 'bill-unpay':{const b=S.bills.find(x=>x.id===id);const p={...(b.paid||{})};delete p[a.dataset.ym];closePop();await put('bills',id,{...stripId(b),paid:p});break;}
     case 'bill-edit':{const b=S.bills.find(x=>x.id===id)||{name:'',amount:'',day:1};modal(`<h2>${id?'Edit':'Add a'} bill</h2><div class="grid3"><label class="f">Name<input id="b-name" value="${esc(b.name)}"></label><label class="f">Amount $<input id="b-amt" type="number" step="0.01" value="${esc(b.amount)}"></label><label class="f">Due day of month<input id="b-day" type="number" min="1" max="31" value="${esc(b.day)}"></label></div>
+      <label class="f" style="max-width:260px">Unpaid months count as late from<input id="b-track" type="month" value="${esc(b.trackFrom||BILL_TRACK_FROM)}"></label><p class="muted" style="font-size:13px;margin:2px 0 0">Months before this are treated as settled.</p>
       <div class="foot">${id?`<button class="btn danger" data-act="bill-del" data-id="${id}" style="margin-right:auto">Delete</button>`:''}<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="bill-save" data-id="${id||''}">Save</button></div>`);break;}
-    case 'bill-save':{const b=S.bills.find(x=>x.id===id);const doc={...(b?stripId(b):{paid:{}}),name:val('b-name')||'Bill',amount:+val('b-amt')||0,day:+val('b-day')||1,active:true};closeModal();await put('bills',id||'bill-'+uid(),doc);break;}
+    case 'bill-save':{const b=S.bills.find(x=>x.id===id);const doc={...(b?stripId(b):{paid:{}}),name:val('b-name')||'Bill',amount:+val('b-amt')||0,day:+val('b-day')||1,active:true,trackFrom:val('b-track')||BILL_TRACK_FROM};closeModal();await put('bills',id||'bill-'+uid(),doc);break;}
     case 'roy-pop':{const dp=S.deposits.find(x=>x.id===id);const m=royaltyModel();
       pop(dp?`<b>Royalties received</b><div class="num">${money(dp.amount)} · ${fmt(dp.date)}</div>${dp.note?`<div class="muted">${esc(dp.note)}</div>`:''}<div style="margin-top:6px"><button class="btn small" data-act="roy-del" data-id="${dp.id}">Remove</button></div>`
         :`<b>Royalties, forecast</b><div class="num">~${money(m?.amount||0)}</div><div class="muted">Average of your last three months, landing around the ${ord(m?.day||1)}.</div>`,a);break;}
@@ -1389,7 +1408,7 @@ window.LL = {
   init, show, compute, rerender, render, syncS, keyOf, nameOf, loadBoothFh, views: LLV,
   get S() { return S; }, PEOPLE, PNAME, STAGE_LABEL, CAT, INKS,
   tById, moneyOf, titleFH, partWords, checkDateOf, invoiceOf, ourCheck, netCheck, hardDue, targetOf, stageLabel, titleColor, shortOf,
-  nextAlloc, waitingFor, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount,
+  nextAlloc, waitingFor, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount, billsOverdue, monthName,
   titleForm, cardHTML, settingsHTML: viewSettings, logPreview, handLog, monthEvents, put, patch, del, setStageDone, fmt, fmtShort, hrs, money, TODAY: () => TODAY, addDays, addBD, nextInk, uid
 };
 
