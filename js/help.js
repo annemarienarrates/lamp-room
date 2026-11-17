@@ -64,6 +64,7 @@
       ] },
     { id: "tools", icon: "🎛", title: "Tools panel", lead: "Open it with the Tools tab on the right (or Shift+P). Pick a page from the menu at the top.",
       items: [
+        ["📼 Finished audio", "A book that's already recorded, or a narrator's chapters for cast assembly: bring it in, map it, find words in it, replace bits. See Finished audio below."],
         ["👥 Co-narrator", "Duet lines: send yours, bring in your partner's. See Duets below."],
         ["🚩 Pickups", "Every flag in the chapter. Fix goes to the start of that sentence and punches in. ✓ marks it dealt with."],
         ["Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
@@ -101,7 +102,7 @@
       ] },
     { id: "cast", icon: "🎭", title: "Full cast & pickups", lead: "Up to six voices, and re-reads that travel between you without a single email.",
       items: [
-        ["Full cast", "Highlight each voice in its own colour in Word (Turquoise, Pink, Yellow, Bright green, Teal, Violet…). On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],
+        ["Full cast", "Highlight each voice in its own colour with Word's highlighter, in this order: Turquoise (main male), Pink (main female), Bright green, Gray 25%, Yellow, Red. Narration stays unhighlighted. On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],
         ["Cast 1–4", "Outside cast don't need the Lamp Room. Give their colour to Cast 1, Cast 2… on import or on the book page."],
         ["Their file", "Tools ▸ Co-narrator ▸ 🎧 Cast 2's file… Drop in what they sent (WAV, MP3, M4A, AIFF, FLAC). It's cut into their lines and auto-placed as you read, like your partner's. Tick “runs on into the next chapters” for a file that covers several."],
         ["Clicks or pauses", "Best: ask cast to click or clap once between lines, and to redo a flubbed line before the click (the last read is kept). With no clicks, the pauses decide, which works for clean reads. Lines marked “check” deserve a listen."],
