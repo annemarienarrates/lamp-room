@@ -311,7 +311,7 @@ function shortOf(t){return t?.short||t?.name||'?';}
 
 /* ============ ALMANAC ============ */
 function viewAlmanac(){
-  return `<div class="alm"><div class="side">${todayHTML()}${alertsHTML()}${quickLogHTML()}${goalsHTML()}</div><div>${calendarHTML()}</div></div>`;
+  return `<div class="alm"><div class="side">${todayHTML()}${alertsHTML()}${quickLogHTML()}<div class="panel"><h3>The Year's Reckoning</h3><div class="muted" style="font-size:13px">Now on the <a href="#/goals">Goals</a> page, with your targets and charts.</div></div></div><div>${calendarHTML()}</div></div>`;
 }
 function nextAlloc(p){
   const days=Object.keys(S.sim.alloc).filter(d=>d>=TODAY).sort();
@@ -1392,7 +1392,7 @@ window.LL = {
   init, show, compute, rerender, render, syncS, keyOf, nameOf, loadBoothFh, views: LLV,
   get S() { return S; }, PEOPLE, PNAME, STAGE_LABEL, CAT, INKS,
   tById, moneyOf, titleFH, partWords, checkDateOf, invoiceOf, ourCheck, netCheck, hardDue, targetOf, stageLabel, titleColor, shortOf,
-  nextAlloc, waitingFor, alertsHTML, goalsHTML, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount,
+  nextAlloc, waitingFor, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount,
   titleForm, cardHTML, settingsHTML: viewSettings, logPreview, handLog, monthEvents, put, patch, del, setStageDone, fmt, fmtShort, hrs, money, TODAY: () => TODAY, addDays, addBD, nextInk, uid
 };
 
