@@ -51,7 +51,7 @@
     return i >= 0 ? i : book.chapters.findIndex(c => c.included);
   }
   function onLeave() { if (!/^#\/booth\//.test(location.hash)) close(); }
-  async function close() {
+  async function close() { { const le = document.getElementById("line-ed"); if (le) le.remove(); }
     if (!B) return;
     if (B.rec) await stopRecording();
     stopListening(); B.player.stop(); stopPreview(); hidePartPop(); B.mic.close();
@@ -173,6 +173,44 @@
       <span class="stu-note" id="bd-busy">${esc(B.busyTxt || "")}</span>
       ${bt("keys", ICON.kbd + " Hotkeys", { cls: "bd-quiet" })}`;
     el.onclick = barClick; el.onchange = barChange;
+    renderLineEd();
+  }
+  // ---- the line editor: a partner line that's selected gets a small panel to fix its edges ----
+  function selLine() { const st = B && B.selTake; if (!st || B.rec) return null; const c = B.audio.tracks[st.ti] && B.audio.tracks[st.ti].clips[st.ci]; return c && c.line ? { ti: st.ti, ci: st.ci, c } : null; }
+  function lineSrc(c) { const rec = duetData()[c.line.r], l = rec && rec.lines.find(z => z.file === c.file); return { l, srcDur: srcDurOf(c.file) || (l ? (l.hin || 0) + l.dur + (l.hout || 0) : null) }; }
+  function renderLineEd() {
+    let el = $("#line-ed"); const s = selLine();
+    if (!s) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("div"); el.id = "line-ed"; el.className = "line-ed"; document.body.appendChild(el); el.onclick = lineEdClick; }
+    const { c } = s, { l, srcDur } = lineSrc(c), runTxt = (theirRuns().find(x => x.r === c.line.r && x.from === c.line.from) || {}).text || "";
+    const canOut = srcDur != null && c.off + c.dur < srcDur - 0.01, canIn = c.off > 0.01;
+    const b = (a, t, tip, dis) => `<button class="stu-btn" data-le="${a}" title="${esc(tip)}" ${dis ? "disabled" : ""}>${t}</button>`;
+    el.innerHTML = `<div class="le-h"><b>${esc(c.line.r)}'s line</b> <i>${esc(qt(short(runTxt, 12)))}</i> <span class="stu-note">${clock(c.at)} · ${c.dur.toFixed(2)} s</span><button class="le-x" data-le="close" aria-label="Close">×</button></div>
+      <div class="le-row">${b("hear", "▶ Hear it in place", "Play from just before to just after")}
+        <span class="le-g"><span class="stu-note">Start</span>${b("s-", "◀ 50 ms", "Start earlier: brings back audio before the cut", !canIn)}${b("s+", "50 ms ▶", "Start later: trims the front")}</span>
+        <span class="le-g"><span class="stu-note">End</span>${b("e-", "◀ 50 ms", "End sooner: trims the tail")}${b("e+", "50 ms ▶", "End later: brings back audio after the cut", !canOut)}</span>
+        <span class="le-g"><span class="stu-note">Move</span>${b("m-", "◀", "Nudge 50 ms earlier")}${b("m+", "▶", "Nudge 50 ms later")}</span>
+        ${b("reset", "Re-cut from their recording", "Back to the cut they sent", !l || (Math.abs(c.off - (l.hin || 0)) < 0.002 && Math.abs(c.dur - l.dur) < 0.002))}${b("out", "Remove", "Take this line back out")}</div>
+      ${srcDur != null && !canOut && !canIn ? `<div class="stu-note">This line was sent before lines carried spare audio at the edges, so it can be trimmed but not extended. Ask for it again (🔁) if a word is clipped.</div>` : ""}
+      <div class="stu-note">The rest of the chapter moves along with every change.</div>`;
+  }
+  async function lineEdClick(e) {
+    const bt = e.target.closest("[data-le]"); if (!bt || bt.disabled) return; const a = bt.dataset.le; bt.blur();
+    const s = selLine(); if (!s) { renderLineEd(); return; }
+    if (a === "close") { B.selTake = null; renderEditBar(); renderTransport(); return; }
+    const { ti, ci, c } = s, { l, srcDur } = lineSrc(c);
+    if (a === "hear") { B.sel = { a: Math.max(0, c.at - 1.5), b: Math.min(len(), c.at + c.dur + 1.5) }; await togglePlay(true); B.sel = null; return; }
+    if (a === "out") { B.selTake = null; deleteTake(ti, ci); return; }
+    pushUndo();
+    if (a === "s-") T().trimEdge(B.audio, ti, ci, "start", -0.05, true, srcDur);
+    else if (a === "s+") T().trimEdge(B.audio, ti, ci, "start", 0.05, true, srcDur);
+    else if (a === "e-") T().trimEdge(B.audio, ti, ci, "end", -0.05, true, srcDur);
+    else if (a === "e+") T().trimEdge(B.audio, ti, ci, "end", 0.05, true, srcDur);
+    else if (a === "m-" || a === "m+") { const d = a === "m+" ? 0.05 : -0.05, tr = B.audio.tracks[ti], prev = tr.clips.filter(z => z !== c && z.at + z.dur <= c.at + 1e-3).reduce((m, z) => Math.max(m, z.at + z.dur), 0), next = tr.clips.filter(z => z !== c && z.at >= c.at + c.dur - 1e-3).reduce((m, z) => Math.min(m, z.at), Infinity);
+      c.at = Math.max(prev, Math.min(next - c.dur, c.at + d)); }
+    else if (a === "reset" && l) swapClip(ti, ci, l);
+    const k = B.audio.tracks[ti].clips.findIndex(z => z.line && z.line.r === c.line.r && z.line.from === c.line.from);
+    edited(); B.selTake = k >= 0 ? { ti, ci: k } : null; renderEditBar(); renderTransport();
   }
   function layout() {
     const eb = $("#booth-editbar"), sb = $("#stats-bar"), dk = $("#booth-dock"); if (!eb || !dk) return;
@@ -374,6 +412,7 @@
       case "bring": return bringLines();
       case "bringfrom": return pickLinesFolder();
       case "spliceall": return spliceAll();
+      case "recut": return swapRecut(x);
       case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) playLine(l); return; }
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
       case "lout": return unplace(theirRuns()[+x]);
@@ -881,6 +920,9 @@
       let hot = 0; for (let i = 0; i < f.length; i++) if (f[i] >= 0.999 || f[i] <= -0.999) hot++;
       writer.push(f); r.clip.dur = writer.duration - r.clip.off;
       let pk = 0; for (let i = 0; i < f.length; i += 4) { const a = f[i] < 0 ? -f[i] : f[i]; if (a > pk) pk = a; } if (pk > 0.012) { r.loud = r.clip.at + r.clip.dur; if (r.drops) for (const dp of r.drops) if (dp.speak == null && r.loud > dp.t + 0.15) dp.speak = r.loud - 0.04; }
+      // reading on while their line plays (not waiting for it): they keep their space and you carry on after it
+      const cd = r.coNow; if (cd && !cd.skipped) { const now = r.clip.at + r.clip.dur, thr = duetOpt("hear") ? 0.03 : 0.012;
+        if (now > cd.t + 0.3 && pk > thr) { if (cd.vStart == null || now - cd.vLast > 0.25) cd.vStart = now - f.length / LRAudio.RATE; cd.vLast = now; if (now - cd.vStart >= 0.3) skipLine(cd.vStart - 0.05, true); } }
       // Finished Hour flagged clipping as you went
       if (hot > 1) { r.clipFlags += hot; const t = r.clip.at + r.clip.dur; if (t - r.lastClipT > 3) { r.lastClipT = t; B.audio.markers.push({ id: Prep.uid(), t, w: B.f.pos, ctx: "", note: "Clipped — too loud here", auto: true, done: false }); } }
     };
@@ -957,6 +999,12 @@
     if (t == null || t > L) t = await LRAudio.lastPause(render, L, 0.6, 0.25);
     t = await LRAudio.quietPoint(render, Math.min(t, L), 0.35, 0.45);
     const pre = snap();
+    // their lines: one that comes before this sentence stays whole (the re-read starts after it);
+    // one that comes after it is taken out whole, and drops in again when you read up to it
+    for (const tr of B.audio.tracks) for (const c of tr.clips) if (c.line && c.at + c.dur > t) {
+      if (c.line.from < s) t = Math.max(t, Math.min(L, c.at + c.dur + 0.25));
+    }
+    for (const tr of B.audio.tracks) tr.clips = tr.clips.filter(c => !(c.line && c.line.from >= s && c.at + c.dur > t));
     B.f.set(s); prog().pos = B.f.pos; markPos(true);
     T().truncate(B.audio, t);
     await startRecording(t, false, pre);
@@ -1203,7 +1251,9 @@
 
   // ---- while recording: drop their line in when you've read up to it and gone quiet ----
   function duetLive() {
-    const r = B.rec; if (!r || r.paused || !amLead() || !duetOpt("auto")) return;
+    const r = B.rec; if (!r || r.paused || !amLead()) return;
+    const cn = r.coNow; if (cn && !cn.skipped && B.f.pos >= cn.pos0 + 2) skipLine(cn.speak != null ? cn.speak : null, true);   // you've read on two words since it dropped
+    if (!duetOpt("auto")) return;
     const now = r.clip.at + r.clip.dur;
     if (B.turnAt != null && r.loud > B.turnAt + 0.15) { const bn = $("#duet-banner.go"); if (bn) bn.remove(); B.turnAt = null; }
     if (r.coUntil && now < r.coUntil + 0.2) return;
@@ -1219,7 +1269,7 @@
     const ti = coTrack(x.r); if (ti < 0 || ti === r.track) { toast("Their lines need a track of their own: record on track 1 and keep a track free for " + x.r + "."); return; }
     T().overwrite(B.audio, ti, [{ file: l.file, off: l.hin || 0, dur: l.dur, at: 0, line: { r: x.r, from: x.from } }], t);
     r.coUntil = t + l.dur;
-    r.drops = r.drops || []; const drop = { t, dur: l.dur, ti, speak: null }; r.drops.push(drop); r.coNow = drop;
+    r.drops = r.drops || []; const drop = { t, dur: l.dur, ti, speak: null, x, pos0: B.f.pos }; r.drops.push(drop); r.coNow = drop;
     const sl = slotOf(x); if (sl) B.audio.markers = B.audio.markers.filter(m => m !== sl);
     if (window.LRCele) LRCele.comboHold(l.dur * 1000 + 6000);
     duetBanner(x.r.toUpperCase() + " · " + l.dur.toFixed(1) + " s", qt(short(x.text, 14)), l.dur);
@@ -1231,12 +1281,18 @@
   }
   // Space or a click while their line plays: carry on now. When you stop, your audio after this moment moves along by the
   // part you didn't wait for, so the chapter comes out exactly as if you'd waited.
-  function skipLine() {
+  // at: when you started reading again (defaults to now, or to when you first spoke over it if that was earlier)
+  function skipLine(at, auto) {
     const r = B && B.rec, d = r && r.coNow; if (!d || d.skipped) return false;
-    const now = r.clip.at + r.clip.dur, remain = d.t + d.dur - now; if (remain < 0.05) return false;
+    const now = r.clip.at + r.clip.dur;
+    let t = at != null ? at : now; if (at == null && d.speak != null && d.speak < t) t = d.speak;
+    t = Math.max(d.t + 0.05, Math.min(now, t));
+    const remain = d.t + d.dur - t; if (remain < 0.05) return false;
     d.skipped = true; clearTimeout(d.timer); stopLine();
-    (r.skips = r.skips || []).push({ at: now, need: remain, ti: d.ti });
-    r.coUntil = now; d.yourTurn && d.yourTurn();
+    (r.skips = r.skips || []).push({ at: t, need: remain, ti: d.ti });
+    r.coUntil = now; if (r.coNow === d) r.coNow = null;
+    const bn = $("#duet-banner"); if (bn) bn.remove();
+    if (auto) duetBanner("CARRY ON", "their line keeps its place; you land after it", 1.2, true); else d.yourTurn && d.yourTurn();
     return true;
   }
   const notice = m => { if (window.note) window.note(m); };
@@ -1396,11 +1452,36 @@
         lines.push({ n: l.n, file: name, from: x.from, to: x.to, text: x.text, dur: l.dur, hin: l.hin || 0, hout: l.hout || 0 });
       }
       duetData()[r] = { made: pack.made, got: new Date().toISOString(), lines }; got += lines.length; fresh += lines.length;
+      const re = recutOf(r); if (re.length) { B.recut = B.recut || {}; B.recut[r] = re.length; }
       B.peaks = B.peaks || {};
     }
+    const rc = Object.entries(B.recut || {}).filter(([r, n]) => n && recutOf(r).length);
+    if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Co-narrator tab ▸ Swap them in.");
     if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;
+  }
+  // placed lines whose newest version (from a re-send) isn't the one in the chapter
+  function recutOf(r) {
+    const out = [], rec = duetData()[r]; if (!rec) return out;
+    B.audio.tracks.forEach((tr, ti) => tr.clips.forEach((c, ci) => { if (!c.line || c.line.r !== r) return; const l = rec.lines.find(z => z.from === c.line.from); if (l && l.file !== c.file) out.push({ ti, ci, l }); }));
+    return out;
+  }
+  // swap a placed line for a new version: the chapter grows or shrinks to fit (your audio moves along with it)
+  function swapClip(ti, ci, l) {
+    const c = B.audio.tracks[ti].clips[ci], end = c.at + c.dur, d = l.dur - c.dur;
+    if (d > 0.005) T().insertGap(B.audio, end, d);
+    else if (d < -0.005) { const a = end + d, busy = B.audio.tracks.some((tr, k) => k !== ti && tr.clips.some(z => z.at < end - 0.01 && z.at + z.dur > a + 0.01)); if (!busy) T().deleteRange(B.audio, a, end); }
+    const k = B.audio.tracks[ti].clips.find(z => z.line && c.line && z.line.from === c.line.from && z.line.r === c.line.r) || c;
+    k.file = l.file; k.off = l.hin || 0; k.dur = l.dur; delete k.fi; delete k.fo; delete k.g;
+  }
+  function swapRecut(r) {
+    if (B.rec || B.busy) return;
+    const todo = recutOf(r).sort((a, b) => B.audio.tracks[b.ti].clips[b.ci].at - B.audio.tracks[a.ti].clips[a.ci].at);   // last first, so earlier times stay put
+    if (!todo.length) { toast("Nothing to swap."); return; }
+    pushUndo(); for (const x of todo) swapClip(x.ti, x.ci, x.l);
+    if (B.recut) delete B.recut[r];
+    edited(); renderSide(); notice("🔁 " + todo.length + " of " + r + "'s line" + (todo.length === 1 ? "" : "s") + " swapped for the new cut. Undo puts the old ones back.");
   }
   async function pickLinesFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines", mode: "read" }); await bringLines(d); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
   async function pickCopyFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines-out", mode: "readwrite" }); const sub = await d.getDirectoryHandle((B.book.folder + " - " + B.chap.title + " - " + B.readingAs).replace(/[\\/:*?"<>|]+/g, "-"), { create: true }); await sendLines(sub); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
@@ -1417,7 +1498,8 @@
     const runs = theirRuns();
     if (!runs.length) return `<div class="bd-sec"><b>Co-narrator</b><div class="stu-note">No one else reads in this chapter.</div></div>`;
     const arrived = runs.filter(x => lineFor(x)).length, placed = runs.filter(x => placedClip(x)).length, slots = runs.filter(x => !placedClip(x) && slotOf(x)).length, who = [...new Set(runs.map(x => x.r))].join(" & ");
-    return `<div class="bd-sec"><b>${esc(who)}'s lines</b>
+    const rcs = [...new Set(runs.map(x => x.r))].map(r => [r, recutOf(r).length]).filter(z => z[1]);
+    return `${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
         <div class="co-chips"><span>${runs.length} in this chapter</span><span class="${arrived === runs.length ? "ok" : arrived ? "" : "warn"}">${arrived} arrived</span><span class="${placed ? "ok" : ""}">${placed} in</span>${slots ? `<span class="warn">${slots} slots waiting</span>` : ""}</div>
         <label class="check"><input type="checkbox" data-duet="auto" ${duetOpt("auto") ? "checked" : ""}> <b>Auto-place while I record</b></label>
         <div class="stu-note">Read through. When you've finished the line before theirs and gone quiet, their line drops in on their track${duetOpt("hear") ? " and plays in your headphones" : ""}; wait for “Your turn”. If their audio isn't in yet, a slot is marked and it splices in later. <b>${esc(kl("click"))}</b> drops their next line in by hand.</div>
@@ -1433,7 +1515,8 @@
         <div class="fx-chips"><span class="stu-note">Their lines in my headphones</span><input type="range" min="0" max="100" step="5" data-dv="vol" value="${Math.round(coVol() * 100)}"><span class="stu-note">${Math.round(coVol() * 100)}%</span></div>
         <div class="fx-chips"><span class="stu-note">“Your turn” shows for</span><input class="stu-in pz" type="number" min="0.3" max="3" step="0.1" data-dv="turn" value="${turnSecs()}"><span class="stu-note">s</span></div>
         <label class="check"><input type="checkbox" data-dv="clean" ${(Store.settings.duet || {}).clean !== false ? "checked" : ""}> Clean up my track under their lines (removes headphone bleed; stops the moment I start speaking)</label>
-        <div class="stu-note">Space, or a click on their banner, skips the rest of their line. The chapter still comes out as if you'd waited.</div></div>`;
+        <div class="stu-note">Don't want to wait? Just keep reading, or press Space. Their line keeps its place and what you read lands after it, so you never record over them.</div>
+        <div class="stu-note">To fix a line that cut badly, click it on its track: a small editor opens to trim, extend, nudge or re-cut it.</div></div>`;
   }
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot), done = B.audio.markers.filter(m => m.done && !m.slot);
@@ -2356,5 +2439,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

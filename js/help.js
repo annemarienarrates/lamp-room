@@ -78,9 +78,12 @@
       items: [
         ["If you're not the lead", "Record all your lines straight through, with a breath between them, and press C at the end of each one: the cutter splits exactly there. Then Tools ▸ Co-narrator ▸ 📤 Send my lines. Each line is cut out and lands in the shared folder."],
         ["If you're the lead", "Your partner's lines arrive on their own. Just read: when you finish the line before theirs and go quiet, their line drops in on their track (and plays in your headphones if you like). Wait for “Your turn”, then carry on."],
-        ["Skip their line", "While their line plays, Space or a click on their banner skips the rest. The chapter still comes out exactly as if you'd waited."],
+        ["Don't want to wait?", "Just keep reading while their line plays (or press Space). Their line keeps its place and what you read lands after it, so you never record over them."],
+        ["Flub after their line", "F goes back to your sentence and keeps their line whole in front of it. If you flub before their line, their line comes out and drops in again when you get there."],
+        ["Re-sent lines", "If your partner re-cuts and sends lines you've already placed, Tools ▸ Co-narrator shows “Swap them in”. Each one replaces the old in place."],
         ["Headphone bleed", "Tools ▸ Co-narrator ▸ While their lines play: turn their volume down, and leave “Clean up my track under their lines” on. It swaps your track for room tone while they speak, and stops the moment you start."],
-        ["Fix a splice", "Drag the edge of their line out to get a clipped word or breath back (every line carries hidden handles). Drag the line itself: it drops into a pause or opens space. ⌥← / ⌥→ nudges a selected line by 50 ms."],
+        ["Fix a splice", "Click their line on its track. A small editor opens: hear it in place, move the start or end by 50 ms, nudge it, re-cut it from what they sent, or remove it. The chapter moves along with every change. Older lines (sent before the spare edges were added) can be trimmed but not extended."],
+        ["Fix it at the source", "If you read the partner's lines: open the chapter, put the playhead where a line really ends, press C to drop a cut mark, and Send again. The lead gets “Swap them in”."],
         ["C", "Drops their next line in by hand, right now. If it hasn't arrived yet, it marks a slot instead. You rarely need it: auto-place usually does it."],
         ["Slots & Splice all", "Lines that weren't there yet leave a slot. When they arrive, Splice all fills every slot at once."],
         ["Wrong reader?", "Select the words in the text and choose who reads them."]
