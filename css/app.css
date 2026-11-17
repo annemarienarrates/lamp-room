@@ -607,3 +607,5 @@ h3 .gl-seg { margin-left: 10px; }
 .line-ed .le-g{display:inline-flex;gap:4px;align-items:center;padding:0 6px;border-left:1px solid var(--rule)}
 .line-ed .stu-note{margin:6px 0 0}
 .bd-sec.recut{border-left:3px solid var(--accent);padding-left:10px}
+/* proofing flags in the text */
+#ms .w.proof{text-decoration:underline wavy var(--bad,#c0392b);text-decoration-thickness:1.5px;text-underline-offset:4px;cursor:help}

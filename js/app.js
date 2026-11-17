@@ -720,6 +720,12 @@
         <div class="row"><button class="btn quiet small" id="try2">Try a celebration</button><button class="btn quiet small" id="try3">Try the big one</button><button class="btn quiet small" id="tryc">Try a combo tier</button></div>
         <button class="btn small" id="try">Try it</button>
       </div></div>
+      <div class="card"><h3>Proofing while I read <span class="small muted">(just for ${esc(Store.me() || "you")})</span></h3>
+        <p class="small muted" style="margin:0 0 6px">Listens back to what you read and underlines anything that doesn't match the text: a skipped word, a swapped word, an extra one. It runs in Chrome on this computer; your audio never leaves it. The first time, it downloads its listening model (about 40–80 MB), then Chrome keeps it.</p>
+        <div class="row"><label>Proof<select id="pfm">${[["off", "Off"], ["stop", "When I stop: check each take"], ["live", "Live: check every ~20 seconds as I read"]].map(([v, l]) => `<option value="${v}" ${(S.proofMode || "off") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Listening<select id="pfk">${[["careful", "Careful (better with names, a bit slower)"], ["fast", "Fast"]].map(([v, l]) => `<option value="${v}" ${(S.proofModel || "careful") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <button class="btn small quiet" id="pfl">Download it now</button></div>
+        <p class="small muted" style="margin:6px 0 0">Live always listens fast, so it keeps up. Names and made-up words it doesn't know: press <b>Always ignore</b> on the flag and it won't flag that word again in the book.</p></div>
       <div class="card"><h3>Narrators</h3><p class="small muted">Booth pace = manuscript words you get through per hour in the booth. The Booth module will keep these current once you're recording here.</p>
         ${S.narrators.map((n, i) => `<div class="cast-row"><label>Name<input data-n="${i}" data-k="name" value="${esc(n.name)}"></label><label>Booth pace (words / hr)<input type="number" data-n="${i}" data-k="pace" value="${n.pace}" style="width:120px"></label>${S.narrators.length > 1 ? `<button class="btn small quiet" data-deln="${i}">✕</button>` : ""}</div>`).join("")}
         <button class="btn small" id="addn">+ Narrator</button></div>
@@ -766,6 +772,10 @@
     $("#conf").onchange = e => { S.confirmations = e.target.checked; save(); };
     $("#prog").onchange = e => { S.progressNotes = e.target.checked; save(); };
     $("#cues").onchange = e => { S.duetCues = e.target.value; save(); };
+    $("#pfm").onchange = e => { S.proofMode = e.target.value; save(); };
+    $("#pfk").onchange = e => { S.proofModel = e.target.value; save(); };
+    $("#pfl").onclick = async e => { const bt = e.target; bt.disabled = true; bt.textContent = "Downloading…"; LRProof.onProgress = m => { if (!m.done) bt.textContent = "Downloading… " + Math.round(100 * m.loaded / m.total) + "%"; };
+      try { await LRProof.load(S.proofModel === "fast" ? "fast" : "careful"); if (S.proofMode === "live" && S.proofModel !== "fast") await LRProof.load("fast"); bt.textContent = "Ready ✓"; } catch (er) { bt.textContent = "Couldn't download"; toast("The proofer couldn't download: " + er.message); bt.disabled = false; } };
     $("#combo").onchange = e => { S.combo = e.target.checked; S.comboHidden = false; save(); };
     $("#calm").onchange = e => { S.calm = e.target.checked; save(); };
     $("#gearn").onchange = e => { S.goalEarn = Math.max(0, +e.target.value || 0); save(); };
