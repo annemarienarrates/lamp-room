@@ -609,3 +609,6 @@ h3 .gl-seg { margin-left: 10px; }
 .bd-sec.recut{border-left:3px solid var(--accent);padding-left:10px}
 /* proofing flags in the text */
 #ms .w.proof{text-decoration:underline wavy var(--bad,#c0392b);text-decoration-thickness:1.5px;text-underline-offset:4px;cursor:help}
+.xbefore{margin-top:12px;padding:10px 12px;border:1px solid var(--rule);border-radius:8px}
+.xbefore .check{display:flex;gap:8px;align-items:flex-start;margin:4px 0}
+.xwarn{margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);background:color-mix(in srgb,var(--bad) 8%,transparent)}

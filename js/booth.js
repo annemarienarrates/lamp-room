@@ -1069,6 +1069,15 @@
     if (open) notice("🔎 Proof: " + open + " spot" + (open === 1 ? "" : "s") + " to check in that take, underlined in the text. Tools ▸ Pickups lists them.");
     else if (n != null) notice("🔎 Proof: that take matches your text ✓");
   }
+  // the whole chapter, your own audio only (partner lines left out, so their words aren't "extra"); returns open flags
+  async function proofChapter(onP) {
+    if (!(await ensureStudio())) return 0;
+    const clips = B.audio.tracks.flatMap(tr => tr.clips.filter(c => !c.line)), L = len(); if (!clips.length || !L) return 0;
+    const ctx = proofCtx(null), d = await dir(); ctx.pos0 = 0; ctx.pos1 = B.toks.length - 1;
+    for (let t = 0; t < L - 0.5; t += 28) { const n = Math.min(30, L - t); await proofWindow(await LRAudio.renderRange(d, clips, t, n), t, ctx, false); onP && onP(Math.min(1, (t + 30) / L)); }
+    applyProofMarks(); renderSide(); renderTransport();
+    return B.audio.markers.filter(m => m.proof && !m.done).length;
+  }
   function applyProofMarks() {
     const ms = $("#ms"); if (!ms) return; ms.querySelectorAll(".w.proof").forEach(e => e.classList.remove("proof"));
     for (const m of (B.audio.markers || [])) if (m.proof && !m.done) for (let i = m.proof.from; i <= m.proof.to; i++) { const e = ms.querySelector('.w[data-i="' + i + '"]'); if (e) { e.classList.add("proof"); e.title = m.note; } }
@@ -1972,6 +1981,7 @@
     if (B.rec) return;
     const S = Store.settings, pat = S.namePattern || "{book} - {nn} - {chapter}";
     const st = B.exp = B.exp || { fmt: localStorage.getItem("lr-xfmt") || "wav", dest: "folder" };
+    st.proof = Store.lsGet("lr-xproof") === "1"; st.space = Store.lsGet("lr-xspace") === "1";
     const ov = document.createElement("div"); ov.className = "overlay";
     const draw = () => {
       const base = LRExport.fileName(st.pat || pat, B.book, B.chap, B.ci), ext = st.fmt === "mp3" ? ".mp3" : ".wav";
@@ -1981,14 +1991,44 @@
         <label style="display:flex;margin-top:12px">File name<input id="xname" value="${esc(base)}"></label>
         <label style="display:flex;margin-top:8px">Naming pattern<input id="xpat" value="${esc(st.pat || pat)}"></label>
         <p class="small muted">{book} {chapter} {title} {n} {nn} {nnn}. ${B.audio.tracks.length > 1 ? "All audible tracks are mixed down at their volumes. " : ""}${st.fmt !== "mp3" && B.audio.markers.some(m => m.note) ? "Named markers are written into the WAV." : ""}</p>
+        <div class="xbefore"><div class="section-label">Before it exports</div>
+          <label class="check"><input type="checkbox" id="xproof" ${st.proof ? "checked" : ""}> 🔎 Proof the chapter: listen through it and flag anything misread first</label>
+          <label class="check"><input type="checkbox" id="xspace" ${st.space ? "checked" : ""}> ⏱ Even out pauses: ${pz().head} s head, ${pz().heading} s after the heading, ${pz().scene} s at scene breaks, ${pz().tail} s tail, long gaps down to ${pz().cap} s</label></div>
+        <div id="xmsg"></div>
         <div class="row" style="margin-top:6px"><label class="check"><input type="radio" name="xd" value="folder" ${st.dest === "folder" ? "checked" : ""}> The book's exports folder</label><label class="check"><input type="radio" name="xd" value="choose" ${st.dest === "choose" ? "checked" : ""}> Choose where to save…</label></div>
         <div id="xprog" class="bar hidden" style="margin-top:12px"><i style="width:0;background:var(--accent)"></i></div>
         <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" id="xgo">Export ${esc(ext.slice(1).toUpperCase())}</button></div></div>`;
       $$("[data-f]", ov).forEach(b => b.onclick = () => { st.fmt = b.dataset.f; localStorage.setItem("lr-xfmt", st.fmt); draw(); });
       $("#xpat", ov).onchange = e => { st.pat = e.target.value; Store.settings.namePattern = e.target.value; Store.saveSettings(); draw(); };
       $$("[name=xd]", ov).forEach(r => r.onchange = () => { st.dest = r.value; });
+      $("#xproof", ov).onchange = e => { st.proof = e.target.checked; Store.lsSet("lr-xproof", st.proof ? "1" : "0"); };
+      $("#xspace", ov).onchange = e => { st.space = e.target.checked; Store.lsSet("lr-xspace", st.space ? "1" : "0"); };
       $("[data-x]", ov).onclick = () => ov.remove();
-      $("#xgo", ov).onclick = () => go($("#xname", ov).value.trim() || base, ext);
+      $("#xgo", ov).onclick = () => before($("#xname", ov).value.trim() || base, ext, false);
+    };
+    // the ticks first: even the pauses, proof the chapter (and stop to review if it found anything)
+    const before = async (name, ext, anyway) => {
+      const msg = $("#xmsg", ov), bt = $("#xgo", ov), bar = $("#xprog", ov), fill = $("#xprog i", ov);
+      if (!anyway && (st.space || st.proof)) {
+        bt.disabled = true;
+        try {
+          if (st.space) { bt.textContent = "Evening out pauses…"; await evenPauses(false); }
+          if (st.proof) {
+            bt.textContent = "Proofing…"; bar.classList.remove("hidden");
+            const n = await proofChapter(p => { fill.style.width = Math.round(p * 100) + "%"; });
+            bar.classList.add("hidden"); fill.style.width = "0";
+            if (n) {
+              msg.innerHTML = `<div class="xwarn"><b>🔎 ${n} spot${n === 1 ? "" : "s"} to check</b> before this goes out. They're underlined in the text and listed in Pickups.<div class="row" style="margin-top:8px"><button class="btn primary" data-rev>Review them</button><button class="btn" data-anyway>Export anyway</button></div></div>`;
+              $("[data-rev]", msg).onclick = () => { ov.remove(); B.side = null; B.tab = "pickups"; act("tools"); };
+              $("[data-anyway]", msg).onclick = () => { msg.innerHTML = ""; before(name, ext, true); };
+              bt.disabled = false; bt.textContent = "Export " + ext.slice(1).toUpperCase(); return;
+            }
+            msg.innerHTML = `<div class="small" style="color:var(--good);margin:6px 0">🔎 Proofed: it matches your text ✓</div>`;
+          }
+        } catch (e) { toast("Couldn't finish the checks: " + e.message + ". Exporting anyway is up to you."); bt.disabled = false; bt.textContent = "Export " + ext.slice(1).toUpperCase(); return; }
+        bt.disabled = false;
+      }
+      return go(name, ext);
     };
     const go = async (name, ext) => {
       name = name.replace(/[\\/:*?"<>|]+/g, "").replace(/\.(wav|mp3)$/i, "") + ext;
@@ -2514,5 +2554,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();
