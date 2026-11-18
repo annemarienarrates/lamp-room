@@ -825,6 +825,7 @@
           <label>Closing credits<textarea data-cl="${i}" data-k="closing" rows="7">${esc(c.closing || "")}</textarea></label>
           <div class="row"><div class="spacer"></div><button class="btn small quiet" data-cldel="${i}">Remove this client</button></div></details>`).join("")}
         <button class="btn small" id="addcl">+ Client</button></div>
+      <div class="card"><h3>This computer</h3><div class="row"><label>Keyboard<select id="platSel"><option value="">Automatic (${LRPlat.guess() === "mac" ? "Mac" : "Windows"})</option><option value="mac" ${LRPlat.chosen() === "mac" ? "selected" : ""}>Mac: ⌘ Command, ⌥ Option</option><option value="pc" ${LRPlat.chosen() === "pc" ? "selected" : ""}>Windows: Ctrl, Alt</option></select></label></div><p class="small muted">Shortcuts and their labels follow this. The shortcuts work with Ctrl either way.</p></div>
       <div class="card"><h3>Who's working here</h3><div class="row"><label>Working as<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
         <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
@@ -878,6 +879,7 @@
     $("#addn").onclick = () => { S.narrators.push({ name: "Narrator " + (S.narrators.length + 1), pace: 3000 }); save(); viewSettings(); };
     $("#wp").onchange = e => { S.wpfh = Number(e.target.value) || 9300; save(); };
     $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
+    $("#platSel").onchange = e => LRPlat.set(e.target.value);
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
     $$("[data-cl]").forEach(el => el.onchange = () => { const c = S.clients[+el.dataset.cl]; c[el.dataset.k] = el.value; B_openClient = c.id; save(); if (el.dataset.k === "name") viewSettings(); });
     $$("[data-cldel]").forEach(b => b.onclick = () => { const c = S.clients[+b.dataset.cldel]; if (!confirm("Remove " + (c.name || "this client") + "?")) return; S.clients.splice(+b.dataset.cldel, 1); save(); viewSettings(); });
@@ -908,7 +910,7 @@
       <div class="hp-keys">${hotkeyGroups().map(([g, rows]) => `<div><h3>${esc(g)}</h3>${rows.map(([k, d]) => `<div class="hp-k"><kbd>${esc(k || "—")}</kbd><span>${esc(d)}</span></div>`).join("")}</div>`).join("")}</div></section>`;
     const order = H.slice(0, 5).map(sec).join("") + keysSec + H.slice(5).map(sec).join("");
     main().innerHTML = `<div class="hp"><aside class="hp-nav"><div class="section-label">Guide</div>${H.slice(0, 5).concat([{ id: "keys", icon: "⌨", title: "Hotkeys" }], H.slice(5)).map(s => `<a href="#" data-go="hp-${s.id}">${s.icon} ${esc(s.title)}</a>`).join("")}
-        <div class="hp-dl-btns"><a class="btn small" href="guide/Lamp Room Guide.pdf" target="_blank" rel="noopener">📄 Guide (PDF)</a><a class="btn small" href="guide/Lamp Room Keyboard.pdf" target="_blank" rel="noopener">⌨ Keyboard sheet</a><a class="btn small quiet" href="#/key">The Key: how the planner thinks →</a></div></aside>
+        <div class="hp-dl-btns"><a class="btn small" href="guide/Lamp Room Guide${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">📄 Guide (PDF)</a><a class="btn small" href="guide/Lamp Room Keyboard${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">⌨ Keyboard sheet${LRPlat.pc ? " (PC)" : ""}</a><a class="btn small quiet" href="#/key">The Key: how the planner thinks →</a></div></aside>
       <div class="hp-main"><h1>How the Lamp Room works</h1>${order}</div></div>`;
     $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.go); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   }

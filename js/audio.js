@@ -254,7 +254,7 @@
         this.analyser.push(f32);
         if (this.onFrames) this.onFrames(f32);
       };
-      track.addEventListener("mute", () => { if (this.token === me) this.dropped(0, "the browser or macOS paused the microphone"); });
+      track.addEventListener("mute", () => { if (this.token === me) this.dropped(0, "the browser or the computer paused the microphone"); });
       if (typeof window.MediaStreamTrackProcessor === "function" && (!this.devRate || this.devRate === RATE || window.LR_FORCE_DIRECT)) {
         this.mode = "direct";
         const reader = this.reader = new window.MediaStreamTrackProcessor({ track, maxBufferSize: 200 }).readable.getReader();

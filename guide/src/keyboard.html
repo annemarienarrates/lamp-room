@@ -36,6 +36,7 @@
   .box .r:last-child { border: 0; }
   .box kbd { font-size: 7.5pt; }
   footer { margin-top: 10px; display: flex; justify-content: space-between; font-size: 8pt; color: var(--muted); }
+  body.pc .lower { font-size: 0.9em; margin-top: 8px; } body.pc .lower .r { grid-template-columns: 78px 1fr; } body.pc .kb { margin-bottom: 0; }
 </style></head>
 <body class="grain">
 <div class="sheet">
@@ -64,7 +65,7 @@
     [["tab", "tab", 1.5], ["Q"], ["W"], ["E"], ["R"], ["T"], ["Y"], ["U"], ["I"], ["O"], ["P"], ["[", "["], ["]", "]"], ["\\", "\\", 1]],
     [["caps", "caps lock", 1.75], ["A"], ["S"], ["D"], ["F"], ["G"], ["H"], ["J"], ["K"], ["L"], [";", ";"], ["'", "'"], ["return", "return", 1.86]],
     [["shift", "shift ⇧", 2.36], ["Z"], ["X"], ["C"], ["V"], ["B"], ["N"], ["M"], [",", ","], [".", "."], ["/", "/"], ["rshift", "shift ⇧", 2.36]],
-    [["fn", "fn"], ["ctrl", "control"], ["opt", "option ⌥"], ["cmd", "command ⌘", 1.25], ["space", "", 5.46], ["cmd", "command ⌘", 1.25], ["opt", "option ⌥"], ["ARROWS"]]
+    (/[?&]pc\b/.test(location.search) ? [["cmd", "ctrl", 1.25], ["fn", "win"], ["opt", "alt"], ["space", "", 5.46], ["opt", "alt"], ["fn", "menu"], ["cmd", "ctrl", 1.25], ["ARROWS"]] : [["fn", "fn"], ["ctrl", "control"], ["opt", "option ⌥"], ["cmd", "command ⌘", 1.25], ["space", "", 5.46], ["cmd", "command ⌘", 1.25], ["opt", "option ⌥"], ["ARROWS"]])
   ];
   const key = (id, cap, w) => { const a = A[id === "rshift" ? "shift" : id]; const long = cap && cap.length > 2;
     return `<div class="k ${a ? a[0] + " on" : ""}" style="--w:${w || 1}"><span class="cap ${long ? "sm" : ""}">${cap == null ? id : cap}</span>${a ? `<span class="act">${a[0] === "mod" ? "" : a[1]}</span>` : ""}</div>`; };
@@ -72,5 +73,15 @@
     <div class="k view on"><span class="cap sm">◀</span><span class="act">fn: Home</span></div><div class="k"><span class="cap sm">▼</span></div><div class="k view on"><span class="cap sm">▶</span><span class="act">fn: End</span></div></div>`;
   document.getElementById("kb").innerHTML = `<div class="row fnrow">${FN.map(([id, cap, w]) => key(id, cap, w)).join("")}</div>` + ROWS.map(r => `<div class="row">${r.map(([id, cap, w]) => id === "ARROWS" ? arrows : key(id, cap, w)).join("")}</div>`).join("");
   document.getElementById("lower").innerHTML = PRINT_KEYS.map(([g, c, rows]) => `<div class="box ${c}"><h3>${g}</h3>${rows.map(([k, d]) => `<div class="r"><span><kbd>${k}</kbd></span><span>${d}</span></div>`).join("")}</div>`).join("");
+</script>
+
+<script>
+  // ?pc: the Windows edition (Ctrl / Alt / Shift instead of ⌘ / ⌥ / ⇧)
+  if (/[?&]pc\b/.test(location.search)) addEventListener("load", () => {
+    const swap = s => s.replace(/shift ⇧/g, "shift").replace(/Shift ⇧/g, "Shift").replace(/Command ⌘/g, "Ctrl").replace(/Option ⌥/g, "Alt").replace(/⌘⇧/g, "Ctrl+Shift+").replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/Ctrl\+ /g, "Ctrl ").replace(/Alt\+ /g, "Alt ").replace(/On a MacBook, Home \/ End are fn\+← \/ fn\+→\. ?/g, "").replace(/Ctrl Command|Command/g, "Ctrl").replace(/Option/g, "Alt");
+    const walk = n => { if (n.nodeType === 3) n.nodeValue = swap(n.nodeValue); else if (n.nodeType === 1 && n.tagName !== "SCRIPT" && n.tagName !== "STYLE") n.childNodes.forEach(walk); };
+    walk(document.body); document.title = document.title + " (PC)"; document.body.classList.add("pc");
+    const f = document.querySelector("footer span"); if (f) f.textContent = "Windows edition: Ctrl and Alt where a Mac has ⌘ and ⌥. These are the defaults: change any with ⌨ Hotkeys in the Booth.";
+  });
 </script>
 </body></html>
