@@ -121,6 +121,7 @@
     el.style.setProperty("--cc", col);
     el.innerHTML = `<div class="cw-title">${esc(o.title)}</div>${o.sub ? `<div class="cw-sub">${esc(o.sub)}</div>` : ""}`;
     document.body.appendChild(el);
+    if (!calm() && document.documentElement.dataset.theme === "phosphor") decode(el.querySelector(".cw-title"), o.title);
     if (!calm()) {
       const cx = innerWidth / 2, cy = innerHeight * 0.42;
       setTimeout(() => spark(cx, cy, [col, "#fff", ...themeColors()], lvl >= 3 ? 140 : lvl === 2 ? 90 : 46, lvl >= 2 ? 9 : 6), 120);
@@ -130,6 +131,12 @@
     }
     setTimeout(() => el.classList.add("out"), hold);
     setTimeout(() => { el.remove(); showing = false; if (queue.length && !recording()) show(queue.shift()); }, hold + 700);
+  }
+  // Phosphor: the words resolve out of falling glyphs, left to right
+  function decode(t, text) {
+    if (!t) return; const G = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789", up = String(text).toUpperCase(), n = up.length, t0 = performance.now(), dur = Math.min(900, 300 + n * 40);
+    const step = now => { const k = Math.floor(n * Math.min(1, (now - t0) / dur)); t.textContent = up.slice(0, k) + [...up.slice(k)].map(c => c === " " ? " " : G[Math.floor(Math.random() * G.length)]).join(""); if (k < n) requestAnimationFrame(step); else t.textContent = text; };
+    requestAnimationFrame(step);
   }
   function flash(col) { const f = document.createElement("div"); f.id = "cele-flash"; f.style.setProperty("--cc", col || "#fff"); document.body.appendChild(f); setTimeout(() => f.remove(), 750); }
   function flush() { if (!showing && queue.length && !recording()) show(queue.shift()); }
