@@ -791,9 +791,7 @@
       <div class="card"><h3>Claude for the work log</h3><p class="small muted">With your own API key (Anthropic or OpenRouter), “Read my note” turns a free-written “Today I…” into log lines, the way Ledger & Lamp did. Without one, a simple word-matcher reads it and you check the lines. The key stays on this computer only (not in the shared folder). Costs are a fraction of a cent per note.</p>
         <div class="row"><label style="flex:1">API key<input type="password" id="akey" placeholder="sk-ant-… or sk-or-…" value="${esc((() => { try { return localStorage.getItem("lr-anthropic-key") || ""; } catch (e) { return ""; } })())}"></label>
         <label>Model<input id="amodel" value="${esc(LRAI.modelFor(LRAI.key(), LRAI.model()))}" style="width:230px"></label><button class="btn small" id="atest">Test</button></div>
-        <p class="small muted" id="aprov">${LRAI.key() ? (LRAI.isOR(LRAI.key()) ? "Using <b>OpenRouter</b>. Model names there start with the maker, like anthropic/claude-sonnet-5." : "Using <b>Anthropic</b> directly.") : "Paste an Anthropic key (starts sk-ant-) or an OpenRouter key (starts sk-or-): the Lamp Room works out which."}</p></div>
-      <div class="card"><h3>Bring in Ledger &amp; Lamp</h3><p class="small muted">Choose the <i>ledger-and-lamp-export.json</i> file Claude made from your Ledger &amp; Lamp. Titles, logs, bills, deposits, days off, pipeline and settings come across; titles link to the books here with the same name. Safe to run again: records with the same id are replaced, not doubled.</p>
-        <div class="row"><input type="file" id="llimp" accept=".json,application/json"><span class="small muted" id="llimpres"></span></div></div>`;
+        <p class="small muted" id="aprov">${LRAI.key() ? (LRAI.isOR(LRAI.key()) ? "Using <b>OpenRouter</b>. Model names there start with the maker, like anthropic/claude-sonnet-5." : "Using <b>Anthropic</b> directly.") : "Paste an Anthropic key (starts sk-ant-) or an OpenRouter key (starts sk-or-): the Lamp Room works out which."}</p></div>`;
     const ls = $("#llset"); ls.innerHTML = LL.settingsHTML().replace(/^<h2>Settings<\/h2>/, ""); LL.views.el = null;
     $("#akey").onchange = e => { const k = e.target.value.trim(); try { localStorage.setItem("lr-anthropic-key", k); } catch (er) {}
       const m = LRAI.modelFor(k, $("#amodel").value); $("#amodel").value = m; try { localStorage.setItem("lr-anthropic-model", m); } catch (er) {}
@@ -803,7 +801,6 @@
     $("#atest").onclick = async () => { const b = $("#atest"); b.disabled = true; b.textContent = "Testing…";
       try { const t = await LRAI.ask("Reply with the single word: lit", 20, $("#akey").value.trim(), $("#amodel").value.trim()); toast("Claude answers: " + t.trim().slice(0, 40) + (LRAI.isOR($("#akey").value.trim()) ? " (through OpenRouter)" : "")); }
       catch (e) { toast("That didn't work: " + e.message); } b.disabled = false; b.textContent = "Test"; };
-    $("#llimp").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const n = await importLL(JSON.parse(await f.text())); $("#llimpres").textContent = n; toast("Ledger & Lamp is in."); } catch (er) { toast("Couldn't import that: " + er.message); } };
     const save = () => { Store.saveSettings().catch(e => toast("Couldn't save settings: " + e.message)); };
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
     $("#cf").onchange = e => { S.confetti = e.target.checked; save(); };
