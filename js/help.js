@@ -30,6 +30,8 @@
         ["Book page", "Chapters with status, words and time; the cast; pay; due date; the schedule badge. Untick a chapter to leave it out (front matter, for example)."],
         ["Fix chapters", "Book page ▸ a chapter's Text button: ✂ at any paragraph starts a new chapter there (e.g. “Previously” hiding in the front matter; tick In to include it). ⤓ Merge joins a chapter to the next."],
         ["Update the manuscript", "Book page ▸ Details ▸ Update the manuscript… Choose the corrected .docx: chapters are matched by title, and you tick which ones take the new text. Recordings, notes and status stay. Missing chapters are added."],
+        ["Credits", "Book page ▸ Credits: pick the client profile, fill the title as on Amazon and the author's year, then Add credits to the manuscript. Opening Credits and Closing Credits become chapters you record. For a full cast: Performed by “the NPC Audiobook Guild”, plus a cast tag per person (each lands in that person's script). Client wording lives in Settings ▸ Clients & credits."],
+        ["File names", "Exports are named by your delivery rule: 001_Opening_Credits, 002_Previously, 003_Chapter_01… (a running number across everything included). A client profile can set its own."],
         ["POV chapters", "If a whole chapter is in your partner's voice, set the POV column on that chapter and it becomes theirs."],
         ["Put on the schedule", "📅 on a card links a book to its title in the planner, so booth time and words count toward that job."]
       ] },
