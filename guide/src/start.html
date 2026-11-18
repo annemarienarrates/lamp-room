@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>The Lamp Room — Getting started</title>
+<link rel="stylesheet" href="print.css">
+<style>
+  @page { size: Letter; margin: 0; }
+  .page { width: 8.5in; height: 11in; padding: .65in .7in .55in; position: relative; page-break-after: always; break-after: page; overflow: hidden; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .cover { display: flex; flex-direction: column; justify-content: space-between; }
+  .mark { font: 600 9pt var(--sans); letter-spacing: .32em; text-transform: uppercase; color: var(--brass); }
+  .cover h1 { font-size: 50pt; line-height: .98; letter-spacing: -.02em; margin-top: 1.4in; }
+  .cover h1 i { color: var(--brass-hi); font-weight: 400; }
+  .cover .sub { font: italic 400 14pt var(--serif); color: var(--muted); margin-top: 18px; max-width: 5.4in; }
+  .lamp { width: 84px; height: 84px; border: 1px solid var(--brass); border-radius: 50%; display: grid; place-items: center; font-size: 36pt; box-shadow: 0 0 60px -10px #c8893a88, inset 0 0 30px -10px #c8893a66; }
+  .need { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+  .need h3 { font: 600 8pt var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--brass); margin-bottom: 8px; }
+  .need li { margin: 4px 0; }
+  .foot { font-size: 9pt; color: var(--muted); display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; }
+  .runhead { position: absolute; top: .32in; left: .7in; right: .7in; display: flex; justify-content: space-between; font: 600 7.5pt var(--sans); letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+  .runhead b { color: var(--brass); font-weight: 600; }
+  h2 { font-size: 21pt; margin-bottom: 2px; } .lead { font: italic 400 11pt var(--serif); color: var(--muted); margin: 0 0 4px; }
+  .step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; margin: 0 0 11px; break-inside: avoid; }
+  .step .n { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--brass); color: var(--brass-hi); display: grid; place-items: center; font: 500 13pt var(--serif); }
+  .step h3 { font-size: 12.5pt; margin: 3px 0 3px; color: var(--ink); }
+  .step p { margin: 0 0 4px; } .step ul { margin: 2px 0 0; padding-left: 18px; } .step li { margin: 2px 0; }
+  .tip { border-left: 2px solid var(--brass); padding: 6px 12px; margin: 8px 0 0; font-size: 9.5pt; color: var(--mid, #d6cfc1); background: #ffffff06; border-radius: 0 6px 6px 0; }
+  .url { font: 600 11pt var(--mono); color: var(--brass-hi); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; break-inside: avoid; }
+  .card h3 { font: 600 8pt var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--brass); margin-bottom: 6px; }
+  .kr { display: grid; grid-template-columns: 1in 1fr; gap: 6px; padding: 3px 0; border-bottom: 1px dotted var(--line); font-size: 9.5pt; } .kr:last-child { border: 0; }
+  b.t { color: var(--brass-hi); font-weight: 600; }
+</style></head>
+<body class="grain">
+<div id="out"></div>
+<script>
+  const Q = new URLSearchParams(location.search), WHO = Q.get("who") === "editor" ? "editor" : "conarr", PC = Q.has("pc");
+  const URL_ = "annemarienarrates.github.io/lamp-room";
+  const K = (mac, pc) => PC ? pc : mac;                     // key wording per edition
+  const MOD = K("⌘", "Ctrl+"), REFRESH = K("⌘⇧R", "Ctrl+Shift+R");
+  const DRIVE = K("Google Drive in Finder (left sidebar)", "the Google Drive drive in File Explorer (usually G:)");
+  const RATE = K("Applications ▸ Utilities ▸ Audio MIDI Setup ▸ your mic ▸ Format: 48,000 Hz", "Settings ▸ System ▸ Sound ▸ your microphone ▸ Properties ▸ Advanced ▸ Default format: 48000 Hz");
+  const page = (title, n, body) => `<div class="page"><div class="runhead"><span>The Lamp Room · <b>${title}</b></span><span>${n}</span></div><div style="margin-top:.25in">${body}</div></div>`;
+  const step = (n, h, body) => `<div class="step"><div class="n">${n}</div><div><h3>${h}</h3>${body}</div></div>`;
+  const keys = rows => rows.map(([k, d]) => `<div class="kr"><span><kbd>${k}</kbd></span><span>${d}</span></div>`).join("");
+
+  const SETUP = (role) => [
+    step(1, "Accept the shared folder, and put it in your Drive", `<p>Anne shares the book's folder with you from Google Drive. Open the email, then in Drive go to <b>Shared with me</b>, right-click the folder ▸ <b>Organize ▸ Add shortcut</b> ▸ <b>My Drive</b>.</p><div class="tip">This step matters: Drive for desktop only puts folders on your computer if they're in My Drive. Without the shortcut, the Lamp Room can't see the folder.</div>`),
+    step(2, "Install Google Drive for desktop", `<p>From google.com/drive/download. Sign in with the account Anne shared the folder with. Afterwards the folder shows up in ${DRIVE}, inside <b>My Drive</b>.</p>`),
+    step(3, "Open the Lamp Room in Chrome", `<p class="url">${URL_}</p><p>Use Google Chrome (or Microsoft Edge) on your computer. Bookmark it, or Chrome menu ⋮ ▸ <b>Cast, save and share ▸ Install page as app</b> for its own window.</p>`),
+    step(4, "Choose your own Library folder", `<p>The first screen asks for a folder to keep <i>your</i> Lamp Room in. Make an empty one called <b>Lamp Room Library</b> (in your Drive or Documents) and choose it. This is private to you; it is <i>not</i> the shared book folder.</p>`),
+    step(5, "Tell it who you are", `<p>Type your first name exactly as Anne added you to the book (ask her if unsure). Then ${role === "editor" ? "you're on the book as the <b>Editor</b>." : "you're on the book as a <b>co-narrator</b> or <b>cast</b> member."}</p>`),
+    step(6, "Join the book", `<p>On the Dashboard press <b>⇄ Join a shared project</b> and choose the book's shared folder (the one with <i>Chapters</i>, <i>Pickups</i> and <i>Finished</i> inside). Chrome asks to allow access: choose <b>Allow</b>, or <b>Allow on every visit</b> if it offers it.</p><div class="tip">Chrome sometimes asks again in a new session. If a Booth panel says "not connected", press <b>Connect</b> and choose the same folder.</div>`),
+    step(7, "Pick a Studio folder for audio", `<p>The first time you open the Booth, it asks where recordings should live on <i>this</i> computer: make <b>Lamp Room Studio</b> in Documents (not in Drive). ${role === "editor" ? "Everything you bring in and edit stays here until you export to Finished." : "Your takes stay here until you send a chapter."}</p>`)
+  ].join("");
+
+  const EDITOR = () => [
+    `<div class="page cover"><div><div class="lamp">🪔</div><div class="mark" style="margin-top:22px">The Lamp Room · ${PC ? "Windows" : "Mac"} edition</div>
+      <h1>Editor's<br><i>quick start.</i></h1><p class="sub">Set up once, then every chapter goes: everyone sends, you bring it in, you shape it, you send it to Finished.</p></div>
+      <div class="need"><h3>Before you start</h3><ul><li>Google <b>Chrome</b> on your ${PC ? "PC" : "Mac"}, up to date.</li><li><b>Google Drive for desktop</b>, signed in.</li><li>The <b>shared book folder</b> from Anne (an email invite).</li><li>Your name as Anne added it to the book (the Editor role).</li><li>Headphones. You won't need a microphone.</li></ul></div>
+      <div class="foot"><span>The Lamp Room · Editor's quick start</span><span>Foundry edition</span></div></div>`,
+    page("Editor · Setup", "1", `<h2>Setting up</h2><p class="lead">About ten minutes, once.</p><div class="rule"></div>${SETUP("editor")}`),
+    page("Editor · Each chapter", "2", `<h2>Each chapter</h2><p class="lead">Open the book's Booth, then Tools ▸ <b>📦 Shared</b>.</p><div class="rule"></div>
+      ${step(1, "Wait for everyone", `<p>📦 Shared lists everyone with lines in the chapter: <b>✓ sent</b> or <b>waiting</b>. The chapter only opens once they've all sent, so nobody's take is missing and nothing arrives twice.</p>`)}
+      ${step(2, "Bring in everyone's sends", `<p>One press builds the chapter: a track for each track people sent, named <b>Actor · Track</b> and grouped by actor, each with its FX settings. Lines are placed by the manuscript.</p><ul><li><b>▾ / ▸</b> on a track, or the actor's name, collapses it to a thin strip. <b>⊟ All / ⊞ All</b> closes or opens everything.</li><li><b>FX</b> on a track head opens its effects.</li></ul><div class="tip">"Still syncing from Drive"? Give Drive a minute and press it again: it won't open a half-downloaded file.</div>`)}
+      ${step(3, "Edit as usual", `<p>Click the waveform to place the playhead; drag to select. ${keys([["Space", "Play / stop (plays the selection)"], [MOD + "X / " + MOD + "V", "Cut / paste (the rest moves)"], ["Delete", "Delete the selection or take"], ["B", "Split at the playhead"], ["G", "Add space"], [MOD + "Z", "Undo"]])}</p>`)}
+      ${step(4, "Flag anything to fix", `<p><kbd>M</kbd> drops a flag at the playhead (or let the proofer find misreads: Export ▸ <b>Proof the chapter</b>). Each flag's sentence turns <b class="t">red</b> in the text and on the waveform; drag the red edges to set exactly what should be re-read.</p>`)}`),
+    page("Editor · Pickups & Finished", "3", `<h2>Pickups, then Finished</h2><div class="rule"></div>
+      ${step(5, "Ask for pickups", `<p>Tools ▸ <b>🚩 Pickups</b>: each flag has <b>🔁 Ask [name]</b>. It goes to whoever read that sentence, with an optional note. Their chapter stays locked otherwise; they record only what you asked for.</p>`)}
+      ${step(6, "Put them in", `<p>When a pickup comes back, Pickups shows it under <b>Asked of others</b>. <b>▶</b> to listen, <b>Put in</b> to drop it into its red zone: the chapter closes up or opens to fit, every track moving together. Undo is there.</p>`)}
+      ${step(7, "Export to Finished", `<p>📦 Shared ▸ <b>⤓ Export to Finished</b>. Tick <b>Even out pauses</b> (and <b>Proof the chapter</b> if you like), then Export. The file lands in the shared <b>Finished</b> folder with its delivery name: <b>001_Opening_Credits</b>, <b>003_Chapter_01</b>…</p>`)}
+      <div class="grid2" style="margin-top:6px"><div class="card"><h3>Make it yours</h3><p style="margin:0">Settings ▸ <b>Look & feel</b> for your theme; it's kept under your name on your computer. Want a theme that isn't there? Ask Anne.</p></div>
+      <div class="card"><h3>Help</h3><p style="margin:0">The <b>?</b> in the top bar has everything, with search. Something odd? ${REFRESH} reloads the latest version.</p></div></div>
+      <div class="card" style="margin-top:14px"><h3>Moving around</h3>${keys([["Home / End", "Start / end"], [", / .", "Previous / next flag"], ["− / =", "Zoom out / in"], ["[ / ]", "Shorter / taller tracks"], ["T", "Next track"], ["Esc", "Stop, clear the selection"]])}</div>`)
+  ].join("");
+
+  const CONARR = () => [
+    `<div class="page cover"><div><div class="lamp">🪔</div><div class="mark" style="margin-top:22px">The Lamp Room · ${PC ? "Windows" : "Mac"} edition</div>
+      <h1>Co-narrator's<br><i>quick start.</i></h1><p class="sub">Read your lines, send your chapter, record the odd pickup. The Lamp Room does the splicing.</p></div>
+      <div class="need"><h3>Before you start</h3><ul><li>Google <b>Chrome</b> on your ${PC ? "PC" : "Mac"}, up to date.</li><li><b>Google Drive for desktop</b>, signed in.</li><li>The <b>shared book folder</b> from Anne (an email invite).</li><li>Your mic set to <b>48,000 Hz</b>: ${RATE}.</li><li>Closed headphones.</li></ul></div>
+      <div class="foot"><span>The Lamp Room · Co-narrator's quick start</span><span>Foundry edition</span></div></div>`,
+    page("Co-narrator · Setup", "1", `<h2>Setting up</h2><p class="lead">About ten minutes, once.</p><div class="rule"></div>${SETUP("conarr")}
+      ${step(8, "Your settings", `<p>Settings ▸ <b>Narrators</b>: your <b>Name in credits</b>. <b>Reading & proofing</b>: pick <b>Manual</b> pacing if you re-read a lot (the highlight waits at each sentence until you press Next), and proofing if you want it. <b>Look & feel</b> for your theme.</p>`)}`),
+    page("Co-narrator · Recording", "2", `<h2>Recording your lines</h2><p class="lead">Open the book, then a chapter's 🎙.</p><div class="rule"></div>
+      ${step(1, "Your lines are the bright ones", `<p>The manuscript shows everyone's lines; yours are the ones to read, the rest dimmed. The highlight follows your voice${PC ? "" : ""}. Pre-roll and the waveform are at the bottom.</p>${keys([["R", "Record (from the end) · pause / resume"], ["S", "Stop"], ["F", "Flub: back to the start of the sentence and go again"], ["M", "Drop a flag to come back to"], ["↓", "Next line (or Next sentence, in Manual)"], ["Space", "Play / stop"]])}`)}
+      ${step(2, "Character voices", `<p>The <b>🎭 Characters</b> tab on the right is your private guide: double-click a name in the text ▸ <b>🎭 Add</b>. Keep a sample, notes and the FX; <b>Arm on track</b> puts a character's effects on a track so everything recorded there gets them.</p>`)}
+      ${step(3, "In a duet", `<p>If you're reading opposite the lead, press <b>📤 Send my lines</b> (Tools ▸ 👥 Co-narrator, or on the chapter-done card) so they drop into the lead's chapter. Put a <kbd>C</kbd> cut mark where a line should end and send again if one splits badly.</p>`)}`),
+    page("Co-narrator · Sending & pickups", "3", `<h2>Sending, then pickups</h2><div class="rule"></div>
+      ${step(4, "Send to Shared", `<p>When a chapter's done, <b>Mark complete</b> (or Export) offers <b>📤 Send to Shared</b>. Your chapter goes to the book's shared folder for the editor: one file per track, with its FX settings and where every line sits in the text.</p><div class="tip">Once sent, the chapter <b>locks</b> on your computer. That's on purpose: no re-records while it's in edits, so nothing gets duplicated.</div>`)}
+      ${step(5, "Pickups", `<p>When the editor needs something re-read, it shows in Tools ▸ <b>🚩 Pickups ▸ Asked of you</b>, with the line and any note. <b>🎙 Record</b>, read it, <b>Send</b>. It goes straight into the editor's chapter.</p>`)}
+      ${step(6, "Your own fixes before sending", `<p>Tools ▸ 🚩 Pickups lists your flags. Each one's sentence is <b class="t">red</b>; drag the red edges to cover exactly what you'll re-read, <b>▶</b> to hear it in context, <b>Fix</b> to re-record it on the same track. The chapter moves to fit.</p>`)}
+      <div class="grid2" style="margin-top:6px"><div class="card"><h3>Help</h3><p style="margin:0">The <b>?</b> in the top bar has everything, with search. Something odd? ${REFRESH} reloads the latest version.</p></div>
+      <div class="card"><h3>The mic warning</h3><p style="margin:0">If the Booth says your mic isn't at 48 kHz: ${RATE}, then reload.</p></div></div>`)
+  ].join("");
+
+  document.getElementById("out").innerHTML = WHO === "editor" ? EDITOR() : CONARR();
+  document.title = "The Lamp Room — " + (WHO === "editor" ? "Editor" : "Co-narrator") + " quick start" + (PC ? " (PC)" : "");
+</script>
+</body></html>

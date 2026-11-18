@@ -44,7 +44,7 @@
     <div class="keys">${PRINT_KEYS.map(([g, c, rows]) => `<div class="kgrp ${c}"><h3>${g}</h3>${rows.map(([k, d]) => `<div class="krow"><span><kbd>${esc(k)}</kbd></span><span>${esc(d)}</span></div>`).join("")}</div>`).join("")}</div>
     <p class="note">Change any key with ⌨ Hotkeys in the Booth: click the action, press the new key. Your keys are yours; your partner keeps theirs.</p></div>`;
   // pages: cover, then sections packed by hand so nothing splits awkwardly
-  const PAGES = [["start", "dashboard"], ["books"], ["booth"], ["editing"], ["tools"], ["KEYS"], ["duets"], ["cast"], ["finished", "cele"], ["goals", "trouble"], ["planner", "sharing"]];
+  const PAGES = [["start", "dashboard"], ["books"], ["booth"], ["editing"], ["tools"], ["KEYS"], ["duets"], ["cast"], ["finished", "cele"], ["goals", "trouble"], ["planner"], ["sharing"]];
   const byId = Object.fromEntries(H.map(s => [s.id, s]));
   const toc = PAGES.flat().map(id => id === "KEYS" ? { title: "Booth hotkeys" } : byId[id]).map((s, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b>${esc(s.title)}</div>`).join("");
   let html = `<div class="page grain cover"><div><div class="mark">The Lamp Room · Field Guide</div>
