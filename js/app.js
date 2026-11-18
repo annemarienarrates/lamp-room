@@ -441,6 +441,7 @@
         <div class="row" style="margin-top:12px"><button class="btn small" id="redetect">Re-split chapters…</button><button class="btn small" id="updms" title="Bring in a corrected manuscript: replaces the text of the chapters you choose, keeping their recordings">Update the manuscript…</button><div class="spacer"></div>
           <button class="btn small quiet" id="archive">${book.status === "archived" ? "Restore from archive" : "Archive book"}</button></div>
       </details>
+      ${creditsCard(book)}
 
       <div class="card">
         <div class="row" style="align-items:center;margin-bottom:6px"><h2 style="margin:0">Chapters</h2><div class="spacer"></div>
@@ -460,6 +461,7 @@
 
     $("#details").ontoggle = e => { detailsOpen[book.id] = e.target.open; };
     const save = (rerender) => { Store.saveBook(book); if (rerender) viewBook(); };
+    bindCredits(book, save);
     const toTitle = f => { if (!T) return; const m = { title: "name", due: "due", client: "client", color: "color" }[f]; if (m) LL.patch("titles", T.id, { [m]: book[f] || (f === "due" ? null : "") }); };
     $(".book-cover").onclick = () => pickCover(coverKey(book), viewBook);
     const lb = $("#linkbk"); if (lb) lb.onclick = () => linkBook(book.id);
@@ -738,6 +740,44 @@
   }
 
   // ---------------- settings ----------------
+  let B_openClient = null;
+  // ---- credits on the book page: which client, the details the credits need, cast credit tags, then add/update the credit chapters ----
+  function creditsCard(book) {
+    const cr = book.credits = book.credits || {}, cl = LRCredits.clientOf(book), list = LRCredits.clients(), S = Store.settings;
+    const has = book.chapters.some(c => c.credits), b = cl ? LRCredits.build(Object.assign({}, book, { parts: Object.assign({}, book.parts) })) : null;
+    const readers = [...new Set([...(S.narrators || []).map(n => n.name), ...Object.values(book.parts || {}).filter(Boolean)])];
+    return `<details class="card" id="credits" ${creditsOpen[book.id] ? "open" : ""}><summary>Credits ${has ? '<span class="small muted">· in the manuscript</span>' : cl ? '<span class="small muted">· ready to add</span>' : ""}</summary>
+      <div class="row" style="margin-top:12px">
+        <label style="flex:1">Client profile<select data-cr="clientId"><option value="">${cl ? "" : "— choose —"}</option>${list.map(c => `<option value="${esc(c.id)}" ${cl && cl.id === c.id ? "selected" : ""}>${esc(c.name || "Unnamed")}</option>`).join("")}</select></label>
+        <label style="flex:2" title="Must match the Amazon listing exactly">Title as on Amazon<input data-cr="title" value="${esc(cr.title || "")}" placeholder="${esc(book.title)}"></label>
+        <label title="The author's publishing year for this book">Author's year<input data-cr="authorYear" value="${esc(cr.authorYear || "")}" placeholder="2026" style="width:90px"></label></div>
+      <div class="row">
+        <label style="flex:2">Performed by<input data-cr="performedBy" value="${esc(cr.performedBy || "")}" placeholder="${esc(LRCredits.values(book).PerformedBy || "e.g. the NPC Audiobook Guild")}"></label>
+        <label style="flex:1">Production year<input data-cr="year" value="${esc(cr.year || "")}" placeholder="${esc(LRCredits.values(book).Year)}" style="width:90px"></label></div>
+      <p class="small muted">Performed by defaults to everyone reading, by their name in credits (Settings ▸ Narrators). For a full cast, write e.g. “the NPC Audiobook Guild” and add each cast member's tag below; each tag goes in that person's script, at the end of the closing credits.</p>
+      <div class="section-label" style="margin-top:8px">Cast credit tags</div>
+      ${(cr.cast || []).map((t, i) => `<div class="cast-row"><label style="flex:1">Name in credits<input data-ct="${i}" data-k="name" value="${esc(t.name || "")}"></label><label style="flex:2">as…<input data-ct="${i}" data-k="as" value="${esc(t.as || "")}" placeholder="The Narrator and Dottie"></label><label>Read by<select data-ct="${i}" data-k="reader"><option value="">Narrator</option>${readers.map(r => `<option ${t.reader === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label><button class="btn small quiet" data-ctdel="${i}">✕</button></div>`).join("")}
+      <button class="btn small" id="addct">+ Cast tag</button>
+      ${b ? `<div class="cr-prev"><div class="section-label">Opening credits</div>${b.open.map(p => `<p>${esc(p)}</p>`).join("")}<div class="section-label">Closing credits</div>${b.close.map(p => `<p>${esc(Prep.paraText(p))}</p>`).join("")}</div>` : `<p class="small muted">Choose a client profile to see the credits. Profiles live in Settings ▸ Clients & credits.</p>`}
+      <div class="row" style="margin-top:10px"><div class="spacer"></div><button class="btn primary" id="crapply" ${cl ? "" : "disabled"}>${has ? "Update the credit chapters" : "Add credits to the manuscript"}</button></div></details>`;
+  }
+  const creditsOpen = {};
+  function bindCredits(book, save) {
+    const el = $("#credits"); if (!el) return;
+    el.ontoggle = () => { creditsOpen[book.id] = el.open; };
+    const cr = book.credits = book.credits || {};
+    $$("[data-cr]", el).forEach(i => i.onchange = () => { const k = i.dataset.cr; if (k === "clientId") book.clientId = i.value; else cr[k] = i.value.trim(); creditsOpen[book.id] = true; save(true); });
+    $$("[data-ct]", el).forEach(i => i.onchange = () => { cr.cast[+i.dataset.ct][i.dataset.k] = i.value.trim(); creditsOpen[book.id] = true; save(true); });
+    $$("[data-ctdel]", el).forEach(b => b.onclick = () => { cr.cast.splice(+b.dataset.ctdel, 1); creditsOpen[book.id] = true; save(true); });
+    $("#addct", el).onclick = () => { (cr.cast = cr.cast || []).push({ name: "", as: "", reader: "" }); creditsOpen[book.id] = true; save(true); };
+    const ap = $("#crapply", el); if (ap) ap.onclick = () => {
+      let r = LRCredits.apply(book, false);
+      if (r.error) { toast(r.error); return; }
+      if (r.kept.length && confirm(r.kept.join(" and ") + (r.kept.length > 1 ? " are" : " is") + " already recorded. Replace the text anyway? (The recording stays; you'd re-record the changed lines.)")) r = Object.assign(r, LRCredits.apply(book, true), { kept: [] });
+      creditsOpen[book.id] = true; save(true);
+      toast([r.added.length ? "Added " + r.added.join(" and ") : "", r.updated.length ? "Updated " + r.updated.join(" and ") : "", r.kept.length ? "Kept " + r.kept.join(" and ") + " as recorded" : ""].filter(Boolean).join(". ") || "The credits already match.");
+    };
+  }
   function viewSettings() {
     const S = Store.settings;
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
@@ -768,15 +808,23 @@
         <button class="btn small quiet" id="pfl">Download it now</button></div>
         <p class="small muted" style="margin:6px 0 0">Live always listens fast, so it keeps up. Names and made-up words it doesn't know: press <b>Always ignore</b> on the flag and it won't flag that word again in the book.</p></div>
       <div class="card"><h3>Narrators</h3><p class="small muted">Booth pace = manuscript words you get through per hour in the booth. The Booth module will keep these current once you're recording here.</p>
-        ${S.narrators.map((n, i) => `<div class="cast-row"><label>Name<input data-n="${i}" data-k="name" value="${esc(n.name)}"></label><label>Booth pace (words / hr)<input type="number" data-n="${i}" data-k="pace" value="${n.pace}" style="width:120px"></label>${S.narrators.length > 1 ? `<button class="btn small quiet" data-deln="${i}">✕</button>` : ""}</div>`).join("")}
+        ${S.narrators.map((n, i) => `<div class="cast-row"><label>Name<input data-n="${i}" data-k="name" value="${esc(n.name)}"></label><label title="How your name appears in audiobook credits">Name in credits<input data-n="${i}" data-k="credit" value="${esc(n.credit || "")}" placeholder="${esc(n.name)}"></label><label>Booth pace (words / hr)<input type="number" data-n="${i}" data-k="pace" value="${n.pace}" style="width:120px"></label>${S.narrators.length > 1 ? `<button class="btn small quiet" data-deln="${i}">✕</button>` : ""}</div>`).join("")}
         <button class="btn small" id="addn">+ Narrator</button></div>
       <div class="card"><h3>Estimates</h3><div class="row">
         <label>Words per finished hour<input type="number" id="wp" value="${S.wpfh}" style="width:120px"></label>
         <label>Booth hours per workday<input type="number" step="0.5" id="bh" value="${S.boothHoursPerDay}" style="width:100px"></label>
       </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays.</p></div>
       <div class="card"><h3>Export file names</h3><div class="row">
-        <label style="flex:1">Pattern<input id="np" value="${esc(S.namePattern)}"></label></div>
-        <p class="small muted">Use {book} {chapter} {n} {nn} {nnn}. Preview: <b>${esc(sample)}.wav</b></p></div>
+        <label style="flex:1">Pattern<input id="np" value="${esc(S.namePattern && S.namePattern !== "{book} - {nn} - {chapter}" ? S.namePattern : "{seq}_{name}")}"></label></div>
+        <p class="small muted">The default is your delivery rule: <b>{seq}_{name}</b> gives 001_Opening_Credits, 002_Previously, 003_Chapter_01 (a running number across everything included, chapters padded to two digits). Also: {book} {chapter} {n} {nn} {nnn}. A client profile can set its own.</p></div>
+      <div class="card"><h3>Clients & credits</h3><p class="small muted">Each client's credit wording, filled in from the book: {Publisher} {PublisherLegal} {Website} {Title} {Author} {PerformedBy} {AuthorYear} {Year}. {Year} is the delivery year (the due date's year, or this year). A blank line starts a new paragraph.</p>
+        ${LRCredits.clients().map((c, i) => `<details class="cl-card" ${B_openClient === c.id ? "open" : ""} data-cid="${esc(c.id)}"><summary><b>${esc(c.name || "New client")}</b></summary>
+          <div class="row"><label style="flex:1">Client name (as on the book)<input data-cl="${i}" data-k="name" value="${esc(c.name || "")}"></label><label style="flex:1">Publisher, as said in credits<input data-cl="${i}" data-k="publisher" value="${esc(c.publisher || "")}"></label></div>
+          <div class="row"><label style="flex:1">Legal name (for the copyright line)<input data-cl="${i}" data-k="legal" value="${esc(c.legal || "")}"></label><label style="flex:1">Website<input data-cl="${i}" data-k="website" value="${esc(c.website || "")}"></label><label>File names<input data-cl="${i}" data-k="naming" value="${esc(c.naming || "{seq}_{name}")}"></label></div>
+          <label>Opening credits<textarea data-cl="${i}" data-k="opening" rows="3">${esc(c.opening || "")}</textarea></label>
+          <label>Closing credits<textarea data-cl="${i}" data-k="closing" rows="7">${esc(c.closing || "")}</textarea></label>
+          <div class="row"><div class="spacer"></div><button class="btn small quiet" data-cldel="${i}">Remove this client</button></div></details>`).join("")}
+        <button class="btn small" id="addcl">+ Client</button></div>
       <div class="card"><h3>Who's working here</h3><div class="row"><label>Working as<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
         <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
@@ -831,6 +879,9 @@
     $("#wp").onchange = e => { S.wpfh = Number(e.target.value) || 9300; save(); };
     $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
+    $$("[data-cl]").forEach(el => el.onchange = () => { const c = S.clients[+el.dataset.cl]; c[el.dataset.k] = el.value; B_openClient = c.id; save(); if (el.dataset.k === "name") viewSettings(); });
+    $$("[data-cldel]").forEach(b => b.onclick = () => { const c = S.clients[+b.dataset.cldel]; if (!confirm("Remove " + (c.name || "this client") + "?")) return; S.clients.splice(+b.dataset.cldel, 1); save(); viewSettings(); });
+    $("#addcl").onclick = () => { const c = { id: Prep.uid(), name: "", publisher: "", legal: "", website: "", opening: "{Publisher} Presents “{Title}” written by {Author}, performed by {PerformedBy}.", closing: "You have been listening to “{Title}” written by {Author}, performed by {PerformedBy}.\n\nText copyright {AuthorYear} {Author}, Production copyright {Year} {PublisherLegal} All rights reserved.", naming: "{seq}_{name}" }; LRCredits.clients().push(c); B_openClient = c.id; save(); viewSettings(); };
     $("#meSel").onchange = e => Store.setMe(e.target.value);
     const needStudio = async () => { const st = await Store.studioStatus(); if (st === "ready") return true; try { if (st === "needs-permission") await Store.reopenStudio(); else await Store.pickStudio(); return true; } catch (e) { if (e.name !== "AbortError") toast(e.message); return false; } };
     $("#tkOut").onclick = async () => { if (!(await needStudio())) return; const who = $("#tkWho").value, n = Store.takesOf(who).length; if (!n) { toast("No recordings for " + who + " in this library yet."); return; }

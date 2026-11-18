@@ -2341,7 +2341,7 @@
   // ======================= export =======================
   function exportDialog(afterComplete) {
     if (B.rec) return;
-    const S = Store.settings, pat = S.namePattern || "{book} - {nn} - {chapter}";
+    const S = Store.settings, pat = (window.LRCredits && LRCredits.pattern(B.book)) || (S.namePattern && S.namePattern !== "{book} - {nn} - {chapter}" ? S.namePattern : "{seq}_{name}");
     const st = B.exp = B.exp || { fmt: localStorage.getItem("lr-xfmt") || "wav", dest: "folder" };
     st.proof = Store.lsGet("lr-xproof") === "1"; st.space = Store.lsGet("lr-xspace") === "1";
     const ov = document.createElement("div"); ov.className = "overlay";

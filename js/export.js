@@ -111,8 +111,9 @@
 
   // file name from the pattern: {book} {chapter} {title} {n} {nn} {nnn}
   function fileName(pattern, book, chapter, index) {
-    const n = index + 1, title = chapter.title || "Chapter " + n;
-    const map = { book: book.title, chapter: /^chapter\s*\d+/i.test(title) ? title.replace(/:.*$/, "") : title, title, n: String(n), nn: String(n).padStart(2, "0"), nnn: String(n).padStart(3, "0") };
+    const n = index + 1, title = chapter.title || "Chapter " + n, seq = window.LRCredits ? LRCredits.seqOf(book, chapter) : n;
+    const map = { book: book.title, chapter: /^chapter\s*\d+/i.test(title) ? title.replace(/:.*$/, "") : title, title, n: String(n), nn: String(n).padStart(2, "0"), nnn: String(n).padStart(3, "0"),
+      seq: String(seq).padStart(3, "0"), name: window.LRCredits ? LRCredits.cleanName(title) : title };
     const out = String(pattern || "{book} - {nn} - {chapter}").replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in map ? map[k.toLowerCase()] : m))
       .replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim();
     return out || "Untitled";
