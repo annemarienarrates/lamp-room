@@ -433,7 +433,14 @@
     const F = { pos: 0, toks, mine: mineFlags };
     const nextMine = i => { while (i < toks.length && !mineFlags[i]) i++; return i; };
     F.pos = nextMine(startPos || 0);
-    F.set = i => { F.pos = nextMine(Math.max(0, Math.min(toks.length, i))); };
+    // end of the sentence that starts at (or contains) i: one past its last token
+    const sentEnd = i => { let k = nextMine(i); if (k >= toks.length) return toks.length; while (k < toks.length - 1 && mineFlags[k + 1] && toks[k + 1].p === toks[k].p && !toks[k].end) k++; return k + 1; };
+    // manual pacing: the voice moves you through the sentence but never past its end; Next moves on
+    F.manual = false; F.lim = sentEnd(F.pos);
+    F.set = i => { F.pos = nextMine(Math.max(0, Math.min(toks.length, i))); F.lim = sentEnd(F.pos); };
+    F.setManual = on => { F.manual = !!on; F.lim = sentEnd(F.pos); };
+    F.atEnd = () => F.manual && F.pos >= F.lim;
+    F.next = () => { const from = F.pos >= F.lim ? F.lim : F.pos; F.pos = nextMine(sentEnd(from) > from && F.pos < F.lim ? F.lim : from); F.lim = sentEnd(F.pos); return F.pos; };
     // heard: array of recognised words (already split). Returns true if pos moved.
     F.hear = heard => {
       let moved = false;
@@ -447,7 +454,8 @@
         }
         // a far jump needs the next word to agree too, so a common word ("the") can't skip a sentence
         if (hit >= 0 && seen >= 4 && h.length <= 3) hit = -1;
-        if (hit >= 0) { F.pos = nextMine(hit + 1); moved = true; }
+        if (hit >= 0 && F.manual && hit >= F.lim) hit = -1;
+        if (hit >= 0) { F.pos = F.manual && hit + 1 >= F.lim ? F.lim : nextMine(hit + 1); if (!F.manual) F.lim = sentEnd(F.pos); moved = true; }
       }
       return moved;
     };

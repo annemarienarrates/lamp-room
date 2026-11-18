@@ -758,7 +758,9 @@
         <div class="row"><button class="btn quiet small" id="try2">Try a celebration</button><button class="btn quiet small" id="try3">Try the big one</button><button class="btn quiet small" id="tryc">Try a combo tier</button></div>
         <button class="btn small" id="try">Try it</button>
       </div></div>
-      <div class="card"><h3>Proofing while I read <span class="small muted">(just for ${esc(Store.me() || "you")})</span></h3>
+      <div class="card"><h3>Reading & proofing</h3>
+        <label>Moving on to the next sentence<select id="pcr"><option value="auto" ${S.pacer !== "manual" ? "selected" : ""}>Automatic: the highlight follows my voice into the next sentence</option><option value="manual" ${S.pacer === "manual" ? "selected" : ""}>Manual: it waits at the end of each sentence until I press Next (for re-reading)</option></select></label>
+        <div class="section-label" style="margin-top:10px">Proofing</div>
         <p class="small muted" style="margin:0 0 6px">Listens back to what you read and underlines anything that doesn't match the text: a skipped word, a swapped word, an extra one. It runs in Chrome on this computer; your audio never leaves it. The first time, it downloads its listening model (about 40–80 MB), then Chrome keeps it.</p>
         <div class="row"><label>Proof<select id="pfm">${[["off", "Off"], ["stop", "When I stop: check each take"], ["live", "Live: check every ~20 seconds as I read"]].map(([v, l]) => `<option value="${v}" ${(S.proofMode || "off") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Listening<select id="pfk">${[["careful", "Careful (better with names, a bit slower)"], ["fast", "Fast"]].map(([v, l]) => `<option value="${v}" ${(S.proofModel || "careful") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -811,6 +813,7 @@
     $("#prog").onchange = e => { S.progressNotes = e.target.checked; save(); };
     $("#cues").onchange = e => { S.duetCues = e.target.value; save(); };
     $("#pfm").onchange = e => { S.proofMode = e.target.value; save(); };
+    $("#pcr").onchange = e => { S.pacer = e.target.value; save(); };
     $("#pfk").onchange = e => { S.proofModel = e.target.value; save(); };
     $("#pfl").onclick = async e => { const bt = e.target; bt.disabled = true; bt.textContent = "Downloading…"; LRProof.onProgress = m => { if (!m.done) bt.textContent = "Downloading… " + Math.round(100 * m.loaded / m.total) + "%"; };
       try { await LRProof.load(S.proofModel === "fast" ? "fast" : "careful"); if (S.proofMode === "live" && S.proofModel !== "fast") await LRProof.load("fast"); bt.textContent = "Ready ✓"; } catch (er) { bt.textContent = "Couldn't download"; toast("The proofer couldn't download: " + er.message); bt.disabled = false; } };

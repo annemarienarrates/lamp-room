@@ -51,7 +51,7 @@
     return i >= 0 ? i : book.chapters.findIndex(c => c.included);
   }
   function onLeave() { if (!/^#\/booth\//.test(location.hash)) close(); }
-  async function close() { { const le = document.getElementById("line-ed"); if (le) le.remove(); }
+  async function close() { { const le = document.getElementById("line-ed"); if (le) le.remove(); const fn = document.getElementById("fnext"); if (fn) fn.remove(); }
     if (!B) return;
     if (B.rec) await stopRecording();
     stopListening(); B.player.stop(); stopPreview(); hidePartPop(); B.mic.close();
@@ -105,7 +105,7 @@
     B.ci = ci; B.chap = B.book.chapters[ci];
     B.toks = Prep.tokens(B.chap);
     B.mine = B.toks.map(t => isMine(t, B.chap));
-    B.f = Prep.makeFollower(B.toks, B.mine, prog().pos || 0);
+    B.f = Prep.makeFollower(B.toks, B.mine, prog().pos || 0); B.f.setManual(pacerManual());
     B.audio = audioOf(B.chap);
     B.playhead = null; B.sel = null; B.selTake = null; B.view = null; B.undo = []; B.redo = []; hidePartPop();
     B.track = Math.min(B.track, B.audio.tracks.length - 1);
@@ -337,7 +337,7 @@
       case "zoomIn": return setZoom(1.5);
       case "textSmaller": return textZoom(-0.1);
       case "textBigger": return textZoom(0.1);
-      case "nextLine": return jumpLine(1);
+      case "nextLine": return pacerManual() ? nextSentence() : jumpLine(1);
       case "prevLine": return jumpLine(-1);
       case "nudgeL": return nudge(-0.05);
       case "nudgeR": return nudge(0.05);
@@ -464,7 +464,7 @@
     if (t.id === "b-as") { if (Store.settings.narrators.some(n => n.name === t.value)) return Store.setMe(t.value); return switchReader(t.value); }
     if (t.dataset.pk) { const [k, f] = t.dataset.pk.split("."); B.fxp[k][f] = t.value; saveFxp(); renderSide(); return; }
     if (t.dataset.ch) { const st = trackSet()[B.fxTrack]; st.chain = LRFx.chainOf(st); const [g, f] = t.dataset.ch.split("."); if (f) st.chain[g][f] = t.type === "checkbox" ? t.checked : +t.value; else st.chain[g] = t.checked; Store.saveBook(B.book); chainChanged(); renderSide(); return; }
-    if (t.dataset.pref) { Store.settings[t.dataset.pref] = t.value; Store.saveSettings(); applyReadFont(); if (t.dataset.pref === "theme") { document.documentElement.dataset.theme = t.value; B.col = null; drawWave(); } return; }
+    if (t.dataset.pref) { Store.settings[t.dataset.pref] = t.value; Store.saveSettings(); applyReadFont(); if (t.dataset.pref === "pacer") { B.f.setManual(t.value === "manual"); markPos(false); } if (t.dataset.pref === "theme") { document.documentElement.dataset.theme = t.value; B.col = null; drawWave(); } return; }
   }
   function sideInput(e) {
     const t = e.target;
@@ -542,6 +542,10 @@
     const S = Store.settings, readers = [...new Set([B.readingAs, ...S.narrators.map(n => n.name)])];
     return `<div class="bd-sec"><b>Reading as</b><select class="stu-sel" id="b-as" ${B.rec ? "disabled" : ""}>${readers.map(nm => `<option ${nm === B.readingAs ? "selected" : ""}>${esc(nm)}</option>`).join("")}</select>
         <div class="stu-note">Your lines are lit; other readers' lines are dimmed, with the line before yours as a grey cue. Select words in the text to change who reads them.</div></div>
+      <div class="bd-sec"><b>Reading</b>
+        <label class="fxr"><span>Moving on</span><select class="stu-sel" data-pref="pacer"><option value="auto" ${S.pacer !== "manual" ? "selected" : ""}>Automatic: follows my voice into the next sentence</option><option value="manual" ${S.pacer === "manual" ? "selected" : ""}>Manual: I press Next (good for re-reading)</option></select></label>
+        <label class="fxr"><span>Proofing</span><select class="stu-sel" data-pref="proofMode">${[["off", "Off"], ["stop", "When I stop"], ["live", "Live, as I read"]].map(([v, l]) => `<option value="${v}" ${(S.proofMode || "off") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <div class="stu-note">Manual: the highlight stops at the end of each sentence, however often you re-read it. Next sentence (bottom right, or ${esc(kl("nextLine").replace("ArrowDown", "↓"))}) moves on.</div></div>
       <div class="bd-sec"><b>Microphone</b><button class="stu-btn" data-p="mic">🎙 ${esc(B.mic.label ? B.mic.label.slice(0, 34) : "Choose microphone")}</button>
         ${B.mic.isOpen ? (inf => `<div class="stu-note">Capture: <b>${inf.mode === "direct" ? "direct" : inf.mode === "worklet" ? "audio worklet" : "fallback"}</b>${inf.rate ? " · mic at " + (inf.rate / 1000) + " kHz" : ""}${inf.rate && inf.rate !== LRAudio.RATE ? ' · <b class="warn-t">set it to 48 kHz in Audio MIDI Setup</b>' : ""} · ${inf.drops ? '<b class="warn-t">' + inf.drops + " dropout" + (inf.drops === 1 ? "" : "s") + " this session</b>" : "no dropouts"}</div>`)(B.mic.info) : ""}</div>
       <div class="bd-sec"><b>Look</b><label class="fxr"><span>Theme</span><select class="stu-sel" data-pref="theme">${[["ledger", "Ledger"], ["archive", "Archive"], ["lamp", "Lamp"], ["nocturne", "Nocturne"], ["foundry", "Foundry"], ["afterglow", "Afterglow"], ["velvet", "Velvet"], ["signal", "Signal"]].map(([k, l]) => `<option value="${k}" ${(S.theme || "ledger") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -608,7 +612,7 @@
         const pi = +el.parentNode.dataset.p, ri = +el.dataset.ri, p = c.paras[pi], txt = el.textContent;
         if (typeof p === "string") c.paras[pi] = txt; else p.r[ri][0] = txt;
         c.words = Prep.countWords(c.paras.map(Prep.paraText).join(" "));
-        B.toks = Prep.tokens(c); B.mine = B.toks.map(t => isMine(t, c)); const pos = B.f.pos; B.f = Prep.makeFollower(B.toks, B.mine, pos);
+        B.toks = Prep.tokens(c); B.mine = B.toks.map(t => isMine(t, c)); const pos = B.f.pos; B.f = Prep.makeFollower(B.toks, B.mine, pos); B.f.setManual(pacerManual());
         Store.saveBook(B.book); bookCounts(); renderStats();
       });
       return;
@@ -627,6 +631,7 @@
     markPos(true); applyProofMarks();
   }
   function markPos(scroll) {
+    renderPacer();
     const ms = $("#ms"); if (!ms || B.edit) return;
     $$(".w.cur", ms).forEach(e => e.classList.remove("cur"));
     $$(".w.mine", ms).forEach(e => e.classList.toggle("read", +e.dataset.i < B.f.pos));
@@ -1190,6 +1195,7 @@
         <label class="check"><input type="checkbox" data-p2="omatch" ${Store.lsGet("lr-matchlvl") !== "0" ? "checked" : ""}> Match the loudness of the audio around it</label></div>`;
   }
 
+  function pacerManual() { return Store.settings.pacer === "manual"; }
   // ======================= proofing: listen back and flag what doesn't match the text =======================
   const PROOF_EVERY = 20;
   const proofMode = () => { const m = Store.settings.proofMode; return m === "live" || m === "stop" ? m : "off"; };
@@ -1861,7 +1867,7 @@
     let part = "n";
     if (who !== "__n") { part = Object.keys(parts).find(k => k !== "n" && parts[k] === who); if (!part) { part = "r:" + who; parts[part] = who; } }
     Prep.setPart(B.chap, from, to, part);
-    const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos);
+    const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos); B.f.setManual(pacerManual());
     Store.saveBook(B.book); bookCounts(); renderManuscript(); renderStats();
     notice((to - from + 1) + " word" + (to > from ? "s" : "") + " now read by " + (who === "__n" ? "the narrator" : who) + ". Select them again to change it.");
   }
@@ -2134,6 +2140,22 @@
   }
   function startAnim() { if (B && !B.raf) B.raf = requestAnimationFrame(animate); }
   // ↓ / ↑: the start of your next / previous line (a run of your words, or a new paragraph of them)
+  // manual pacing (per person): the text only moves on past a sentence when you say so
+  function nextSentence() {
+    const old = B.f.pos; B.f.next(); prog().pos = B.f.pos;
+    if (B.rec) { advanced(old, B.f.pos); B.rec.lastW = null; }
+    markPos(true); renderStats();
+    if (!B.rec) { const t = T().timeOfWord(B.audio, B.f.pos); if (t != null && t <= len()) seek(Math.max(0, t - 0.3)); }
+  }
+  function renderPacer() {
+    let el = document.getElementById("fnext");
+    if (!B || !pacerManual()) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("button"); el.id = "fnext"; el.className = "fnext"; el.onclick = () => { el.blur(); nextSentence(); }; document.body.appendChild(el); }
+    const done = B.f.atEnd();
+    el.classList.toggle("ready", done);
+    el.innerHTML = (done ? "Next sentence ▶" : "Skip to next ▶") + ` <span>${esc(kl("nextLine").replace("ArrowDown", "↓").replace("ArrowRight", "→"))}</span>`;
+    el.title = done ? "Done with this sentence? Move on (re-read it as often as you like first)." : "Move on without finishing this sentence";
+  }
   function jumpLine(dir) {
     const toks = B.toks, mine = B.mine, isStart = i => mine[i] && (i === 0 || !mine[i - 1] || toks[i].p !== toks[i - 1].p);
     let cur = B.f.pos; while (cur > 0 && !isStart(cur) && mine[cur]) cur--;
@@ -2277,15 +2299,17 @@
         if (bookMineDone) LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines in " + B.book.title + ". Go outside. Briefly.", level: 3 });
       } else cheer("chapterRecorded");
       const next = B.book.chapters.findIndex((c, i) => i > B.ci && c.included && myCount(B.book, c).mine > 0);
-      const has = T().hasAudio(B.audio);
+      const has = T().hasAudio(B.audio), sendable = has && !amLead() && myRuns().length > 0;
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
         <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
-        <div class="row" style="justify-content:center">${has ? `<button class="btn primary" data-exp>Export this chapter</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
+        <div class="row" style="justify-content:center">${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
       const xb = $("[data-exp]", ov); if (xb) xb.onclick = () => { ov.remove(); render(); exportDialog(true); };
+      const sb = $("[data-send]", ov); if (sb) sb.onclick = async () => { sb.disabled = true; sb.textContent = "Sending…"; await sendLines(); sb.textContent = "Sent ✓"; };
     };
     finish();
   }
@@ -2768,5 +2792,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();
