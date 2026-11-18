@@ -20,6 +20,7 @@
         ["Heads up", "Anything that needs attention: titles running late, checks due, bills due, money owed between you, a day with no log."],
         ["Rings", "Today's words, booth hours and earnings against your goals."],
         ["Projects", "Every book and title. Switch between cards and a list, and sort them. Archived books fold away at the bottom; open one and press Unarchive to bring it back."],
+        ["Join a shared project", "⇄ Join a shared project opens a book someone shared with you: choose its shared Drive folder (the one with Chapters, Pickups and Finished)."],
         ["Finished", "Finished titles fold into a Finished dropdown under the active ones, like Archived."],
         ["Covers", "Click 🖼 on a card (or the cover on a book page) to add a cover image."]
       ] },
@@ -52,7 +53,7 @@
         ["Mark complete", "When the chapter's done, press Mark Ch complete. It stops the booth clock, celebrates and offers to export."],
         ["Text size", "A− and A+ in the top bar, ⌘− / ⌘=, or hold ⌘ and scroll over the text. Drag the line above the tracks to make them taller or shorter."],
         ["↓ and ↑", "Jump to the start of your next line, or back to your previous one. Not recording, the playhead follows if that line is recorded."],
-        ["Chapters", "The Chapters tab on the right lists every chapter with words left and time spent. Click one to jump to it."]
+        ["Chapters", "The Chapters tab, next to Tools on the left, lists every chapter with words left and time spent. Click one to jump to it."],
       ] },
     { id: "editing", icon: "✂", title: "The Booth: editing", lead: "The tracks at the bottom are a full editor. Nothing is ever lost: Undo goes back step by step.",
       items: [
@@ -62,18 +63,20 @@
         ["Delete", "Delete removes the selection, or the selected take. If nothing else plays under it, the gap closes."],
         ["Split", "B splits the take at the playhead."],
         ["Tracks", "T moves to the next track, Shift+T adds one. 1–6 pick a track. ⌥1–6 records straight onto that track (handy for a character voice)."],
+        ["Collapse tracks", "▾ on a track head shrinks it to a thin strip (▸ opens it). With a few tracks, ⊟ All / ⊞ All above them close or open everything; an actor's name above their tracks collapses that whole group."],
         ["Zoom", "− and = (or the − + buttons on the timeline, or ⌘-scroll) zoom time out and in. ⤢ Fit shows the whole chapter. [ and ] make tracks shorter or taller."],
         ["Flags", ", and . jump to the previous and next flag. The flag button lists them all."],
         ["Edit the text", "✎ Text editor fixes typos in the manuscript. Select words to change who reads them."],
         ["Trim and space", "Drag either edge of a take. Everything after it moves along on every track: drag in to tighten a pause, out to open it. Red shows what's coming out, teal the space opening, with a live ± seconds readout. Hold ⌥ to trim just that take. Edges snap to other takes and markers."],
         ["Fades", "Drag the small white dots at a take's bottom corners, or type fade lengths in Tools ▸ Levels, fades & spacing. Every cut already gets a tiny fade so it never clicks."],
         ["Add space", "G adds half a second (or your length) at the playhead, filled with your room tone."],
-        ["Export", "Export chapter: WAV, MP3, or raw for Auphonic. File names follow the pattern in Settings."]
+        ["Export", "Export chapter: WAV, MP3, or raw for Auphonic. Files are named by your delivery rule (003_Chapter_01), or the client's own pattern."],
       ] },
     { id: "tools", icon: "🎛", title: "Tools panel", lead: "Open it with the Tools tab on the right (or Shift+P). Pick a page from the menu at the top.",
       items: [
         ["📼 Finished audio", "A book that's already recorded, or a narrator's chapters for cast assembly: bring it in, map it, find words in it, replace bits. See Finished audio below."],
         ["👥 Co-narrator", "Duet lines: send yours, bring in your partner's. See Duets below."],
+        ["📦 Shared", "For a shared book: who's sent this chapter, 📤 Send to Shared, and (for the editor) Bring in everyone's sends and ⤓ Export to Finished. Connect links this computer to the shared folder."],
         ["🚩 Pickups", "Each flag's sentence is red in the text and on the waveform; drag the red edges to adjust. ▶ plays it in context. Fix re-records the zone on the same track and the chapter fits around it. ✓ removes the flag."],
         ["🎭 Characters", "Right-hand tab: your private guide, on this computer, for the whole series. Shows your characters in this chapter. Add: double-click a name ▸ 🎭 Add, or ＋ Add. Cards hold other names, description, voice notes, samples and FX (Save track's FX here / Arm on track)."],
         ["⤓ Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
@@ -84,7 +87,7 @@
         ["📏 Levels, fades & spacing", "Fades, Add space, room tone, Even out pauses, gain, and the ACX check (loudness, peaks, room noise)."],
         ["Room tone", "Learn it once per book: select a quiet pause, or let it find one. Gaps, added space and the tail then fill with your room instead of dead silence."],
         ["Even out pauses", "Head 0.8 s, 2 s after the chapter heading, 1.5 s at scene breaks, 3.5 s tail, and any other pause over 0.7 s brought down to 0.7 (shorter ones left alone). Preview first, or tick it to happen when you mark a chapter complete. Change the lengths there too."],
-        ["🎙 Mic & reading", "Choose the microphone, who you're reading as, the theme and the reading font."]
+        ["🎙 Mic & reading", "Choose the microphone, who you're reading as, manual or automatic pacing, proofing, the theme and the reading font."],
       ] },
     { id: "duets", icon: "👥", title: "Duets", lead: "Whoever narrates the chapter is the lead. The other person records only their lines and sends them over.",
       items: [
@@ -112,12 +115,12 @@
       ] },
     { id: "cast", icon: "🎭", title: "Full cast & pickups", lead: "Up to six voices, and re-reads that travel between you without a single email.",
       items: [
-        ["Full cast", "Highlight each voice in its own colour with Word's highlighter, in this order: Turquoise (main male), Pink (main female), Bright green, Gray 25%, Yellow, Red. Narration stays unhighlighted. On import, tick Full cast and every colour becomes its own part. It switches on by itself when a file has four or more colours."],
+        ["Full cast", "Each actor gets one shading colour in the manuscript (the partner script builder and The Casting Table do it): light blue for the main male, light pink for the main female, then mint, lavender, peach and grey. Narration stays unshaded. Four or more colours switch on full cast by itself."],
         ["Cast 1–4", "Outside cast don't need the Lamp Room. Give their colour to Cast 1, Cast 2… on import or on the book page."],
         ["Their file", "Tools ▸ Co-narrator ▸ 🎧 Cast 2's file… Drop in what they sent (WAV, MP3, M4A, AIFF, FLAC). It's cut into their lines and auto-placed as you read, like your partner's. Tick “runs on into the next chapters” for a file that covers several."],
         ["Matched by their words", "With the proofer on hand, every stretch in their file is listened to and matched to its line: a retake replaces the earlier read, and a skipped line is flagged as missing. Co-narrator ▸ Mark as pickups puts the missing ones on their list. (Untick “Match lines by their words” to go by order.)"],
         ["Clicks or pauses", "Best: ask cast to click or clap once between lines, and to redo a flubbed line before the click (the last read is kept). With no clicks, the pauses decide, which works for clean reads. Lines marked “check” deserve a listen."],
-        ["Ask for a pickup", "Lead only. Click 🔁 on a line in Co-narrator, or select its words in the text. Add a note if you like."],
+        ["Ask for a pickup", "The lead: click 🔁 on a line in Co-narrator, or select its words in the text. The editor: 🔁 Ask on any flag in 🚩 Pickups. Add a note if you like."],
         ["Your partner gets it", "It shows on their Dashboard (Heads up) and in their Booth. They open Tools ▸ Pickups, press 🎙 Record, read it (R to record, S to stop), listen, and Send."],
         ["It goes in by itself", "When their pickup arrives, it replaces the old read in your chapter the moment you open it. The timeline grows or shrinks to fit. Undo takes it out."],
         ["Pickups from cast", "Pickups ▸ 📋 Copy the list, and send it to them. When their file comes back, 🎧 Drop in their pickups: cut at the clicks, each one goes in."]
@@ -130,7 +133,7 @@
       ] },
     { id: "goals", icon: "🎯", title: "Goals", lead: "Am I on track today, this week, this month, this year? And what would it take to catch up?",
       items: [
-        ["Who", "Both of us, Anne or Jack, at the top. Each has a yearly goal; Both of us uses the revenue goal from Settings ▸ Planning & money."],
+        ["Who", "Everyone, or one person, at the top. Each has a yearly goal; everyone together uses the revenue goal from Settings ▸ Planning & money."],
         ["Where you're at", "Today, this week, this month and this year, each with a bar, a tick where the goal expects you by yesterday, and On track, Ahead or Behind by $X."],
         ["Today's target", "Dollars, booth hours, finished hours and words for today. Remaining workdays rises if you fall behind and eases off when you're ahead; Same every day doesn't move."],
         ["Catch-up plan", "What you'd need to average over the next 30 workdays (or your number) to bring the year back on pace, next to what you've been averaging."],
@@ -149,7 +152,9 @@
     { id: "sharing", icon: "⇄", title: "Sharing & settings", lead: "What's yours, what's shared, and how to share one booth.",
       items: [
         ["Shared by both", "Books, titles, the schedule, the log, the ledger, narrators and paces, export names."],
-        ["Yours alone", "Theme, reading font, celebrations, combo, confetti, earnings goal, hotkeys, text size, track height, zoom, pre-roll. Kept per person on each computer."],
+        ["Yours alone", "Theme, reading font, celebrations, combo, confetti, earnings goal, hotkeys, text size, track height, zoom, pre-roll, pacing, proofing, ignored words and your character guide. Kept per person on each computer."],
+        ["This computer", "Settings ▸ This computer: Mac or Windows keyboard (it guesses). On Windows, Ctrl and Alt replace ⌘ and ⌥ everywhere, and Help offers the Windows guides."],
+        ["Quick starts", "Help ▸ the PDF buttons include a short start guide for an editor and one for co-narrators (Mac and Windows editions). Send them along with the shared folder."],
         ["Writing and audio", "The Dashboard and Titles keep audio projects and writing projects in separate sections."],
         ["One booth, two people", "Click 👤 in the top bar (or ☰ Menu in the Booth) and pick who's recording. Switch before you press Record."],
         ["Moving takes home", "Recordings stay on the computer they were made on. Afterwards: Settings ▸ Recordings on this computer ▸ Copy their takes to a folder (a USB stick or Drive). On the other Mac: Bring takes in. Nothing gets overwritten."],
@@ -159,6 +164,9 @@
     { id: "trouble", icon: "🔧", title: "If something's off", lead: "",
       items: [
         ["It asks for the folder again", "Chrome forgets permission after a restart. Click Open my library and Allow."],
+        ["“Not connected” (shared book)", "Chrome wants permission for the shared folder again. 📦 Shared ▸ Connect (or the book page ▸ Shared project ▸ Connect this computer) and choose the same folder."],
+        ["“Still syncing from Drive”", "Someone's send hasn't finished downloading to this computer. Leave Drive running a minute and press Bring in again."],
+        ["Can't see the shared folder", "In Google Drive: Shared with me ▸ right-click the folder ▸ Organize ▸ Add shortcut ▸ My Drive. Drive for desktop only shows folders that are in My Drive."],
         ["No microphone", "Tools ▸ Mic & reading ▸ choose the microphone. Check Chrome's mic permission (the icon in the address bar)."],
         ["Partner's changes don't show", "Make sure Google Drive is running and the Lamp Room Library folder is set to Available offline (Mirror files)."],
         ["A take won't play on this Mac", "It was recorded on the other computer. Bring the takes in (see Sharing)."],
