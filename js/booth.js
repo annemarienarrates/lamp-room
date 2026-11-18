@@ -111,6 +111,7 @@
     B.track = Math.min(B.track, B.audio.tracks.length - 1);
     bookCounts();
     B.peaks = {};
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot); if (B.audio.markers.length !== n) Store.saveBook(B.book); }   // flags already dealt with don't linger
     render();
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
@@ -358,7 +359,7 @@
 
   // ---------------- side panels: Chapters & Tools ----------------
   const TOOL_TABS = [["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
-  function renderSide() {
+  function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
     document.body.classList.toggle("booth-side-open", !!which);
@@ -444,10 +445,10 @@
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
       case "miss": return markMissing(x);
-      case "pgo": { const m = B.audio.markers.find(m => m.id === x); if (m) seek(m.t); return; }
+      case "pgo": return pickupPlay(x);
       case "pfix": return pickupFix(x);
       case "pign": return proofIgnoreWord(x);
-      case "pdone": case "pundo": { const m = B.audio.markers.find(m => m.id === x); if (m) { m.done = cmd === "pdone"; Store.saveBook(B.book); renderSide(); renderTransport(); applyProofMarks(); } return; }
+      case "pdone": return removeMarker(x);
     }
   }
   function sideChange(e) {
@@ -631,7 +632,7 @@
     markPos(true); applyProofMarks();
   }
   function markPos(scroll) {
-    renderPacer();
+    renderPacer(); if (!B.rec) applyProofMarks();
     const ms = $("#ms"); if (!ms || B.edit) return;
     $$(".w.cur", ms).forEach(e => e.classList.remove("cur"));
     $$(".w.mine", ms).forEach(e => e.classList.toggle("read", +e.dataset.i < B.f.pos));
@@ -936,9 +937,9 @@
     const clip = { file: name, off: 0, dur: 0, at };
     B.audio.tracks[B.track].clips.push(clip);
     delete B.audio.pad;
-    B.rec = { gapEnd: B.pendingGap != null ? B.pendingGap : null, match: !!B.pendingMatch, writer, clip, file: name, paused: false, dir: d, lastW: null, start: at, track: B.track, punch: !!punched || B.track > 0, anchors: [], clipFlags: 0, lastClipT: -9, pos0: B.f.pos, handled: new Set(), loud: 0, coUntil: 0 };
+    B.rec = { gapEnd: B.pendingGap != null ? B.pendingGap : null, match: !!B.pendingMatch, pickup: B.pendingPickup || null, writer, clip, file: name, paused: false, dir: d, lastW: null, start: at, track: B.track, punch: !!punched || B.track > 0, anchors: [], clipFlags: 0, lastClipT: -9, pos0: B.f.pos, handled: new Set(), loud: 0, coUntil: 0 };
     B.peaks[name] = { mm: writer.mm };
-    B.pendingGap = null; B.pendingMatch = false;
+    B.pendingGap = null; B.pendingMatch = false; B.pendingPickup = null;
     if (proofMode() === "live") B.rec.pf = { buf: [], n: 0, a: at };
     B.mic.onFrames = f => {
       const r = B && B.rec; if (!(r && r.writer === writer && !r.paused)) return;
@@ -1000,6 +1001,7 @@
     // word timing: the take's anchors replace the old ones under it
     B.audio.anchors = B.audio.anchors.filter(p => !(p[0] >= r.start && p[0] < end)).concat(r.anchors).sort((x, y) => x[0] - y[0]);
     if (r.gapEnd != null) { if (r.gapEnd > end + 0.01) T().deleteRange(B.audio, end, r.gapEnd); if (r.match) await matchLevel(r, end).catch(() => {}); }
+    if (r.pickup) { const k = B.audio.markers.findIndex(x => x.id === r.pickup); if (k >= 0) B.audio.markers.splice(k, 1); }
     B.lastRecEnd = { ci: B.ci, track: r.track, t: end };
     if (r.punch && end < len() - 0.05) B.playhead = end;     // Finished Hour: after a punch the playhead sits at the end of it
     if (r.clipFlags) toast("⚠️ That take clipped (" + r.clipFlags + " samples at full scale). The spots are flagged — consider lowering the gain and re-reading them.");
@@ -1149,7 +1151,7 @@
     if (B.rec || !B.sel) { toast("Select the part to replace first (drag across it on the waveform)."); return; }
     const { a, b } = B.sel, pre = snap();
     T().deleteRange(B.audio, a, b); T().insertGap(B.audio, a, 900);
-    B.pendingGap = a + 900; B.pendingMatch = Store.lsGet("lr-matchlvl") !== "0";
+    B.pendingGap = a + 900; B.pendingMatch = !B.pendingPickup && Store.lsGet("lr-matchlvl") !== "0";
     B.sel = null;
     await startRecording(a, true, pre);
   }
@@ -1200,7 +1202,7 @@
   const PROOF_EVERY = 20;
   const proofMode = () => { const m = Store.settings.proofMode; return m === "live" || m === "stop" ? m : "off"; };
   const proofKind = live => live ? "fast" : (Store.settings.proofModel === "fast" ? "fast" : "careful");
-  const proofIgnore = book => new Set((book.proofIgnore || []).map(w => LRProof.norm(w)));
+  const proofIgnore = book => new Set([...(book.proofIgnore || []), ...(Store.settings.proofIgnore || [])].map(w => LRProof.norm(w)));
   function wordAtA(list, t) { let w = null; for (const p of list) { if (p[0] > t + 1e-3) break; w = p[1]; } return w; }
   function proofQueue(job) { B.proofQ = (B.proofQ || Promise.resolve()).then(job).catch(e => { console.warn("proof", e); if (!B.proofWarned) { B.proofWarned = 1; toast("The proofer couldn't run: " + e.message + ". It needs an internet connection the first time, to download."); } }); return B.proofQ; }
   if (window.LRProof) LRProof.onProgress = m => { if (!B) return; if (m.done) busyNote(""); else busyNote("Downloading the proofer (first time only)… " + Math.round(100 * m.loaded / m.total) + "%"); };
@@ -1262,18 +1264,20 @@
     return B.audio.markers.filter(m => m.proof && !m.done).length;
   }
   function applyProofMarks() {
-    const ms = $("#ms"); if (!ms) return; ms.querySelectorAll(".w.proof").forEach(e => e.classList.remove("proof"));
+    const ms = $("#ms"); if (!ms) return; ms.querySelectorAll(".w.proof").forEach(e => e.classList.remove("proof")); ms.querySelectorAll(".w.pk").forEach(e => e.classList.remove("pk"));
+    for (const m of (B.audio.markers || [])) if (!m.done && !m.slot) { const sw = pkSentence(m); if (sw) for (let i = sw.s; i <= sw.e; i++) { const e = ms.querySelector('.w[data-i="' + i + '"]'); if (e) e.classList.add("pk"); } }
     for (const m of (B.audio.markers || [])) if (m.proof && !m.done) for (let i = m.proof.from; i <= m.proof.to; i++) { const e = ms.querySelector('.w[data-i="' + i + '"]'); if (e) { e.classList.add("proof"); e.title = m.note; } }
   }
   function proofIgnoreWord(id) {
     const m = B.audio.markers.find(z => z.id === id); if (!m || !m.proof) return;
-    const words = (m.proof.text || "").split(" ").filter(Boolean); if (!words.length) { m.done = true; Store.saveBook(B.book); renderSide(); applyProofMarks(); return; }
-    const bk = B.book; bk.proofIgnore = [...new Set([...(bk.proofIgnore || []), ...words])];
-    const ig = proofIgnore(bk); let k = 0;
-    for (const ch of bk.chapters || []) { const au = ch.audio; if (!au || !au.markers) continue; for (const z of au.markers) if (z.proof && !z.done && (z.proof.text || "").split(" ").every(w => ig.has(LRProof.norm(w)))) { z.done = true; k++; } }
-    for (const z of B.audio.markers) if (z.proof && !z.done && (z.proof.text || "").split(" ").every(w => ig.has(LRProof.norm(w)))) { z.done = true; k++; }
-    Store.saveBook(bk); renderSide(); renderTransport(); applyProofMarks();
-    notice("🔎 “" + words.join(" ") + "” won't be flagged again in this book." + (k > 1 ? " " + k + " flags cleared." : ""));
+    const words = (m.proof.text || "").split(" ").filter(Boolean); if (!words.length) { removeMarker(id); return; }
+    const bk = B.book; Store.settings.proofIgnore = [...new Set([...(Store.settings.proofIgnore || []), ...words])]; Store.saveSettings();
+    const ig = proofIgnore(bk), hit = z => z.proof && (z.proof.text || "").split(" ").every(w => ig.has(LRProof.norm(w)));
+    let k = 0; pushUndo();
+    for (const ch of bk.chapters || []) for (const au of Object.values(ch.audio || {})) if (au && au.markers) { const n = au.markers.length; au.markers = au.markers.filter(z => !hit(z)); k += n - au.markers.length; }
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(z => !hit(z)); k += n - B.audio.markers.length; }
+    Store.saveBook(bk); renderSide(); renderTransport(); applyProofMarks(); drawWave();
+    notice("🔎 “" + words.join(" ") + "” won't be flagged again in any of your books." + (k > 1 ? " " + k + " flags removed." : " Flag removed."));
   }
 
   function addMarker(note) {
@@ -1788,18 +1792,51 @@
         <div class="stu-note">To fix a line that cut badly, click it on its track: a small editor opens to trim, extend, nudge or re-cut it.</div></div>`;
   }
   function pickupsTabHtml() {
-    const open = B.audio.markers.filter(m => !m.done && !m.slot), done = B.audio.markers.filter(m => m.done && !m.slot);
-    return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}) and the spots that clipped. <b>Fix</b> goes back to the start of that sentence and punches in, like the flub key.</div>
-        ${open.length ? open.map(m => `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk">${clock(m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips"><button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button><button class="stu-btn" data-p="pdone:${m.id}" title="Mark it dealt with">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again in this book">Always ignore</button>` : ""}</span></div>`).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>
-      ${done.length ? `<div class="bd-sec"><b>Dealt with (${done.length})</b>${done.map(m => `<div class="co-line placed"><span class="n">✓</span><span>${clock(m.t)} ${esc(m.note || "Flub")}</span><span class="fx-chips"><button class="stu-btn" data-p="pundo:${m.id}">Reopen</button></span></div>`).join("")}</div>` : ""}`;
+    const open = B.audio.markers.filter(m => !m.done && !m.slot);
+    return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}), proofing flags and the spots that clipped. Each one's sentence is <b class="pk-t">red</b> in the text and on the waveform; drag the red zone's edges to take in more or less. <b>▶</b> plays it in context. <b>Fix</b> re-records just that zone, on the same track, and the chapter closes up or opens to fit.</div>
+        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips"><button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button><button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
   }
-  async function pickupFix(m) {
-    if (B.rec) return; m = B.audio.markers.find(x => x.id === m); if (!m) return;
-    const s = B.f.sentenceStart(m.w != null ? m.w : B.f.pos), t0 = T().timeOfWord(B.audio, s);
-    const t = t0 != null && t0 <= m.t ? await LRAudio.quietPoint(await mix(), t0, 0.35, 0.45) : m.t;
-    m.done = true; B.f.set(s); prog().pos = B.f.pos; markPos(true);
-    await punchAt(t);
+  // ---- pickup zones: the sentence the flag is in, in red, adjustable on the waveform; stored relative to the flag so ripple edits carry it ----
+  function pkSentence(m) {
+    const w = m.w != null ? m.w : T().wordAt(B.audio, m.t); if (w == null) return null;
+    const s = B.f.sentenceStart(w); let e = Math.max(s, w);
+    while (e < B.toks.length - 1 && !B.toks[e].end && B.toks[e + 1].p === B.toks[e].p) e++;
+    return { s, e };
   }
+  function pkZone(m) {
+    if (m.zone) return { a: Math.max(0, m.t + m.zone.da), b: m.t + m.zone.db };
+    const sw = pkSentence(m), an = B.audio.anchors || [];
+    let a = null, b = null;
+    if (sw) { a = T().timeOfWord(B.audio, sw.s); const nx = an.find(p => p[1] > sw.e); b = nx ? nx[0] : null; }
+    if (a == null || a > m.t + 0.5) a = Math.max(0, m.t - 2.5);
+    if (b == null || b <= m.t) b = Math.min(len(), Math.max(m.t + 0.8, a + 3));
+    m.zone = { da: +(a - m.t).toFixed(3), db: +(b - m.t).toFixed(3) };
+    return { a, b };
+  }
+  async function pkSnap(m) {        // tidy the zone's edges into the nearest quiet
+    const z = pkZone(m); if (!z) return; const r = await mix();
+    const a = await LRAudio.quietPoint(r, z.a, 0.3, 0.35), b = await LRAudio.quietPoint(r, z.b, 0.3, 0.35);
+    if (b - a > 0.3) m.zone = { da: +(a - m.t).toFixed(3), db: +(b - m.t).toFixed(3) };
+  }
+  function pkTrack(z) {             // the track the original is on: the one with the most audio (not a partner line) in the zone
+    let best = B.track, most = 0;
+    B.audio.tracks.forEach((tr, ti) => { let n = 0; for (const c of tr.clips) if (!c.line) n += Math.max(0, Math.min(c.at + c.dur, z.b) - Math.max(c.at, z.a)); if (n > most) { most = n; best = ti; } });
+    return best;
+  }
+  async function pickupPlay(id) {
+    const m = B.audio.markers.find(x => x.id === id); if (!m || B.rec) return; const z = pkZone(m);
+    B.sel = { a: Math.max(0, z.a - 2), b: Math.min(len(), z.b + 0.6) }; await togglePlay(true); B.sel = null; drawWave();
+  }
+  async function pickupFix(id) {
+    if (B.rec) return; const m = B.audio.markers.find(x => x.id === id); if (!m) return;
+    if (!m.zone) await pkSnap(m);
+    const z = pkZone(m), sw = pkSentence(m);
+    B.track = pkTrack(z);
+    if (sw) { B.f.set(sw.s); prog().pos = B.f.pos; markPos(true); }
+    B.pendingPickup = m.id; B.sel = { a: z.a, b: z.b };
+    await replaceSel();
+  }
+  function removeMarker(id) { const k = B.audio.markers.findIndex(x => x.id === id); if (k >= 0) { pushUndo(); B.audio.markers.splice(k, 1); Store.saveBook(B.book); applyProofMarks(); renderSide(); renderTransport(); drawWave(); } }
 
   // ======================= takes, gain, checks =======================
   function selectTake(ti, ci) { B.selTake = { ti, ci }; B.sel = null; B.track = ti; renderEditBar(); renderTransport(); if (B.side === "tools" && B.tab === "takes") renderSide(); }
@@ -2005,6 +2042,13 @@
       });
       g.restore();
     });
+    if (!B.rec) for (const m of B.audio.markers) if (!m.done && !m.slot) {       // pickup zones: exactly what Fix will replace
+      const z = pkZone(m), xa = X(z.a), xb = X(z.b); if (xb < 0 || xa > W) continue;
+      g.fillStyle = "rgba(255,59,79,.16)"; g.fillRect(xa, RULER, xb - xa, H - RULER);
+      g.fillStyle = "rgba(255,59,79,.9)"; g.fillRect(xa - 1, RULER, 2, H - RULER); g.fillRect(xb - 1, RULER, 2, H - RULER);
+      g.fillRect(xa - 4, RULER, 8, 6); g.fillRect(xb - 4, RULER, 8, 6);
+      if (xb - xa > 46) { g.font = "600 10px system-ui"; g.fillText("PICKUP", xa + 5, RULER + 15); }
+    }
     if (B.sel) { const xa = X(B.sel.a), xb = X(B.sel.b); g.fillStyle = "rgba(245,236,214,.16)"; g.fillRect(xa, RULER, xb - xa, H - RULER); g.fillStyle = "rgba(245,236,214,.7)"; g.fillRect(xa, RULER, 1, H - RULER); g.fillRect(xb - 1, RULER, 1, H - RULER); }
     if (B.ghost) { const gx = X(B.ghost.at), gw = B.ghost.dur * pps, top = RULER + B.ghost.ti * LH; g.strokeStyle = "rgba(245,236,214,.9)"; g.setLineDash([4, 3]); g.strokeRect(gx, top + 1, gw, LH - 2); g.setLineDash([]);
       if (B.ghost.mode) { g.fillStyle = B.ghost.mode === "snap" ? "rgba(90,200,190,.25)" : "rgba(255,190,90,.22)"; g.fillRect(gx, top + 1, gw, LH - 2); g.fillStyle = "#fff"; g.font = "11px system-ui"; g.fillText(B.ghost.mode === "snap" ? "👥 drops into this pause" : B.ghost.mode === "move" ? "👥 slides the line (nothing else moves)" : "👥 opens space here", Math.max(4, gx + 6), top + 14); } }
@@ -2035,6 +2079,7 @@
       const r = cv.getBoundingClientRect(), v = view(), n = B.audio.tracks.length, LH = (r.height - RULER) / n, x = e.clientX - r.left, y = e.clientY - r.top;
       if (y < RULER) return null;
       const ti = Math.max(0, Math.min(n - 1, Math.floor((y - RULER) / LH))), top = RULER + ti * LH, clips = B.audio.tracks[ti].clips, X = t => (t - v.t0) * v.pps;
+      for (const m of B.audio.markers) if (!m.done && !m.slot) { const z = pkZone(m); if (Math.abs(x - X(z.a)) <= 5) return { kind: "pz", side: "a", id: m.id }; if (Math.abs(x - X(z.b)) <= 5) return { kind: "pz", side: "b", id: m.id }; }
       if (LH >= 30 && Math.abs(y - (top + LH - 8)) <= 8) for (let ci = 0; ci < clips.length; ci++) {
         const c = clips[ci], xa = X(c.at), xb = X(c.at + c.dur); if (xb - xa <= 44) continue;
         if (Math.abs(x - (xa + 10 + (c.fi || 0) * v.pps)) <= 7) return { kind: "fade", side: "in", ti, ci, xa, xb };
@@ -2053,6 +2098,7 @@
       if (!B || B.rec) return;
       const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = (p.y - RULER) % p.LH < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
+      if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "fade") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); B.track = h.ti; return; }
       if (h && h.kind === "edge") { const c = B.audio.tracks[h.ti].clips[h.ci]; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false, orig: JSON.stringify(B.audio), src: srcDurOf(c.file), t0: h.edge === "start" ? c.at : c.at + c.dur }); B.track = h.ti; return; }
       if (ci >= 0 && (inStrip || e.altKey)) {
@@ -2066,6 +2112,12 @@
     cv.onpointermove = e => {
       const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : "ew-resize") : ci >= 0 && ((p.y - RULER) % p.LH < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
       const p = pos(e);
+      if (d.kind === "pz") {
+        const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; d.moved = true; pkZone(m); cv.style.cursor = "ew-resize";
+        const t = Math.max(0, Math.min(len(), p.t));
+        if (d.side === "a") m.zone.da = +Math.min(m.zone.db - 0.2, t - m.t).toFixed(3); else m.zone.db = +Math.max(m.zone.da + 0.2, t - m.t).toFixed(3);
+        drawWave(); return;
+      }
       if (d.kind === "fade") {
         const v = view(), c = B.audio.tracks[d.ti].clips[d.ci], r = cv.getBoundingClientRect(), x = e.clientX - r.left; if (!c) return; d.moved = true;
         const f = d.side === "in" ? (x - (d.xa + 10)) / v.pps : ((d.xb - 10) - x) / v.pps, val = +Math.max(0, Math.min(10, c.dur / 2, f)).toFixed(3);
@@ -2095,6 +2147,7 @@
     cv.onpointerup = e => {
       const d = B && B.dragging; if (!d) return; B.dragging = null;
       const p = pos(e);
+      if (d.kind === "pz") { if (!d.moved) { B.undo.pop(); return; } Store.saveBook(B.book); renderSide(); return; }
       if (d.kind === "fade" || d.kind === "edge") {
         B.trimView = null;
         if (!d.moved) { B.undo.pop(); if (d.kind === "edge") { const c = B.audio.tracks[d.ti].clips[d.ci]; if (c) selectTake(d.ti, d.ci); } return; }
@@ -2792,5 +2845,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();
