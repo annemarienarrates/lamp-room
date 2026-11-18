@@ -57,4 +57,13 @@
   });
   document.getElementById("out").innerHTML = html;
 </script>
+
+<script>
+  // ?pc: the Windows edition (Ctrl / Alt / Shift instead of ⌘ / ⌥ / ⇧)
+  if (/[?&]pc\b/.test(location.search)) addEventListener("load", () => {
+    const swap = s => s.replace(/Shift ⇧/g, "Shift").replace(/Command ⌘/g, "Ctrl").replace(/Option ⌥/g, "Alt").replace(/⌘⇧/g, "Ctrl+Shift+").replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/Ctrl\+ /g, "Ctrl ").replace(/Alt\+ /g, "Alt ").replace(/On a MacBook, Home \/ End are fn\+← \/ fn\+→\. ?/g, "").replace(/Ctrl Command|Command/g, "Ctrl").replace(/Option/g, "Alt");
+    const walk = n => { if (n.nodeType === 3) n.nodeValue = swap(n.nodeValue); else if (n.nodeType === 1 && n.tagName !== "SCRIPT" && n.tagName !== "STYLE") n.childNodes.forEach(walk); };
+    walk(document.body); document.title = document.title + " (PC)";
+  });
+</script>
 </body></html>

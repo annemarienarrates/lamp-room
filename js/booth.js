@@ -888,7 +888,7 @@
     try {
       await B.mic.open(localStorage.getItem("lr-mic") || undefined);
       const inf = B.mic.info;
-      if (inf.rate && inf.rate !== LRAudio.RATE && !B.rateWarned) { B.rateWarned = true; toast("🎤 Your microphone is running at " + (inf.rate / 1000) + " kHz. For the cleanest takes, set it to 48,000 Hz in Audio MIDI Setup (Applications ▸ Utilities), then reload."); }
+      if (inf.rate && inf.rate !== LRAudio.RATE && !B.rateWarned) { B.rateWarned = true; toast("🎤 Your microphone is running at " + (inf.rate / 1000) + " kHz. For the cleanest takes, " + LRPlat.rateHelp() + "."); }
       return true;
     }
     catch (e) { toast("Couldn't open the microphone: " + e.message); return false; }
