@@ -136,6 +136,27 @@
     if (!Object.keys(out).length) out[Store.me() || (Store.settings.narrators[0] || {}).name] = book.chapters.filter(c => c.included).reduce((a, c) => a + c.words, 0);
     return out;
   }
+  // when who-reads-what changes in the manuscript, the planner's word counts for the narrators here follow it
+  const syncT = {}, syncSig = {};
+  function syncTitleWords(book) {
+    if (!book || !book.titleId || !book.parts || !window.LL || !LL.S || !LL.tById) return;
+    clearTimeout(syncT[book.id]);
+    syncT[book.id] = setTimeout(async () => {
+      if (window.Booth && Booth.state && Booth.state.rec) return syncTitleWords(book);
+      const t = LL.tById(book.titleId); if (!t || t.kind === "author") return;
+      const rw = readerWords(book), sig = JSON.stringify(rw); if (syncSig[book.id] === sig) return; syncSig[book.id] = sig;
+      const want = {}; for (const n in rw) { const k = n !== "?" && LL.keyOf(n); if (k) want[k] = (want[k] || 0) + rw[n]; }
+      const stages = (t.stages || []).map(x => Object.assign({}, x)), said = [];
+      for (const k of ["anne", "jack"]) {
+        const w = Math.round(want[k] || 0), st = stages.find(x => x.type === "record" && x.owner === k);
+        if (st && st.words !== w) { said.push(LL.nameOf(k) + " " + num(st.words || 0) + " → " + num(w)); st.words = w; }
+        else if (!st && w) { stages.unshift({ id: "rec-" + k, type: "record", owner: k, words: w, after: [], done: false, doneDate: null }); const ed = stages.find(x => x.type === "edit"); if (ed) ed.after = [...new Set([...(ed.after || []), "rec-" + k])]; said.push(LL.nameOf(k) + " " + num(w) + " (new)"); }
+      }
+      if (!said.length) return;
+      await LL.patch("titles", t.id, { stages }); toast("📅 Planner word counts for " + book.title + ": " + said.join(", "));
+    }, 6000);
+  }
+  document.addEventListener("lr-saved", e => syncTitleWords(e.detail));
   function titleFromBook(book) {
     const wb = wordsFor(book), me = LL.keyOf(Store.me()) || "anne", stages = [], recs = [];
     let ext = null;
@@ -185,14 +206,31 @@
     if (!book.parts || !names.length || !tot) return book;
     return Object.assign({}, book, { cast: names.map(n => ({ name: n, share: 100 * rw[n] / tot })) });
   }
+  // the people recording on this computer (Settings ▸ Narrators): in a full-cast book, only their lines are "ours"
+  const oursName = n => n && n !== "?" && Store.settings.narrators.some(x => x.name === n);
+  const roleIn = book => { if (!book.shared) return null; const x = (book.sharedPeople || []).find(p => p.name === Store.me()); return x ? x.role : null; };
+  const chapCache = new Map();
+  function chapterReaders(book) {
+    const key = book.id + "|" + book.updated; if (chapCache.has(key)) return chapCache.get(key);
+    const m = new Map(); book.chapters.forEach(c => { if (c.included) m.set(c, Prep.wordsByReader(c, book)); });
+    chapCache.set(key, m); return m;
+  }
+  const linesOf = st => { const me = Store.me(), o = st.who.filter(n => n !== me); return st.who.includes(me) ? (o.length ? "Your & " + o.join(" & ") + "'s lines" : "Your lines") : st.who.join(" & ") + "'s lines"; };
   function bookStats(book) {
     const S = Store.settings, inc = book.chapters.filter(c => c.included);
-    const words = inc.reduce((a, c) => a + c.words, 0);
+    const total = inc.reduce((a, c) => a + c.words, 0), wpfh = S.wpfh || 9300;
+    const editor = roleIn(book) === "editor";
+    const rwAll = book.parts && !editor ? readerWords(book) : null, names = rwAll ? Object.keys(rwAll).filter(n => n !== "?") : [];
+    // part of a bigger cast: count only the lines read here (solo and duet books are unchanged: every reader is ours)
+    const part = !!(rwAll && names.some(oursName) && names.some(n => !oursName(n)));
+    const cw = part ? (() => { const m = chapterReaders(book); return c => { const w = m.get(c) || {}; let n = 0; for (const k in w) if (oursName(k)) n += w[k]; return n; }; })() : c => c.words;
+    const only = rw => { if (!part) return rw; const o = {}; for (const k in rw) if (oursName(k)) o[k] = rw[k]; return o; };
+    const words = inc.reduce((a, c) => a + cw(c), 0);
     const byStatus = {}; STATUSES.forEach(([k]) => byStatus[k] = 0);
-    inc.forEach(c => byStatus[c.status] = (byStatus[c.status] || 0) + c.words);
+    inc.forEach(c => byStatus[c.status] = (byStatus[c.status] || 0) + cw(c));
     const toRecord = byStatus.todo;
-    const est = Prep.estimate(words, castFromParts(book, readerWords(book)), S);
-    const left = Prep.estimate(toRecord, castFromParts(book, readerWords(book, c => c.status === "todo")), S);
+    const est = Prep.estimate(words, castFromParts(book, only(readerWords(book))), S);
+    const left = Prep.estimate(toRecord, castFromParts(book, only(readerWords(book, c => c.status === "todo"))), S);
     const delivered = inc.length && inc.every(c => c.status === "delivered");
     let track = null;
     if (book.due && !delivered) {
@@ -203,7 +241,10 @@
       else track = { cls: "warn", label: "Behind" };
       track.days = days; track.finish = finish; track.perDay = days ? toRecord / days : toRecord;
     }
-    return { words, byStatus, toRecord, est, left, delivered, track, chapters: inc.length };
+    const whole = { words: total, fh: total / wpfh };
+    // the editor is paid per finished hour of the whole book
+    const edRate = S.editorRate != null && S.editorRate !== "" ? +S.editorRate : 50, edPay = editor ? edRate * whole.fh : 0;
+    return { words, byStatus, toRecord, est, left, delivered, track, chapters: inc.length, part, editor, whole, edRate, edPay, who: part ? names.filter(oursName) : [] };
   }
   function progressBar(st) {
     if (!st.words) return `<div class="bar"></div>`;
@@ -269,10 +310,10 @@
             <div class="project-meta" style="margin-top:3px">${esc([b.author, b.client].filter(Boolean).join(" · ")) || "&nbsp;"}</div></div>
           <div class="pc-icons">${b.status === "archived" ? `<button data-restore="${esc(b.id)}" title="Restore from the archive">↩</button>` : ""}<button data-coverpick="${esc(coverKey(b))}" title="${"Add or change the cover"}">🖼</button><button class="star" data-star="${esc(b.id)}" title="${cur ? "Unstar" : "Star: work this first, deadlines permitting"}">${cur ? "★" : "☆"}</button><a href="#/booth/${esc(b.id)}" data-booth title="Open in the Booth">🎙</a></div></div>
         ${progressBar(st)}
-        <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)</div>
+        <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)${st.part ? ` <span class="muted" title="${esc(linesOf(st))} only">· your lines of ${num(st.whole.words)}</span>` : ""}</div>
         ${st.toRecord && !st.delivered ? `<div class="project-meta">${num(st.toRecord)} words remaining · ${fh(st.left.fh)} FH</div>` : ""}
         <div class="project-meta">${doneCh(b)} / ${st.chapters} chapters recorded</div>
-        ${t ? moneyLine(t) : st.est.mine ? `<div class="project-meta earn">${money(st.est.mine)} est.</div>` : ""}
+        ${st.editor ? `<div class="project-meta earn">${money(st.edPay)} editing · $${num(st.edRate)} / FH of the whole book</div>` : t ? moneyLine(t) : st.est.mine ? `<div class="project-meta earn">${money(st.est.mine)} est.</div>` : ""}
         <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${t ? schedStamp(t) : st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
         ${!t && b.status !== "archived" ? `<div class="project-meta"><button class="btn small quiet" data-link="${esc(b.id)}">📅 Put on the schedule</button></div>` : ""}
       </div>`;
@@ -409,10 +450,10 @@
         <a class="btn primary" href="#/booth/${esc(book.id)}">🎙 Booth</a>
       </div>
       <div class="tiles">
-        <div class="tile"><span>Words</span><b>${num(st.words)}</b><em>${st.chapters} chapters</em></div>
-        <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>at ${num(S.wpfh)} words / FH</em></div>
-        ${T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
-        <div class="tile"><span>Left to record</span><b>${num(st.toRecord)}</b><em>${st.left.perNarrator.map(p => esc(p.name) + " " + hrs(p.boothHours)).join(" · ")} in booth</em></div>
+        <div class="tile"><span>${st.part ? esc(linesOf(st)) : st.editor ? "Words · whole book" : "Words"}</span><b>${num(st.words)}</b><em>${st.part ? "of " + num(st.whole.words) + " in the book · " : ""}${st.chapters} chapters</em></div>
+        <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>${st.part ? "whole book " + fh(st.whole.fh) : "at " + num(S.wpfh) + " words / FH"}</em></div>
+        ${st.editor ? `<div class="tile"><span>Your pay · editing</span><b>${money(st.edPay)}</b><em>$${num(st.edRate)} / FH × ${fh(st.whole.fh)} FH of the whole book</em></div>` : T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
+        <div class="tile"><span>${st.part ? "Left to record · your part" : "Left to record"}</span><b>${num(st.toRecord)}</b><em>${st.left.perNarrator.map(p => esc(p.name) + " " + hrs(p.boothHours)).join(" · ")} in booth</em></div>
         <div class="tile"><span>Booth days left</span><b>${st.left.days.toFixed(1)}</b><em>at ${S.boothHoursPerDay} booth hrs / day</em></div>
         ${tr ? `<div class="tile"><span>Due ${esc(prettyDate(book.due))}</span><b>${tr.days} workdays</b><em>${num(tr.perDay)} words / day needed · recording done ${esc(prettyDate(tr.finish))}</em></div>` : `<div class="tile"><span>Due</span><b>—</b><em>set a due date below</em></div>`}
       </div>
@@ -870,7 +911,8 @@
       <div class="card"><h3>Estimates</h3><div class="row">
         <label>Words per finished hour<input type="number" id="wp" value="${S.wpfh}" style="width:120px"></label>
         <label>Booth hours per workday<input type="number" step="0.5" id="bh" value="${S.boothHoursPerDay}" style="width:100px"></label>
-      </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays.</p></div>
+        <label title="Just this computer">Editing pay, $ per finished hour<input type="number" step="0.01" id="edr" value="${S.editorRate != null && S.editorRate !== "" ? S.editorRate : 50}" style="width:110px"></label>
+      </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays. In a full-cast book, the book page and dashboard count only the lines read by the narrators on this computer (the whole book is shown beside them). Editing pay is for the editor of a shared book: it's figured on the whole book's finished hours.</p></div>
       <div class="card"><h3>Export file names</h3><div class="row">
         <label style="flex:1">Pattern<input id="np" value="${esc(S.namePattern && S.namePattern !== "{book} - {nn} - {chapter}" ? S.namePattern : "{seq}_{name}")}"></label></div>
         <p class="small muted">The default is your delivery rule: <b>{seq}_{name}</b> gives 001_Opening_Credits, 002_Previously, 003_Chapter_01 (a running number across everything included, chapters padded to two digits). Also: {book} {chapter} {n} {nn} {nnn}. A client profile can set its own.</p></div>
@@ -936,6 +978,7 @@
     $("#addn").onclick = () => { S.narrators.push({ name: "Narrator " + (S.narrators.length + 1), pace: 3000 }); save(); viewSettings(); };
     $("#wp").onchange = e => { S.wpfh = Number(e.target.value) || 9300; save(); };
     $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
+    $("#edr").onchange = e => { S.editorRate = e.target.value === "" ? 50 : Number(e.target.value); save(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
     $$("[data-cl]").forEach(el => el.onchange = () => { const c = S.clients[+el.dataset.cl]; c[el.dataset.k] = el.value; B_openClient = c.id; save(); if (el.dataset.k === "name") viewSettings(); });
