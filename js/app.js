@@ -92,9 +92,11 @@
     const ov = document.createElement("div"); ov.className = "overlay";
     ov.innerHTML = `<div class="card reader" style="max-width:480px"><h2>Whose computer is this?</h2>
       <p class="muted">The Lamp Room opens as you on this computer: your pace, your sessions, your lines in duets. You can switch in the Booth any time.</p>
-      <div class="row">${Store.settings.narrators.map(n => `<button class="btn primary" data-me="${esc(n.name)}">${esc(n.name)}</button>`).join("")}</div></div>`;
+      <div class="row">${Store.settings.narrators.filter(n => n.name !== "Me").map(n => `<button class="btn primary" data-me="${esc(n.name)}">${esc(n.name)}</button>`).join("")}</div>
+      <div class="row" style="margin-top:10px"><input id="menew" placeholder="Someone new? Your first name" style="flex:1"><button class="btn" id="menewb">That's me</button></div></div>`;
     document.body.appendChild(ov);
     $$("[data-me]", ov).forEach(b => b.onclick = () => { Store.setMe(b.dataset.me); ov.remove(); then(); });
+    $("#menewb", ov).onclick = () => { const n = $("#menew", ov).value.trim(); if (!n) return; const N = Store.settings.narrators; const me0 = N.find(x => x.name === "Me"); if (me0) me0.name = n; else if (!N.some(x => x.name === n)) N.push({ name: n, pace: 4000 }); Store.saveSettings(); Store.setMe(n); ov.remove(); then(); };
   }
   function alertBox(m) { window.toast ? toast(m) : console.warn(m); }
 
@@ -353,7 +355,7 @@
         <div class="view-header-actions">
           <div class="mode-toggle"><button class="mode-btn ${mode !== "list" ? "on" : ""}" data-mode="cards">▦ Thumbnails</button><button class="mode-btn ${mode === "list" ? "on" : ""}" data-mode="list">☰ List</button></div>
           <select id="dash-sort">${[["opened", "Recently Opened"], ["due", "Due Date"], ["words", "Word Count"], ["client", "Client"], ["title", "Title"]].map(([k, l]) => `<option value="${k}" ${sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-          <button class="btn" id="newtitle" title="A title without a manuscript yet (or author work)">+ Title</button><a class="btn primary" href="#/import">+ New Project</a></div></div>
+          <button class="btn" id="newtitle" title="A title without a manuscript yet (or author work)">+ Title</button><button class="btn" id="joinsh" title="Open a book someone shared with you (its shared Drive folder)">⇄ Join a shared project</button><a class="btn primary" href="#/import">+ New Project</a></div></div>
       ${(() => { const writing = x => !x.b && x.t && x.t.kind === "author", aud = active.filter(x => !writing(x)), wr = active.filter(writing);
         if (!active.length) return items.length ? "" : `<div class="card welcome"><p>No books yet.</p><a class="btn primary" href="#/import">Import a manuscript</a></div>`;
         return `<div class="section-label proj-kind">🎙 Audio projects <span>${aud.length}</span></div>${aud.length ? list(aud) : `<p class="small muted">No audio projects in progress.</p>`}
@@ -376,6 +378,7 @@
     $$("[data-mode]").forEach(el => el.onclick = () => { lset("lr-dash-mode", el.dataset.mode); viewLibrary(); });
     $("#dash-sort").onchange = e => { lset("lr-dash-sort", e.target.value); viewLibrary(); };
     $("#newtitle").onclick = () => LL.titleForm(null, "narration");
+    { const jb = $("#joinsh"); if (jb) jb.onclick = joinSharedFlow; }
     decorateCovers(main());
 
     // fill the rings from today's booth sessions
@@ -442,6 +445,7 @@
           <button class="btn small quiet" id="archive">${book.status === "archived" ? "Restore from archive" : "Archive book"}</button></div>
       </details>
       ${creditsCard(book)}
+      ${sharedCard(book)}
 
       <div class="card">
         <div class="row" style="align-items:center;margin-bottom:6px"><h2 style="margin:0">Chapters</h2><div class="spacer"></div>
@@ -461,7 +465,7 @@
 
     $("#details").ontoggle = e => { detailsOpen[book.id] = e.target.open; };
     const save = (rerender) => { Store.saveBook(book); if (rerender) viewBook(); };
-    bindCredits(book, save);
+    bindCredits(book, save); bindShared(book, save);
     const toTitle = f => { if (!T) return; const m = { title: "name", due: "due", client: "client", color: "color" }[f]; if (m) LL.patch("titles", T.id, { [m]: book[f] || (f === "due" ? null : "") }); };
     $(".book-cover").onclick = () => pickCover(coverKey(book), viewBook);
     const lb = $("#linkbk"); if (lb) lb.onclick = () => linkBook(book.id);
@@ -741,6 +745,58 @@
 
   // ---------------- settings ----------------
   let B_openClient = null;
+  // ---- shared projects ----
+  async function joinSharedFlow() {
+    let h; try { h = await Store.pickSharedFolder(); } catch (e) { return; }
+    try {
+      const p = await Store.readProject(h); if (!p) { toast("That folder has no project.json. Choose the book's shared folder (the one with Chapters, Pickups and Finished in it)."); return; }
+      const me = Store.me(), on = (p.people || []).find(x => x.name === me);
+      if (!on && !confirm("You're working as “" + me + "”, and this book's list is: " + ((p.people || []).map(x => x.name + " (" + x.role + ")").join(", ") || "empty") + ". Join anyway? (Ask the book's owner to add you, or switch who's working here first.)")) return;
+      const book = await Store.joinShared(h, me);
+      toast("Joined “" + book.title + "”" + (on ? " as " + on.role : "") + "."); location.hash = "#/book/" + book.id;
+    } catch (e) { toast(e.message); }
+  }
+  const ROLES = [["lead", "Lead narrator"], ["narrator", "Co-narrator"], ["cast", "Cast"], ["editor", "Editor"]];
+  function sharedCard(book) {
+    const me = Store.me(), owner = !book.shared || book.sharedOwner === me, people = book.sharedPeople || [];
+    if (!book.shared) return `<details class="card" id="sharedc"><summary>Shared project <span class="small muted">· for co-narrators, cast and an editor</span></summary>
+      <p class="small muted" style="margin-top:10px">Make an empty folder in Google Drive, share it with everyone on this book, then choose it here. The Lamp Room keeps the book there (text, parts, credits), plus each person's sent chapters, pickups and the editor's Finished files. Your Ledger, money, sessions and other books stay private.</p>
+      <div class="row"><div class="spacer"></div><button class="btn primary" id="shsetup">Set up a shared folder…</button></div></details>`;
+    const narr = [...new Set(Object.values(book.parts || {}).filter(Boolean))];
+    return `<details class="card" id="sharedc" ${sharedOpenUI[book.id] ? "open" : ""}><summary>Shared project <span class="small muted" id="shstat">· checking…</span></summary>
+      <p class="small muted" style="margin-top:10px">${owner ? "You own this book's shared folder: changes to the text, parts and credits go there when you save." : "Shared by " + esc(book.sharedOwner || "the owner") + ". Their text updates come to you when you open the book."}</p>
+      <div class="section-label">Who's on it</div>
+      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
+      ${owner ? `<button class="btn small" id="shadd">+ Person</button>${narr.filter(n => !people.some(x => x.name === n)).length ? ` <button class="btn small quiet" id="shfill">Add everyone reading parts</button>` : ""}` : ""}
+      <div class="row" style="margin-top:10px"><button class="btn small" id="shconn">Connect this computer to the folder…</button><div class="spacer"></div>${owner ? `<button class="btn small" id="shpush">Update the shared copy now</button>` : ""}</div></details>`;
+  }
+  const sharedOpenUI = {};
+  function bindShared(book, save) {
+    const el = $("#sharedc"); if (!el) return;
+    el.ontoggle = () => { sharedOpenUI[book.id] = el.open; };
+    const me = Store.me();
+    const su = $("#shsetup", el); if (su) su.onclick = async () => {
+      let h; try { h = await Store.pickSharedFolder(); } catch (e) { return; }
+      const ex = await Store.readProject(h).catch(() => null); if (ex && ex.id !== book.id && !confirm("That folder already holds “" + ex.title + "”. Use it for this book instead?")) return;
+      book.shared = true; book.sharedOwner = me;
+      const narr = [...new Set(Object.values(book.parts || {}).filter(Boolean))];
+      book.sharedPeople = book.sharedPeople && book.sharedPeople.length ? book.sharedPeople : narr.map(n => ({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }));
+      await Store.rememberShared(book, h); await Store.writeProject(book); sharedOpenUI[book.id] = true; save(true);
+      toast("Shared folder set up. Add your editor under Who's on it, then share the Drive folder with everyone.");
+    };
+    $$("[data-shp]", el).forEach(i => i.onchange = () => { book.sharedPeople[+i.dataset.shp][i.dataset.k] = i.value.trim(); sharedOpenUI[book.id] = true; save(true); });
+    $$("[data-shpdel]", el).forEach(b => b.onclick = () => { book.sharedPeople.splice(+b.dataset.shpdel, 1); sharedOpenUI[book.id] = true; save(true); });
+    const ad = $("#shadd", el); if (ad) ad.onclick = () => { (book.sharedPeople = book.sharedPeople || []).push({ name: "", role: "editor" }); sharedOpenUI[book.id] = true; save(true); };
+    const fl = $("#shfill", el); if (fl) fl.onclick = () => { for (const n of new Set(Object.values(book.parts || {}).filter(Boolean))) if (!book.sharedPeople.some(x => x.name === n)) book.sharedPeople.push({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }); save(true); };
+    const cn = $("#shconn", el); if (cn) cn.onclick = async () => {
+      let h = await Store.sharedHandle(book, true);
+      if (!h) { try { h = await Store.pickSharedFolder(); } catch (e) { return; } const p = await Store.readProject(h).catch(() => null); if (p && p.id !== book.id) { toast("That folder belongs to “" + p.title + "”."); return; } await Store.rememberShared(book, h); }
+      if (book.sharedOwner === me) await Store.writeProject(book); else await Store.refreshFromShared(book);
+      sharedOpenUI[book.id] = true; viewBook(); toast("This computer is connected to the shared folder.");
+    };
+    const pu = $("#shpush", el); if (pu) pu.onclick = async () => { if (await Store.writeProject(book)) toast("Shared copy updated."); else toast("Connect this computer to the folder first."); };
+    Store.sharedHandle(book).then(h => { const s = $("#shstat"); if (s) s.textContent = h ? "· connected on this computer" : "· not connected on this computer yet"; });
+  }
   // ---- credits on the book page: which client, the details the credits need, cast credit tags, then add/update the credit chapters ----
   function creditsCard(book) {
     const cr = book.credits = book.credits || {}, cl = LRCredits.clientOf(book), list = LRCredits.clients(), S = Store.settings;

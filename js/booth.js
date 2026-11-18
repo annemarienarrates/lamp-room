@@ -24,6 +24,8 @@
     const book = Store.byId(bookId);
     if (!book) { location.hash = "#/library"; return; }
     if (B && B.book !== book) await close();
+    if (book.shared && book.sharedOwner !== Store.me()) { try { if (await Store.refreshFromShared(book)) toast("📦 " + (book.sharedOwner || "The owner") + " updated the book's text; it's in."); } catch (e) { } }
+    if (book.shared) { try { if (await Store.sharedHandle(book)) await Store.loadPickups(book); } catch (e) { } }
     const me = Store.me() || (Store.settings.narrators[0] || {}).name || "Me";
     if (!B) {
       B = { book, readingAs: me, mic: new LRAudio.Mic(), player: new LRAudio.Player(), listening: false, rec: null, playhead: null,
@@ -118,7 +120,7 @@
     setTimeout(() => B && checkGoals(true), 1500);
     if (amLead() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
-    if (B.mine.every(m => !m)) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
+    if (B.mine.every(m => !m) && !(B.book.shared && isEditor()) && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }
 
   // ======================= render (Finished Hour layout) =======================
@@ -306,8 +308,10 @@
     };
     draw(); document.body.appendChild(ov);
   }
+  const LOCK_EDITS = new Set(["rec", "punch", "flub", "fxLast", "cut", "paste", "pasteOver", "del", "split", "addSpace", "addTrack", "nudgeL", "nudgeR", "click", "undo", "redo"]);
   function act(name) {
     const playhead = () => B.playhead != null ? B.playhead : len();
+    if (LOCK_EDITS.has(name) && lockedHere()) { lockNote(); return; }
     switch (name) {
       case "rec": return recordToggle();
       case "stop": return B.rec ? stopRecording() : (B.player.stop(), stopPreview(), renderTransport());
@@ -358,7 +362,7 @@
   }
 
   // ---------------- side panels: Chapters & Tools ----------------
-  const TOOL_TABS = [["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
+  const TOOL_TABS = [["shared", "📦 Shared"], ["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
   function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -373,7 +377,7 @@
       else {
         const tab = B.tab = B.tab || "fx";
         body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" ? (n => n ? " (" + n + ")" : "")(B.audio.markers.filter(m => !m.done && !m.slot).length + pkForMe().filter(q => !Store.pickupReply(B.book, q)).length) : ""}</option>`).join("")}</select>
-          <div class="bd-toolbody">${({ orig: origTabHtml, duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
+          <div class="bd-toolbody">${({ shared: sharedTabHtml, orig: origTabHtml, duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
       }
       el.innerHTML = `<div class="bd-tools">${head}${body}</div>`;
       const nt = $(".bd-tools", el); if (nt && keep && which === "tools") nt.scrollTop = top;
@@ -423,6 +427,11 @@
       case "ohit": return goHit(+x, +y);
       case "orepl": return replaceSel();
       case "asmon": return assemble(true);
+      case "shsend": return sendToShared();
+      case "shconn": return connectShared();
+      case "shin": return bringInSends(false);
+      case "shre": return bringInSends(true);
+      case "shfin": B.exp = null; B.expShared = true; return exportDialog(true);
       case "asmoff": return assemble(false);
       case "recut": return swapRecut(x);
       case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) playLine(l); return; }
@@ -449,6 +458,7 @@
       case "pfix": return pickupFix(x);
       case "pign": return proofIgnoreWord(x);
       case "pdone": return removeMarker(x);
+      case "pask": return pickupAsk(x);
     }
   }
   function sideChange(e) {
@@ -668,7 +678,7 @@
     tp.onclick = dockClick;
     tp.onchange = e => { if (e.target.dataset.b === "link") { B.follow = e.target.checked; Store.lsSet("lr-follow", B.follow ? "1" : "0"); if (!B.follow) stopListening(); else if (B.rec) startListening(); } e.target.blur(); };
     renderHeads();
-    const cv = $("#wave"); if (cv) { cv.style.height = (RULER + B.laneH * B.audio.tracks.length) + "px"; bindWave(cv); }
+    const cv = $("#wave"); if (cv) { cv.style.height = (RULER + lanesH()) + "px"; bindWave(cv); }
     document.body.classList.toggle("booth-recording", !!rec);
     if ($("#booth-editbar")) requestAnimationFrame(layout);
     drawWave();
@@ -676,16 +686,21 @@
   function renderHeads() {
     const hd = $("#booth-heads"); if (!hd) return;
     const ts = trackSet(), rec = B.rec;
-    hd.style.paddingTop = RULER + "px";
-    hd.innerHTML = B.audio.tracks.map((tr, i) => {
-      const s = ts[i] || {}, on = i === B.track;
-      return `<div class="trk-head ${on ? "sel" : ""} ${s.mute ? "dim" : ""}" data-t="${i}" style="height:${B.laneH - 2}px">
-        <div class="th-r1"><b>${i + 1}</b><input class="th-name" data-tn="${i}" value="${esc(s.name || "Track " + (i + 1))}" ${rec ? "disabled" : ""}><button class="th-fx ${(s.armed || []).length || LRFx.chainActive(LRFx.chainOf(s)) ? "on" : ""}" data-tf="${i}" title="Effects on this track${(s.armed || []).length ? ": " + esc(s.armed.map(e => LRFx.KINDS[e.k].name).join(", ")) + " armed" : ""}">FX</button>${B.audio.tracks.length > 1 ? `<button data-tx="${i}" title="Remove this track from every chapter" ${rec ? "disabled" : ""}>✕</button>` : ""}</div>
+    hd.style.paddingTop = (B.audio.tracks.length > 3 ? 0 : RULER) + "px";
+    const many = B.audio.tracks.length > 3;
+    hd.innerHTML = (many ? `<div class="th-all" style="height:${RULER}px"><button data-tca="1" title="Collapse every track to a thin strip">⊟ All</button><button data-tca="0" title="Open every track">⊞ All</button></div>` : "") + B.audio.tracks.map((tr, i) => {
+      const s = ts[i] || {}, on = i === B.track, grpStart = s.group && (i === 0 || (ts[i - 1] || {}).group !== s.group);
+      if (s.collapsed) return `<div class="trk-head thin ${on ? "sel" : ""} ${s.mute ? "dim" : ""}" data-t="${i}" style="height:${COLLAPSED_H - 2}px"><button class="th-tog" data-tc="${i}" title="Open">▸</button><span>${esc(s.name || "Track " + (i + 1))}</span>${(s.armed || []).length ? "<i>FX</i>" : ""}</div>`;
+      return `<div class="trk-head ${on ? "sel" : ""} ${s.mute ? "dim" : ""} ${grpStart ? "grp" : ""}" data-t="${i}" style="height:${B.laneH - 2}px">${grpStart ? `<button class="th-grp" data-tg="${esc(s.group)}" title="Collapse all of ${esc(s.group)}'s tracks">▾ ${esc(s.group)}</button>` : ""}
+        <div class="th-r1"><button class="th-tog" data-tc="${i}" title="Collapse to a thin strip">▾</button><b>${i + 1}</b><input class="th-name" data-tn="${i}" value="${esc(s.name || "Track " + (i + 1))}" ${rec ? "disabled" : ""}><button class="th-fx ${(s.armed || []).length || LRFx.chainActive(LRFx.chainOf(s)) ? "on" : ""}" data-tf="${i}" title="Effects on this track${(s.armed || []).length ? ": " + esc(s.armed.map(e => LRFx.KINDS[e.k].name).join(", ")) + " armed" : ""}">FX</button>${B.audio.tracks.length > 1 ? `<button data-tx="${i}" title="Remove this track from every chapter" ${rec ? "disabled" : ""}>✕</button>` : ""}</div>
         ${B.laneH >= 46 ? `<div class="th-r2"><button class="${s.mute ? "m-on" : ""}" data-tm="${i}" title="Mute">M</button><button class="${s.solo ? "s-on" : ""}" data-ts="${i}" title="Solo">S</button><input type="range" class="th-vol" min="-24" max="12" step="0.5" value="${s.vol || 0}" data-tv="${i}" title="Volume ${(s.vol || 0) > 0 ? "+" : ""}${s.vol || 0} dB"></div>` : ""}
         ${B.laneH >= 60 ? `<div class="th-sub">${rec && rec.track === i ? (rec.paused ? "paused" : "● recording") : clock(T().trackLen(tr))}</div>` : ""}</div>`;
     }).join("");
     hd.onclick = e => {
       const t = e.target, ts2 = trackSet();
+      if (t.dataset.tc != null) { const s = ts2[+t.dataset.tc] = ts2[+t.dataset.tc] || {}; s.collapsed = !s.collapsed; saveTracks(); return; }
+      if (t.dataset.tg != null) { ts2.forEach(s => { if (s && s.group === t.dataset.tg) s.collapsed = true; }); saveTracks(); return; }
+      if (t.dataset.tca != null) { B.audio.tracks.forEach((_, i) => { const s = ts2[i] = ts2[i] || {}; s.collapsed = t.dataset.tca === "1"; }); saveTracks(); return; }
       if (t.dataset.tm != null) { const s = ts2[+t.dataset.tm]; s.mute = !s.mute; saveTracks(); return; }
       if (t.dataset.ts != null) { const s = ts2[+t.dataset.ts]; s.solo = !s.solo; saveTracks(); return; }
       if (t.dataset.tx != null) { removeTrack(+t.dataset.tx); return; }
@@ -741,7 +756,7 @@
     el.innerHTML = `<div class="sb-grp">${item("Remaining", num(bkLeft), "Your words left in this book · " + num(chLeft) + " in this chapter")}${item("Pace", pace ? num(pace) : "—", st.paceSrc)}${item("Time Left", pace ? hm(bkLeft / pace * 3600) : "—", "Booth time to finish your part at this pace")}</div>
       <div class="sb-grp">${item("Earned", money(st.earnedToday), "Earned today")}${item("Est. Value", money(st.bookValue), "Your share of this book")}${item("Next Goal", st.milestone ? num(st.milestone.left) : "—", st.milestone ? "Words to " + st.milestone.pct + "% of your part" : "")}</div>
       <div class="sb-grp sb-small">${item("This Chapter Time", hm(prog().boothSec))}${item("This Book Time", hm(st.bookSec))}${item("Booth Today", hm(st.boothToday))}${item("Words Today", num(st.wordsToday))}${item("FH Today", (st.wordsToday / (Store.settings.wpfh || 9300)).toFixed(2))}</div>
-      <span style="flex:1"></span><span class="sb-as">${B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
+      <span style="flex:1"></span><span class="sb-as">${B.book.shared && isEditor() ? `✂ Editing as <b>${esc(B.readingAs)}</b>` : B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
   }
   function statsNow() {
     const today = Prep.ymd(new Date()), S = Store.settings;
@@ -921,6 +936,7 @@
     return startRecording(t, true);
   }
   async function startRecording(at, punched, preSnap) {
+    if (lockedHere()) { lockNote(); return; }
     if (B.edit) { B.edit = false; renderManuscript(); renderEditBar(); }
     if (!(await ensureStudio())) return;
     if (!(await ensureMic())) return;
@@ -1198,6 +1214,115 @@
   }
 
   function pacerManual() { return Store.settings.pacer === "manual"; }
+
+  // ======================= shared projects: send a finished chapter, lock it, and the editor's side =======================
+  const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => p.name === me); return x ? x.role : null; };
+  const isEditor = () => !!B.book.shared && myRole() === "editor";
+  function lockedHere() { const me = Store.me() || B.readingAs; return !!(B && B.book.shared && !isEditor() && B.chap.sent && B.chap.sent[me]); }
+  function lockNote() { toast("🔒 " + B.chap.title + " is with the editor, so it's locked here. Pickups they ask for come to you through 🚩 Pickups."); }
+  async function sharedH(ask) { return B.book.shared ? Store.sharedHandle(B.book, ask) : null; }
+  async function connectShared() { let h = await Store.sharedHandle(B.book, true); if (!h) { try { h = await Store.pickSharedFolder(); } catch (e) { return; } const pj = await Store.readProject(h).catch(() => null); if (!pj || pj.id !== B.book.id) { toast("That's not this book's shared folder."); return; } await Store.rememberShared(B.book, h); } B.shReady = true; renderSide(); }
+  // who has to send before the editor can start: the narrator, and everyone with lines here who isn't already in someone else's send
+  function sharedNeeds() {
+    const narr = Prep.readerOf("n", B.chap, B.book), out = new Set(narr ? [narr] : []);
+    for (const x of runsIn(B.chap)) if (x.r) out.add(x.r);
+    const ed = (B.book.sharedPeople || []).filter(p => p.role === "editor").map(p => p.name); ed.forEach(n => out.delete(n));
+    return [...out];
+  }
+  async function sharedStatus() {
+    const sends = await Store.sharedSends(B.book, B.chap), covered = new Set();
+    for (const sd of Object.values(sends)) for (const t of sd.tracks || []) covered.add(t.actor || sd.person);
+    const need = sharedNeeds(), waiting = need.filter(n => !covered.has(n));
+    return { sends, need, waiting, ready: Object.keys(sends).length > 0 && !waiting.length };
+  }
+  async function sharedTabHtmlAsync() {
+    const h = await sharedH(false), me = Store.me() || B.readingAs, role = myRole();
+    if (!B.book.shared) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This book isn't shared. Book page ▸ Shared project sets up a Drive folder for co-narrators, cast and an editor.</div></div>`;
+    if (!h) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This computer isn't connected to the book's shared folder yet.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shconn">Connect the shared folder…</button></div></div>`;
+    const st = await sharedStatus(), dis = B.rec || B.busy ? "disabled" : "";
+    if (role === "editor") {
+      const has = T().hasAudio(B.audio);
+      return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b><div class="stu-note">You're the editor. A chapter opens once everyone with lines in it has sent.</div>
+        ${st.need.map(n => `<div class="co-line ${st.waiting.includes(n) ? "" : "placed"}"><span class="n">${st.waiting.includes(n) ? "…" : "✓"}</span><span><b>${esc(n)}</b><br><i>${st.waiting.includes(n) ? "waiting" : st.sends[n] ? "sent " + new Date(st.sends[n].sentAt).toLocaleDateString() : "in someone else's send"}</i></span><span></span></div>`).join("")}
+        <div class="fx-chips">${has ? `<button class="stu-btn" data-p="shre" ${dis} ${st.ready ? "" : "disabled"}>Start over from the sends</button>` : `<button class="stu-btn stu-rec" data-p="shin" ${dis} ${st.ready ? "" : "disabled"}>${st.ready ? "Bring in everyone's sends" : "Waiting on " + esc(st.waiting.join(", "))}</button>`}</div></div>
+        <div class="bd-sec"><b>Finished</b><div class="stu-note">Exports with your spacing and the delivery name (e.g. 003_Chapter_01) straight into the shared Finished folder.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shfin" ${dis} ${has ? "" : "disabled"}>⤓ Export to Finished</button></div></div>`;
+    }
+    const sent = B.chap.sent && B.chap.sent[me];
+    return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b>${sent ? `<div class="stu-note">🔒 Sent ${esc(new Date(sent).toLocaleString())}. It's with the editor now and locked here; pickups they ask for come through 🚩 Pickups.</div>`
+      : `<div class="stu-note">When the chapter's done, send it: your tracks (one file each, with their FX settings), where every line sits in the text. It then locks here until the editor asks for pickups.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shsend" ${dis} ${T().hasAudio(B.audio) ? "" : "disabled"}>📤 Send to Shared</button></div>`}
+      <div class="stu-note" style="margin-top:6px">${st.need.length ? "This chapter needs: " + st.need.map(n => esc(n) + (st.waiting.includes(n) ? " (not yet)" : " ✓")).join(", ") : ""}</div></div>`;
+  }
+  function sharedTabHtml() { setTimeout(async () => { const el = document.getElementById("sh-body"); if (el && B) el.innerHTML = await sharedTabHtmlAsync(); }, 0); return `<div id="sh-body"><div class="stu-note">Checking the shared folder…</div></div>`; }
+  // send: one WAV per track, the whole chapter long (so positions line up), written before send.json so a half-sent chapter never looks finished
+  async function sendToShared(fromDialog) {
+    if (B.rec || B.busy) return false;
+    const me = Store.me() || B.readingAs;
+    if (!(await sharedH(true))) { toast("Connect this computer to the shared folder first (📦 Shared)."); return false; }
+    if (B.chap.sent && B.chap.sent[me]) { toast("Already sent."); return false; }
+    if (!fromDialog && !confirm("Send " + B.chap.title + " to the shared folder? It locks here once it's sent; after that, changes come through pickups.")) return false;
+    B.busy = "send"; renderSide();
+    try {
+      const out = await Store.sharedChapterDir(B.book, B.chap, me, true), d = await dir(), L = len(), ts = trackSet(), tracks = [];
+      for (let ti = 0; ti < B.audio.tracks.length; ti++) {
+        const clips = B.audio.tracks[ti].clips; if (!clips.length) continue;
+        const lines = clips.filter(c => c.line), actor = lines.length && lines.length === clips.length ? lines[0].line.r : me;
+        const st = ts[ti] || {}, file = LRCredits.cleanName(B.chap.title) + "-" + me.replace(/[^\w]+/g, "") + "-T" + (ti + 1) + ".wav";
+        const w = await LRAudio.WavWriter.create(out, file, LRAudio.RATE);
+        for (let t = 0; t < L; t += 30) { busyNote("Sending " + B.chap.title + ": track " + (ti + 1) + "… " + Math.round(100 * t / L) + "%"); w.push(await LRAudio.renderRange(d, clips, t, Math.min(30, L - t))); }
+        await w.close();
+        tracks.push({ file, name: st.name || "Track " + (ti + 1), actor, samples: Math.round(L * LRAudio.RATE), fx: { armed: st.armed || [], chain: LRFx.chainOf(st), vol: st.vol || 0 } });
+      }
+      const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], complete: true };
+      const fh = await out.getFileHandle("send.json", { create: true }), wr = await fh.createWritable(); await wr.write(JSON.stringify(send, null, 1)); await wr.close();
+      B.chap.sent = Object.assign({}, B.chap.sent, { [me]: send.sentAt }); Store.saveBook(B.book, true);
+      notice("📤 " + B.chap.title + " sent to the shared folder (" + tracks.length + " track" + (tracks.length === 1 ? "" : "s") + "). It's locked here now.");
+      return true;
+    } catch (e) { toast("Couldn't send: " + e.message); return false; }
+    finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
+  }
+  // the editor: everyone's sends become one timeline, one track per sent track, grouped by actor; separate reads splice in by their words' positions
+  async function bringInSends(replace) {
+    if (B.rec || B.busy) return;
+    const st = await sharedStatus(); if (!st.ready) { toast("Still waiting on " + st.waiting.join(", ") + "."); return; }
+    if (T().hasAudio(B.audio) && !(replace && confirm("Replace this chapter's timeline with the sends? (Undo can bring your edits back.)"))) return;
+    B.busy = "bring"; renderSide(); pushUndo();
+    try {
+      const narr = Prep.readerOf("n", B.chap, B.book), people = Object.keys(st.sends), base = st.sends[narr] ? narr : people[0];
+      const ld = await Store.chapterAudioDir(B.book, B.chap), copy = async (sd, t) => {
+        const src = await (await sd._dir.getFileHandle(t.file)).getFile();
+        if (t.samples && src.size < 44 + t.samples * 3 - 4096) throw new Error(t.file + " is still syncing from Drive. Try again in a minute.");
+        const name = "in-" + Prep.uid() + "-" + t.file, w = await (await ld.getFileHandle(name, { create: true })).createWritable(); await w.write(src); await w.close(); return name;
+      };
+      const tracks = [], ts = []; let anchors = [];
+      const addTrack = (actor, t, clips) => { tracks.push({ clips }); ts.push({ name: t.name === actor ? actor : actor + " · " + t.name, group: actor, armed: (t.fx || {}).armed || [], chain: (t.fx || {}).chain, vol: (t.fx || {}).vol || 0 }); return tracks.length - 1; };
+      // the base send keeps its timeline
+      const bs = st.sends[base]; busyNote("Bringing in " + base + "'s send…");
+      for (const t of bs.tracks) { const f = await copy(bs, t); addTrack(t.actor || base, t, [{ file: f, off: 0, dur: bs.length, at: 0 }]); }
+      anchors = (bs.anchors || []).map(p => p.slice());
+      B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = []; B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
+      // anyone else: cut each of their lines from their read and open room for it before the next word of the narration
+      for (const p of people.filter(n => n !== base)) {
+        const sd = st.sends[p], files = []; busyNote("Splicing " + p + "'s lines…");
+        for (const t of sd.tracks) files.push(await copy(sd, t));
+        const tis = sd.tracks.map(t => addTrack(t.actor || p, t, []));
+        while (B.audio.tracks.length < tracks.length) B.audio.tracks.push({ clips: [] });
+        const their = (sd.anchors || []).slice().sort((a, b) => a[0] - b[0]), timeOf = w => { let x = null; for (const q of their) { if (q[1] >= w) { x = q[0]; break; } } return x; };
+        for (const run of runsIn(B.chap).filter(x => x.r === p)) {
+          const a = timeOf(run.from), nx = their.find(q => q[1] > run.to); if (a == null) continue;
+          const t0 = Math.max(0, a - 0.15), t1 = Math.min(sd.length, (nx ? nx[0] : a + 3) - 0.05), dur = Math.max(0.2, t1 - t0);
+          // which of their tracks has this line
+          let best = 0, most = -1; for (let k = 0; k < sd.tracks.length; k++) { const x = await LRAudio.renderRange(ld, [{ file: files[k], off: 0, dur: sd.length, at: 0 }], t0, dur); let e = 0; for (let i = 0; i < x.length; i += 16) e += x[i] * x[i]; if (e > most) { most = e; best = k; } }
+          const ba = (B.audio.anchors || []).find(q => q[1] > run.to), at0 = ba ? ba[0] : len();
+          const at = await LRAudio.quietPoint(await mix(), Math.max(0, at0 - 0.05), 0.4, 0.6).catch(() => at0);
+          T().insertGap(B.audio, at, dur + 0.3);
+          T().overwrite(B.audio, tis[best], [{ file: files[best], off: t0, dur, at: 0, line: { r: p, from: run.from } }], at + 0.15);
+        }
+      }
+      edited(); loadPeaks();
+      notice("📦 Brought in " + people.length + " send" + (people.length === 1 ? "" : "s") + ": " + B.audio.tracks.length + " tracks, grouped by actor. ⊟ collapses them.");
+    } catch (e) { toast("Couldn't bring them in: " + e.message); }
+    finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
+  }
 
   // ======================= the character guide: yours alone, on this computer, carried through the series =======================
   const slug = x => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
@@ -1900,7 +2025,7 @@
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot);
     return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}), proofing flags and the spots that clipped. Each one's sentence is <b class="pk-t">red</b> in the text and on the waveform; drag the red zone's edges to take in more or less. <b>▶</b> plays it in context. <b>Fix</b> re-records just that zone, on the same track, and the chapter closes up or opens to fit.</div>
-        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips"><button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button><button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
+        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips">${isEditor() ? (pkAsked(m) ? `<span class="stu-note">asked ${esc(pkAsked(m).to)}</span>` : `<button class="stu-btn stu-rec" data-p="pask:${m.id}" ${B.rec ? "disabled" : ""} title="Send this to whoever read it">🔁 Ask ${esc(whoRead(m) || "…")}</button>`) : `<button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button>`}<button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
   }
   // ---- pickup zones: the sentence the flag is in, in red, adjustable on the waveform; stored relative to the flag so ripple edits carry it ----
   function pkSentence(m) {
@@ -1941,6 +2066,18 @@
     if (sw) { B.f.set(sw.s); prog().pos = B.f.pos; markPos(true); }
     B.pendingPickup = m.id; B.sel = { a: z.a, b: z.b };
     await replaceSel();
+  }
+  // who read the words a flag sits in (the editor sends the pickup to them)
+  function whoRead(m) { const sw = pkSentence(m); if (!sw) return null; const t = B.toks[sw.s]; return t && t.part && t.part !== "n" ? (B.book.parts || {})[t.part] || null : Prep.readerOf("n", B.chap, B.book); }
+  const pkAsked = m => pkMine().find(q => q.mark === m.id && q.status !== "cancelled");
+  async function pickupAsk(id) {
+    const m = B.audio.markers.find(x => x.id === id); if (!m) return; const who = whoRead(m); if (!who) { toast("Couldn't tell who read that."); return; }
+    if (!m.zone) await pkSnap(m);
+    const sw = pkSentence(m), list = pkMine().map(q => Object.assign({}, q)), text = sw ? B.toks.slice(sw.s, sw.e + 1).map(t => t.w).join(" ") : (m.ctx || "");
+    const note = prompt("Note for " + who + " (optional):", m.note && m.note !== "Flub" ? m.note : "");
+    if (note === null) return;
+    list.push({ id: Prep.uid(), to: who, r: who, chapterId: B.chap.id, chapter: B.chap.title, w0: sw ? sw.s : null, w1: sw ? sw.e : null, text, ctx: sw ? B.toks.slice(Math.max(0, sw.s - 12), sw.s).map(t => t.w).join(" ") : "", note, mark: m.id, made: new Date().toISOString(), status: "open" });
+    await saveMine(list); Store.saveBook(B.book); renderSide(); notice("🔁 Asked " + who + " for that pickup. When they send it, it goes back into this red zone.");
   }
   function removeMarker(id) { const k = B.audio.markers.findIndex(x => x.id === id); if (k >= 0) { pushUndo(); B.audio.markers.splice(k, 1); Store.saveBook(B.book); applyProofMarks(); renderSide(); renderTransport(); drawWave(); } }
 
@@ -2077,6 +2214,12 @@
   function ticks(pps) { const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800]; const major = steps.find(x => x * pps >= 78) || 3600; return { major, minor: major >= 60 ? major / 6 : major === 15 ? 5 : major / 5 }; }
   const rulerLabel = t => { const m = Math.floor(t / 60), x = Math.round(t % 60); return m + ":" + String(x).padStart(2, "0"); };
   // fades: the faded part is shaded with its curve, and a small dot at each bottom corner to drag
+  // lane geometry: each track is B.laneH tall, or a thin strip when it's collapsed
+  const COLLAPSED_H = 16;
+  function laneHs() { const ts = trackSet(); return B.audio.tracks.map((_, i) => (ts[i] || {}).collapsed ? COLLAPSED_H : B.laneH); }
+  function laneTop(i, hs) { hs = hs || laneHs(); let y = RULER; for (let k = 0; k < i; k++) y += hs[k]; return y; }
+  function laneAt(y, hs) { hs = hs || laneHs(); let top = RULER; for (let k = 0; k < hs.length; k++) { if (y < top + hs[k]) return k; top += hs[k]; } return hs.length - 1; }
+  const lanesH = () => laneHs().reduce((a, b) => a + b, 0);
   function drawFades(g, c, xa, xb, top, LH, pps) {
     const fi = c.fi || 0, fo = c.fo || 0, bot = top + LH - 2, h = LH - 4;
     g.save(); g.strokeStyle = "rgba(255,255,255,.7)"; g.fillStyle = "rgba(0,0,0,.28)"; g.lineWidth = 1;
@@ -2106,7 +2249,7 @@
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     follow(W);
-    const v = view(), t0 = v.t0, pps = v.pps, X = t => (t - t0) * pps, n = B.audio.tracks.length, LH = (H - RULER) / n, C = colors();
+    const v = view(), t0 = v.t0, pps = v.pps, X = t => (t - t0) * pps, n = B.audio.tracks.length, HS = laneHs(), C = colors();
     g.fillStyle = C.lane; g.fillRect(0, 0, W, H);
     g.fillStyle = C.lane2; g.fillRect(0, 0, W, RULER);
     const { major, minor } = ticks(pps); g.font = "600 9px system-ui"; g.textBaseline = "middle";
@@ -2117,7 +2260,7 @@
     }
     const ts = trackSet(), solo = ts.some(s => s && s.solo);
     B.audio.tracks.forEach((tr, ti) => {
-      const top = RULER + ti * LH, mid = top + LH / 2, amp = LH / 2 * 0.88, st = ts[ti] || {}, audible = !st.mute && (!solo || st.solo);
+      const LH = HS[ti], top = laneTop(ti, HS), mid = top + LH / 2, amp = LH / 2 * 0.88, st = ts[ti] || {}, audible = !st.mute && (!solo || st.solo);
       if (ti === B.track && n > 1) { g.fillStyle = `rgba(${C.w1.join(",")},.08)`; g.fillRect(0, top, W, LH); }
       if (ti > 0) { g.fillStyle = "rgba(255,255,255,.18)"; g.fillRect(0, top, W, 1); }
       g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(0, mid, W, 1);
@@ -2158,11 +2301,11 @@
       if (xb - xa > 46) { g.font = "600 10px system-ui"; g.fillText("PICKUP", xa + 5, RULER + 15); }
     }
     if (B.sel) { const xa = X(B.sel.a), xb = X(B.sel.b); g.fillStyle = "rgba(245,236,214,.16)"; g.fillRect(xa, RULER, xb - xa, H - RULER); g.fillStyle = "rgba(245,236,214,.7)"; g.fillRect(xa, RULER, 1, H - RULER); g.fillRect(xb - 1, RULER, 1, H - RULER); }
-    if (B.ghost) { const gx = X(B.ghost.at), gw = B.ghost.dur * pps, top = RULER + B.ghost.ti * LH; g.strokeStyle = "rgba(245,236,214,.9)"; g.setLineDash([4, 3]); g.strokeRect(gx, top + 1, gw, LH - 2); g.setLineDash([]);
+    if (B.ghost) { const gx = X(B.ghost.at), gw = B.ghost.dur * pps, top = laneTop(B.ghost.ti, HS), LH = HS[B.ghost.ti]; g.strokeStyle = "rgba(245,236,214,.9)"; g.setLineDash([4, 3]); g.strokeRect(gx, top + 1, gw, LH - 2); g.setLineDash([]);
       if (B.ghost.mode) { g.fillStyle = B.ghost.mode === "snap" ? "rgba(90,200,190,.25)" : "rgba(255,190,90,.22)"; g.fillRect(gx, top + 1, gw, LH - 2); g.fillStyle = "#fff"; g.font = "11px system-ui"; g.fillText(B.ghost.mode === "snap" ? "👥 drops into this pause" : B.ghost.mode === "move" ? "👥 slides the line (nothing else moves)" : "👥 opens space here", Math.max(4, gx + 6), top + 14); } }
     if (B.trimView) { const tv = B.trimView, xa = X(tv.a), xb = X(tv.b);
       g.fillStyle = tv.open ? "rgba(70,200,190,.32)" : "rgba(229,71,59,.35)";
-      for (const ln of tv.lanes) g.fillRect(Math.min(xa, xb), RULER + ln * LH, Math.max(2, Math.abs(xb - xa)), LH);
+      for (const ln of tv.lanes) g.fillRect(Math.min(xa, xb), laneTop(ln, HS), Math.max(2, Math.abs(xb - xa)), HS[ln]);
       const ex = X(tv.edge); g.strokeStyle = "rgba(255,255,255,.75)"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(ex + .5, RULER); g.lineTo(ex + .5, H); g.stroke(); g.setLineDash([]);
       g.font = "600 12px system-ui"; const txt = tv.label, tw = g.measureText(txt).width + 12, lx = Math.min(W - tw - 4, Math.max(4, X(tv.cursor) + 10));
       g.fillStyle = "rgba(10,10,10,.82)"; g.fillRect(lx, RULER + 4, tw, 20); g.fillStyle = tv.open ? "#7fe3d8" : "#ff8a7a"; g.fillText(txt, lx + 6, RULER + 18); }
@@ -2181,12 +2324,12 @@
   // mouse on the waveform: click = playhead, drag = select, drag a take's label strip (or ⌥-drag) = move the take
   function bindWave(cv) {
     if (cv._bound) return; cv._bound = true;
-    const pos = e => { const r = cv.getBoundingClientRect(), v = view(), n = B.audio.tracks.length, LH = (r.height - RULER) / n; const y = e.clientY - r.top; return { t: v.t0 + (e.clientX - r.left) / v.pps, ti: Math.max(0, Math.min(n - 1, Math.floor((y - RULER) / LH))), y, LH }; };
+    const pos = e => { const r = cv.getBoundingClientRect(), v = view(), hs = laneHs(); const y = e.clientY - r.top, ti = laneAt(y, hs); return { t: v.t0 + (e.clientX - r.left) / v.pps, ti, y, LH: hs[ti], ly: y - laneTop(ti, hs) }; };
     // what's under the pointer: a fade dot, a clip edge, or nothing special
     const hitTest = e => {
-      const r = cv.getBoundingClientRect(), v = view(), n = B.audio.tracks.length, LH = (r.height - RULER) / n, x = e.clientX - r.left, y = e.clientY - r.top;
+      const r = cv.getBoundingClientRect(), v = view(), hs = laneHs(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (y < RULER) return null;
-      const ti = Math.max(0, Math.min(n - 1, Math.floor((y - RULER) / LH))), top = RULER + ti * LH, clips = B.audio.tracks[ti].clips, X = t => (t - v.t0) * v.pps;
+      const ti = laneAt(y, hs), LH = hs[ti], top = laneTop(ti, hs), clips = B.audio.tracks[ti].clips, X = t => (t - v.t0) * v.pps;
       for (const m of B.audio.markers) if (!m.done && !m.slot) { const z = pkZone(m); if (Math.abs(x - X(z.a)) <= 5) return { kind: "pz", side: "a", id: m.id }; if (Math.abs(x - X(z.b)) <= 5) return { kind: "pz", side: "b", id: m.id }; }
       if (LH >= 30 && Math.abs(y - (top + LH - 8)) <= 8) for (let ci = 0; ci < clips.length; ci++) {
         const c = clips[ci], xa = X(c.at), xb = X(c.at + c.dur); if (xb - xa <= 44) continue;
@@ -2204,7 +2347,8 @@
     const snapTo = (t, ti, ci) => { const v = view(), pts = [0]; B.audio.tracks.forEach((tr, k) => tr.clips.forEach((c, j) => { if (k === ti && j === ci) return; pts.push(c.at, c.at + c.dur); })); B.audio.markers.forEach(m => pts.push(m.t)); let best = t, bd = 8 / v.pps; for (const q of pts) { const d = Math.abs(q - t); if (d < bd) { bd = d; best = q; } } return best; };
     cv.onpointerdown = e => {
       if (!B || B.rec) return;
-      const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = (p.y - RULER) % p.LH < 16, h = hitTest(e);
+      if (lockedHere()) { const p0 = pos(e); seek(p0.t); return; }
+      const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = p.ly < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
       if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "fade") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); B.track = h.ti; return; }
@@ -2218,7 +2362,7 @@
       drawWave();
     };
     cv.onpointermove = e => {
-      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : "ew-resize") : ci >= 0 && ((p.y - RULER) % p.LH < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
+      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : "ew-resize") : ci >= 0 && (p.ly < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
       const p = pos(e);
       if (d.kind === "pz") {
         const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; d.moved = true; pkZone(m); cv.style.cursor = "ew-resize";
@@ -2342,6 +2486,7 @@
   function exportDialog(afterComplete) {
     if (B.rec) return;
     const S = Store.settings, pat = (window.LRCredits && LRCredits.pattern(B.book)) || (S.namePattern && S.namePattern !== "{book} - {nn} - {chapter}" ? S.namePattern : "{seq}_{name}");
+    const toShared = !!B.expShared; B.expShared = false;
     const st = B.exp = B.exp || { fmt: localStorage.getItem("lr-xfmt") || "wav", dest: "folder" };
     st.proof = Store.lsGet("lr-xproof") === "1"; st.space = Store.lsGet("lr-xspace") === "1";
     const ov = document.createElement("div"); ov.className = "overlay";
@@ -2396,7 +2541,8 @@
       name = name.replace(/[\\/:*?"<>|]+/g, "").replace(/\.(wav|mp3)$/i, "") + ext;
       let fh;
       try {
-        if (st.dest === "choose" && window.showSaveFilePicker) fh = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: ext === ".mp3" ? "MP3 audio" : "WAV audio", accept: ext === ".mp3" ? { "audio/mpeg": [".mp3"] } : { "audio/wav": [".wav"] } }] });
+        if (toShared) { const fd = await Store.sharedFinishedDir(B.book); if (!fd) throw new Error("Connect this computer to the shared folder first."); fh = await fd.getFileHandle(name, { create: true }); }
+        else if (st.dest === "choose" && window.showSaveFilePicker) fh = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: ext === ".mp3" ? "MP3 audio" : "WAV audio", accept: ext === ".mp3" ? { "audio/mpeg": [".mp3"] } : { "audio/wav": [".wav"] } }] });
         else { const bd = await Store.studio.getDirectoryHandle(B.book.folder, { create: true }); const xd = await bd.getDirectoryHandle("exports", { create: true }); fh = await xd.getFileHandle(name, { create: true }); }
       } catch (e) { if (e.name !== "AbortError") toast(e.message); return; }
       const bar = $("#xprog", ov), fill = $("#xprog i", ov); bar.classList.remove("hidden"); $("#xgo", ov).disabled = true; $("#xgo", ov).textContent = "Exporting…";
@@ -2406,7 +2552,8 @@
         const order = ["todo", "recorded", "edited", "mastered", "proofed", "delivered"];
         if (order.indexOf(B.chap.status) < 2) B.chap.status = "edited";
         Store.saveBook(B.book, true);
-        ov.remove(); notice("Exported " + name + (st.dest === "folder" ? " to the book's exports folder." : "."));
+        ov.remove(); notice("Exported " + name + (toShared ? " to the shared Finished folder." : st.dest === "folder" ? " to the book's exports folder." : "."));
+        if (B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]) && confirm("Send " + B.chap.title + " to the shared folder too? It locks here once it's sent.")) await sendToShared(true);
       } catch (e) { toast("Export failed: " + e.message); $("#xgo", ov).disabled = false; $("#xgo", ov).textContent = "Try again"; }
     };
     draw(); document.body.appendChild(ov);
@@ -2460,16 +2607,18 @@
         if (bookMineDone) LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines in " + B.book.title + ". Go outside. Briefly.", level: 3 });
       } else cheer("chapterRecorded");
       const next = B.book.chapters.findIndex((c, i) => i > B.ci && c.included && myCount(B.book, c).mine > 0);
-      const has = T().hasAudio(B.audio), sendable = has && !amLead() && myRuns().length > 0;
+      const has = T().hasAudio(B.audio), sendable = has && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]);
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
         <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
-        <div class="row" style="justify-content:center">${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        ${shSend ? `<p class="small" style="margin:4px 0 10px">Shared book: send it to the shared folder for the editor. It locks here once it's sent.</p>` : ""}
+        <div class="row" style="justify-content:center">${shSend ? `<button class="btn primary" data-shs>📤 Send to Shared</button>` : ""}${sendable ? `<button class="btn ${shSend ? "" : "primary"}" data-send>📤 Send my lines</button>` : ""}${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
       const xb = $("[data-exp]", ov); if (xb) xb.onclick = () => { ov.remove(); render(); exportDialog(true); };
+      const ss = $("[data-shs]", ov); if (ss) ss.onclick = async () => { ss.disabled = true; ss.textContent = "Sending…"; ss.textContent = (await sendToShared(true)) ? "Sent ✓" : "Not sent"; };
       const sb = $("[data-send]", ov); if (sb) sb.onclick = async () => { sb.disabled = true; sb.textContent = "Sending…"; await sendLines(); sb.textContent = "Sent ✓"; };
     };
     finish();
@@ -2851,7 +3000,15 @@
         const sd = await Store.pickupsDir(B.book, q.to), name = "pk-" + q.id + ".wav";
         const src = await (await sd.getFileHandle(rep.file)).getFile(), fh = await cd.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(src); await w.close();
         try { const ps = await (await sd.getFileHandle(rep.file.replace(/\.wav$/, ".peaks2"))).getFile(), ph = await cd.getFileHandle(name.replace(/\.wav$/, ".peaks2"), { create: true }), pw = await ph.createWritable(); await pw.write(ps); await pw.close(); } catch (e) {}
-        const run = theirRuns().find(x => x.r === q.to && x.from === q.w0) || theirRuns().find(x => x.r === q.to && x.text === q.text);
+        const mk = q.mark && B.audio.markers.find(m => m.id === q.mark);
+        if (mk) {            // the editor's pickup: it replaces the red zone on that actor's track, and the chapter fits around it
+          if (!undone) { pushUndo(); undone = true; }
+          const z = pkZone(mk), ti = pkTrack(z);
+          T().deleteRange(B.audio, z.a, z.b); T().insertGap(B.audio, z.a, rep.dur);
+          T().overwrite(B.audio, ti, [{ file: name, off: 0, dur: rep.dur, at: 0, pk: q.id }], z.a);
+          B.audio.markers = B.audio.markers.filter(m => m.id !== mk.id);
+        }
+        const run = !mk && (theirRuns().find(x => x.r === q.to && x.from === q.w0) || theirRuns().find(x => x.r === q.to && x.text === q.text));
         if (run) {
           const p = placedClip(run);
           if (p) { if (!undone) { pushUndo(); undone = true; } replaceClip(p.ti, p.ci, name, rep.dur, q.id); }
@@ -2953,5 +3110,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

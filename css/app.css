@@ -722,3 +722,11 @@ html.fx-calm #lr-rain { display: none; }
 .cl-card textarea { width: 100%; min-height: 60px; }
 .cr-prev { margin-top: 12px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--panel2); border-radius: 6px; font: 400 14px var(--serif); }
 .cr-prev p { margin: 4px 0 8px; }
+/* collapsible tracks and actor groups */
+.trk-head.thin { flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; padding: 0 6px; font: 600 10px system-ui; }
+.trk-head.thin span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; } .trk-head.thin i { font-style: normal; color: var(--accent); font-size: 9px; }
+.th-tog { background: none; border: 0; color: inherit; opacity: .6; cursor: pointer; padding: 0 2px; font-size: 10px; line-height: 1; } .th-tog:hover { opacity: 1; }
+.trk-head.grp { border-top: 2px solid var(--accent); }
+.th-grp { align-self: flex-start; background: none; border: 0; color: var(--accent); font: 700 10px system-ui; letter-spacing: .04em; cursor: pointer; padding: 0; margin-bottom: -2px; text-transform: uppercase; }
+.th-all { display: flex; gap: 4px; align-items: center; box-sizing: border-box; padding: 0 2px; }
+.th-all button { background: var(--head-btn, #2a2218); border: 1px solid var(--head-line, #3a3022); color: var(--head-ink, #f5ecd6); border-radius: 5px; font: 600 10px system-ui; padding: 2px 6px; cursor: pointer; }

@@ -19,7 +19,7 @@
     encouragement: true,
     wpfh: 9300,                 // words per finished hour
     boothHoursPerDay: 6,
-    narrators: [{ name: "Anne", pace: 4035 }, { name: "Jack", pace: 2000 }],
+    narrators: [{ name: "Me", pace: 4000 }],
     namePattern: "{book} - {nn} - {chapter}"
   };
   // Look & feel belongs to a person, not the shared folder: each of you keeps your own on each computer
@@ -60,7 +60,7 @@
     // → "ready" | "needs-permission" | "no-folder" | "unsupported"
     async init() {
       this.testMode = /[?&]test\b/.test(location.search);
-      if (this.testMode && navigator.storage && navigator.storage.getDirectory) { this.root = await navigator.storage.getDirectory(); await this.load(); return "ready"; }
+      if (this.testMode && navigator.storage && navigator.storage.getDirectory) { this.root = await navigator.storage.getDirectory(); await this.load(); if ((this.settings.narrators || []).length === 1 && this.settings.narrators[0].name === "Me") this.settings.narrators = [{ name: "Anne", pace: 4035 }, { name: "Jack", pace: 2000 }]; return "ready"; }
       if (!this.supported) return "unsupported";
       const h = await idb.get("root").catch(() => null);
       if (!h) return "no-folder";
@@ -187,7 +187,7 @@
       book.updated = new Date().toISOString();
       clearTimeout(this._timers[book.id]);
       const run = async () => {
-        try { await this.writeBook(book); this.lastError = null; document.dispatchEvent(new CustomEvent("lr-saved")); }
+        try { await this.writeBook(book); this.lastError = null; document.dispatchEvent(new CustomEvent("lr-saved")); if (book.shared && book.sharedOwner === this.me() && this.sharedOpen[book.id]) this.writeProject(book).catch(e => console.warn("project", e)); }
         catch (e) { this.lastError = e; document.dispatchEvent(new CustomEvent("lr-save-error", { detail: e })); }
       };
       if (now) return run();
@@ -207,6 +207,70 @@
       return book;
     },
     byId(id) { return this.books.find(b => b.id === id); },
+
+    // ---- shared project folders: one book's folder in Drive, for co-narrators, cast and an editor ----
+    //   <Shared>/project.json            the book (text, parts, credits, chapters, who's on it); written by the book's owner
+    //   <Shared>/Chapters/<001_Name>/<Person>/   what each person sent for that chapter: send.json + one WAV per track
+    //   <Shared>/Pickups/                 pickup requests and returns (same files as the Library's pickups)
+    //   <Shared>/Finished/                the editor's finished chapters, delivery-named
+    // Each computer picks the folder once; the handle is remembered here, never in the shared files.
+    sharedOpen: {},
+    async sharedHandle(book, ask) {
+      if (this.sharedOpen[book.id]) return this.sharedOpen[book.id];
+      let h = null; try { h = await idb.get("shared:" + book.id); } catch (e) { }
+      if (!h) return null;
+      let perm = typeof h.queryPermission === "function" ? "prompt" : "granted"; try { if (typeof h.queryPermission === "function") perm = await h.queryPermission({ mode: "readwrite" }); } catch (e) { }
+      if (perm !== "granted" && ask) { try { perm = await h.requestPermission({ mode: "readwrite" }); } catch (e) { } }
+      if (perm !== "granted") return null;
+      this.sharedOpen[book.id] = h; return h;
+    },
+    async rememberShared(book, h) { this.sharedOpen[book.id] = h; try { await idb.set("shared:" + book.id, h); } catch (e) { } },
+    async pickSharedFolder() { return window.showDirectoryPicker({ id: "lamp-room-shared", mode: "readwrite", startIn: "documents" }); },
+    projectSnapshot(book) {
+      const ch = book.chapters.map(c => ({ id: c.id, title: c.title, included: c.included, paras: c.paras, words: c.words, credits: c.credits || null, pov: c.pov || null }));
+      return { v: 1, id: book.id, title: book.title, author: book.author || "", series: book.series || "", client: book.client || "", clientId: book.clientId || "", credits: book.credits || {}, parts: book.parts || {}, chapters: ch, people: book.sharedPeople || [], owner: book.sharedOwner || "", updated: new Date().toISOString() };
+    },
+    async writeProject(book) {
+      const h = await this.sharedHandle(book); if (!h) return false;
+      for (const d of ["Chapters", "Pickups", "Finished"]) await h.getDirectoryHandle(d, { create: true });
+      await writeFile(h, "project.json", JSON.stringify(this.projectSnapshot(book), null, 1)); return true;
+    },
+    async readProject(h) { return readJson(h, "project.json"); },
+    async sharedChapterDir(book, chapter, person, create) {
+      const h = await this.sharedHandle(book); if (!h) return null;
+      const C = await h.getDirectoryHandle("Chapters", { create: true }), name = window.LRCredits ? String(LRCredits.seqOf(book, chapter)).padStart(3, "0") + "_" + LRCredits.cleanName(chapter.title) : safeFolder(chapter.title);
+      const cd = await C.getDirectoryHandle(name, { create: !!create }).catch(() => null); if (!cd) return null;
+      return person ? cd.getDirectoryHandle(safeFolder(person), { create: !!create }).catch(() => null) : cd;
+    },
+    // every person's send.json for a chapter: { person: send }
+    async sharedSends(book, chapter) {
+      const cd = await this.sharedChapterDir(book, chapter, null, false), out = {}; if (!cd) return out;
+      for await (const [n, h] of cd.entries()) if (h.kind === "directory") { const j = await readJson(h, "send.json").catch(() => null); if (j && j.complete) out[j.person || n] = Object.assign(j, { _dir: h }); }
+      return out;
+    },
+    async sharedFinishedDir(book) { const h = await this.sharedHandle(book); return h ? h.getDirectoryHandle("Finished", { create: true }) : null; },
+    // join: make (or link) a book from a shared folder's project.json
+    async joinShared(h, me) {
+      const p = await this.readProject(h); if (!p) throw new Error("That folder has no project.json. Choose the book's shared folder (the one with Chapters, Pickups and Finished in it).");
+      let book = this.byId(p.id);
+      if (!book) {
+        book = { id: p.id, title: p.title, author: p.author, series: p.series, client: p.client, clientId: p.clientId, credits: p.credits, parts: p.parts, status: "active", chapters: p.chapters.map(c => Object.assign({}, c, { status: "todo" })), shared: true, sharedPeople: p.people, sharedOwner: p.owner, sharedUpdated: p.updated };
+        await this.createBook(book);
+      } else { book.shared = true; book.sharedPeople = p.people; book.sharedOwner = p.owner; }
+      await this.rememberShared(book, h);
+      if (me && !(book.sharedPeople || []).some(x => x.name === me)) { /* not on the list: they can still open it read-only */ }
+      await this.writeBook(book); return book;
+    },
+    // a joined book takes the owner's newer text (keeping its own recordings and progress)
+    async refreshFromShared(book) {
+      if (!book.shared || book.sharedOwner === this.me()) return false;
+      const h = await this.sharedHandle(book); if (!h) return false;
+      const p = await this.readProject(h).catch(() => null); if (!p || (book.sharedUpdated && p.updated <= book.sharedUpdated)) return false;
+      const old = Object.fromEntries(book.chapters.map(c => [c.id, c]));
+      book.chapters = p.chapters.map(c => Object.assign(old[c.id] || { status: "todo" }, { title: c.title, included: c.included, paras: c.paras, words: c.words, credits: c.credits, pov: c.pov }));
+      Object.assign(book, { title: p.title, author: p.author, series: p.series, client: p.client, clientId: p.clientId, credits: p.credits, parts: p.parts, sharedPeople: p.people, sharedOwner: p.owner, sharedUpdated: p.updated });
+      await this.writeBook(book); return true;
+    },
 
     // ---- who this computer belongs to (acts as the login; remembered per computer) ----
     me() { try { return localStorage.getItem("lr-me") || ""; } catch (e) { return ""; } },
@@ -404,6 +468,8 @@
     //                                                            for outside cast, the lead drops their file in for them)
     pickups: {},          // bookId → { reqs: [...], replies: { reader: { id: {file, dur, made} } } }
     async pickupsDir(book, sub, create) {
+      const sh = book.shared && this.sharedOpen[book.id];
+      if (sh) { const d = await sh.getDirectoryHandle("Pickups", { create: true }); return sub ? d.getDirectoryHandle(safeFolder(sub), { create: !!create }) : d; }
       const booksDir = await this.root.getDirectoryHandle("Books", { create: true });
       const b = await booksDir.getDirectoryHandle(book.folder, { create: !!create }), d = await b.getDirectoryHandle("pickups", { create: !!create });
       return sub ? d.getDirectoryHandle(safeFolder(sub), { create: !!create }) : d;
