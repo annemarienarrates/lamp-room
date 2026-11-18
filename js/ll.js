@@ -948,7 +948,7 @@ function reportCSV(y){
   const q=v=>{const s=String(v??'');return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
   const L=[];const row=a=>L.push(a.map(q).join(','));
   const inY=s=>s&&s.slice(0,4)===String(y);
-  row([`Jack & Anne's Ledger & Lamp — ${y} report`,`generated ${TODAY}`]);L.push('');
+  row([`${PNAME.jack} & ${PNAME.anne}'s Ledger & Lamp — ${y} report`,`generated ${TODAY}`]);L.push('');
   row(['TITLES']);row(['Title','Client','Arrangement','Kind','Status','Due','Delivered','Check received','FH','Gross','Partner payout','Software','Editor','Net','Hours Anne','Hours Jack','Total hours','Real ratio (h/FH)','Effective hourly','Days late']);
   let T={fh:0,gross:0,partner:0,software:0,editor:0,net:0,hours:0};
   for(const t of S.titles){const touched=inY(t.due)||inY(t.invoiceDate)||inY(t.checkDate)||S.logs.some(l=>inY(l.date)&&(l.entries||[]).some(e=>e.titleId===t.id));if(!touched)continue;
@@ -1160,7 +1160,7 @@ Our revised delivery date is ${fmt(nd)}. Everything else about the production st
 Let us know if that works on your end, or if there's a hard date we should be working toward.
 
 Thanks,
-Anne & Jack`;}
+${PNAME.anne}${(Store.settings.narrators || []).length > 1 ? " & " + PNAME.jack : ""}`;}
 
 /* ============ events ============ */
 document.addEventListener('click',async ev=>{
@@ -1317,6 +1317,7 @@ function nameOf(k) { return PNAME[k] || k; }
 function syncNames() {
   const N = Store.settings.narrators || [];
   PNAME.anne = (N[0] && N[0].name) || "Anne"; PNAME.jack = (N[1] && N[1].name) || "Jack";
+  CAT.A = "A · " + (N.length > 1 ? PNAME.jack + " & " + PNAME.anne : "Both of us");
 }
 
 // the records live in Store.ll; S mirrors them
