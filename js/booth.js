@@ -118,7 +118,7 @@
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
-    if (amLead() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
+    if (amLead() && !isEditor() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
     if (B.mine.every(m => !m) && !(B.book.shared && isEditor()) && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }
@@ -255,7 +255,7 @@
     rec: ["Record from the end of the last clip, on the selected track · pause / resume", "R"], stop: ["Stop (finish take / stop playback)", "S"], play: ["Play / stop playback (plays the selection if there is one)", "Space"],
     punch: ["Punch in at the playhead", "Shift+R"], flub: ["Flub: back to the start of the sentence, pre-roll, record", "F"],
     fxLast: ["Apply the last effect you used (to the selection, or the take at the playhead)", "E"],
-    marker: ["Drop a flub marker", "M"], custom: ["Drop a named marker (goes into your WAV export)", "N"], click: ["Co-narrator: drop their next line in now (or mark a slot if it hasn't arrived; not recording: at the playhead)", "C"],
+    marker: ["Drop a flub marker", "M"], custom: ["Drop a named marker (goes into your WAV export)", "N"], click: ["Collaborate: drop their next line in now (or mark a slot if it hasn't arrived; not recording: at the playhead)", "C"],
     undo: ["Undo", "Ctrl+Z"], redo: ["Redo", "Ctrl+Shift+Z"], cut: ["Cut selection", "Ctrl+X"], copy: ["Copy selection", "Ctrl+C"], paste: ["Paste at the playhead (insert)", "Ctrl+V"],
     pasteOver: ["Paste over (replace)", "Ctrl+Shift+V"], del: ["Delete the selection, or the selected take", "Delete"], selAll: ["Select the whole chapter", "Ctrl+A"],
     selToStart: ["Select from the playhead to the start", "Shift+Home"], selToEnd: ["Select from the playhead to the end", "Shift+End"],
@@ -362,7 +362,7 @@
   }
 
   // ---------------- side panels: Chapters & Tools ----------------
-  const TOOL_TABS = [["shared", "📦 Shared"], ["orig", "📼 Finished audio"], ["duet", "👥 Co-narrator"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
+  const TOOL_TABS = [["shared", "📦 Shared"], ["orig", "📼 Finished audio"], ["duet", "🤝 Collaborate"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
   function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -664,7 +664,7 @@
         bt("play", playing ? ICON.stop + " Playing" : ICON.play + " Play", { tip: "Play / stop (" + kl("play") + ")", dis: rec || !has }) +
         bt("punch", ICON.punch + " Punch " + clock(head), { cls: "bd-punch", tip: "Punch in at the playhead (" + kl("punch") + ")", dis: rec || !has }) +
         bt("flub", "↺ Flub", { tip: "Back to the sentence start, pre-roll, record (" + kl("flub") + ")", dis: !has && !rec })) +
-      G("", bt("marker", ICON.flag + " Marker", { tip: "Flub marker (" + kl("marker") + ")" }) + bt("custom", ICON.pin + " Custom", { tip: "Named marker (" + kl("custom") + ") — goes into your WAV export" }) + bt("click", ICON.users + " Click", { tip: "Co-narrator: drop their next line in now (" + kl("click") + "). Auto-place usually does it for you." })) +
+      G("", bt("marker", ICON.flag + " Marker", { tip: "Flub marker (" + kl("marker") + ")" }) + bt("custom", ICON.pin + " Custom", { tip: "Named marker (" + kl("custom") + ") — goes into your WAV export" }) + bt("click", ICON.users + " Click", { tip: "Collaborate: drop their next line in now (" + kl("click") + "). Auto-place usually does it for you." })) +
       `<div class="bd-lcd bd-booth ${cs.on ? "" : "paused"}" data-b="clock" role="button" tabindex="0" title="Booth time on this chapter: starts the first time you press Record on it and stops when you mark the chapter complete. It keeps running when you press Stop (playing back, punching in) and pauses after ${IDLE_MIN} idle minutes. Click to ${cs.label === "booth" ? "pause" : "start"} the clock."><span class="bd-time" id="bd-booth">${clock(prog().boothSec)}</span><span class="bd-bl" id="bd-bl">${cs.label}</span></div>` +
       `<div class="bd-lcd" title="Finished time of this chapter (what you've recorded; the take in progress while recording)"><i class="bd-recdot ${rec && !rec.paused ? "on" : ""}"></i><span class="bd-bl">FH</span><span class="bd-time" id="bd-time">${clock(L)}</span><span class="stu-bar"><i id="bd-lvl"></i></span></div>` +
       `<div class="bd-lcd bd-lm" title="Raw-audio level check. Speak at narration volume: aim for the green band (peaks between −12 and −6 dB)."><button class="stu-btn ${B.lmOn ? "stu-rec" : ""}" data-b="level" ${rec ? "disabled" : ""}>🎚 ${B.lmOn ? "Level on" : "Level"}</button><span class="lm-track"><i class="lm-fill" id="lm-fill"></i><b class="lm-band"></b></span><span class="stu-chip" id="lm-msg">${B.lmOn || rec ? "Say a line…" : "Meter off"}</span></div>` +
@@ -1190,13 +1190,13 @@
     if (on && (!narr || narr === me)) { toast("You narrate this chapter, so its timeline is already yours."); return; }
     B.assembling = !!on; await switchReader(on ? narr : me);
     B.side = null; B.tab = on ? "duet" : "orig"; act("tools");
-    if (on) notice("🧩 Assembling " + B.chap.title + ": the timeline is " + narr + "'s narration. Bring in their chapter audio (📼 Finished audio), map it, then Splice all in Co-narrator.");
+    if (on) notice("🧩 Assembling " + B.chap.title + ": the timeline is " + narr + "'s narration. Bring in their chapter audio (📼 Finished audio), map it, then Splice all in Collaborate.");
   }
   function origTabHtml() {
     const dis = B.rec || B.busy ? "disabled" : "", ch = B.chap, withO = B.book.chapters.filter(c => c.orig).length, mapped = B.book.chapters.filter(c => c.origMap).length;
     const q = B.findQ || "", hits = B.findHits || [];
     const narr = Prep.readerOf("n", ch, B.book), me = Store.me() || B.readingAs;
-    const asm = B.assembling ? `<div class="bd-sec recut"><b>🧩 Assembling ${esc(ch.title)}</b><div class="stu-note">This timeline is ${esc(B.readingAs)}'s narration. Cast lines (yours too, once you've sent them) drop into it with Splice all in 👥 Co-narrator.</div><div class="fx-chips"><button class="stu-btn" data-p="asmoff" ${dis}>← Back to my lines</button></div></div>`
+    const asm = B.assembling ? `<div class="bd-sec recut"><b>🧩 Assembling ${esc(ch.title)}</b><div class="stu-note">This timeline is ${esc(B.readingAs)}'s narration. Cast lines (yours too, once you've sent them) drop into it with Splice all in 🤝 Collaborate.</div><div class="fx-chips"><button class="stu-btn" data-p="asmoff" ${dis}>← Back to my lines</button></div></div>`
       : narr && narr !== me ? `<div class="bd-sec"><b>🧩 Assemble this chapter</b><div class="stu-note">${esc(narr)} narrates it. 1) Read your own lines here as ${esc(me)} and press 📤 Send my lines. 2) Assemble: the timeline becomes ${esc(narr)}'s audio, and every cast member's lines, yours included, splice into it. Your booth time still counts as yours; no words count while assembling.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="asmon" ${dis}>🧩 Assemble this chapter</button></div></div>` : "";
     return asm + `<div class="bd-sec"><b>Finished audio</b><div class="stu-note">For a book that's already recorded (corrections and pickups), or a chapter someone else narrated (cast assembly). The audio goes on the timeline and you edit it like any take. ${B.book.corrections ? "<b>This is a corrections book:</b> your pickups count as booth time, not words." : ""}</div>
         <div class="co-chips"><span>${withO ? withO + " chapter" + (withO === 1 ? "" : "s") + " brought in" : "None yet"}</span>${withO ? `<span class="${mapped === withO ? "ok" : ""}">${mapped} mapped</span>` : ""}${ch.orig ? `<span class="ok">This chapter: ${esc(ch.orig.name)}</span>` : ""}</div>
@@ -1218,6 +1218,8 @@
   // ======================= shared projects: send a finished chapter, lock it, and the editor's side =======================
   const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => p.name === me); return x ? x.role : null; };
   const isEditor = () => !!B.book.shared && myRole() === "editor";
+  // in a shared book, anyone not on its people list reads outside the Lamp Room: they send a file, and it's dropped in 🤝 Collaborate
+  const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => x.name === r); return !p || p.role === "outside"; };
   function lockedHere() { const me = Store.me() || B.readingAs; return !!(B && B.book.shared && !isEditor() && B.chap.sent && B.chap.sent[me]); }
   function lockNote() { toast("🔒 " + B.chap.title + " is with the editor, so it's locked here. Pickups they ask for come to you through 🚩 Pickups."); }
   async function sharedH(ask) { return B.book.shared ? Store.sharedHandle(B.book, ask) : null; }
@@ -1225,7 +1227,7 @@
   // who has to send before the editor can start: the narrator, and everyone with lines here who isn't already in someone else's send
   function sharedNeeds() {
     const narr = Prep.readerOf("n", B.chap, B.book), out = new Set(narr ? [narr] : []);
-    for (const x of runsIn(B.chap)) if (x.r) out.add(x.r);
+    for (const x of runsIn(B.chap)) if (x.r && !outsideCast(x.r)) out.add(x.r);
     const ed = (B.book.sharedPeople || []).filter(p => p.role === "editor").map(p => p.name); ed.forEach(n => out.delete(n));
     return [...out];
   }
@@ -1234,6 +1236,10 @@
     for (const sd of Object.values(sends)) for (const t of sd.tracks || []) covered.add(t.actor || sd.person);
     const need = sharedNeeds(), waiting = need.filter(n => !covered.has(n));
     return { sends, need, waiting, ready: Object.keys(sends).length > 0 && !waiting.length };
+  }
+  function outsideNote() {
+    const out = [...new Set(runsIn(B.chap).map(x => x.r).filter(outsideCast))];
+    return out.length ? `<div class="bd-sec"><b>Outside the Lamp Room</b><div class="stu-note">${esc(out.join(", "))} ${out.length === 1 ? "reads" : "read"} outside the Lamp Room, so their lines don't hold the chapter up. Once the sends are in, drop the file they sent you in <b>🤝 Collaborate</b> ▸ 🎧 <i>name</i>'s file… and Splice all.</div></div>` : "";
   }
   async function sharedTabHtmlAsync() {
     const h = await sharedH(false), me = Store.me() || B.readingAs, role = myRole();
@@ -1245,6 +1251,7 @@
       return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b><div class="stu-note">You're the editor. A chapter opens once everyone with lines in it has sent.</div>
         ${st.need.map(n => `<div class="co-line ${st.waiting.includes(n) ? "" : "placed"}"><span class="n">${st.waiting.includes(n) ? "…" : "✓"}</span><span><b>${esc(n)}</b><br><i>${st.waiting.includes(n) ? "waiting" : st.sends[n] ? "sent " + new Date(st.sends[n].sentAt).toLocaleDateString() : "in someone else's send"}</i></span><span></span></div>`).join("")}
         <div class="fx-chips">${has ? `<button class="stu-btn" data-p="shre" ${dis} ${st.ready ? "" : "disabled"}>Start over from the sends</button>` : `<button class="stu-btn stu-rec" data-p="shin" ${dis} ${st.ready ? "" : "disabled"}>${st.ready ? "Bring in everyone's sends" : "Waiting on " + esc(st.waiting.join(", "))}</button>`}</div></div>
+        ${outsideNote()}
         <div class="bd-sec"><b>Finished</b><div class="stu-note">Exports with your spacing and the delivery name (e.g. 003_Chapter_01) straight into the shared Finished folder.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shfin" ${dis} ${has ? "" : "disabled"}>⤓ Export to Finished</button></div></div>`;
     }
     const sent = B.chap.sent && B.chap.sent[me];
@@ -1696,7 +1703,8 @@
   // A "run" is a stretch of one reader's words with nobody else's in between. The chapter's narrator is the lead: they
   // record straight through and their co-narrator's runs drop in as lines. The co-narrator records their runs and sends
   // them: each run is cut from their recording by its word timing and the pauses around it.
-  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs;
+  // the editor assembles a shared book, so the editor gets the lead's view (for the cast who don't use the Lamp Room)
+  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs || isEditor();
   const runKey = x => x.r + ":" + x.from;
   function runsOf(pred) {
     const out = []; let cur = null;
@@ -1709,7 +1717,9 @@
     return out;
   }
   // other readers' runs (what the lead waits for)
-  function theirRuns() { if (!B.runsCache || B.runsCache.v !== B.toks) B.runsCache = { v: B.toks, runs: runsOf((i, t) => B.mine[i] ? null : Prep.readerOf(t.part, B.chap, B.book)) }; return B.runsCache.runs; }
+  function allRuns() { if (!B.runsCache || B.runsCache.v !== B.toks) B.runsCache = { v: B.toks, runs: runsOf((i, t) => B.mine[i] ? null : Prep.readerOf(t.part, B.chap, B.book)) }; return B.runsCache.runs; }
+  // what I bring in by hand: everyone else's lines — or, for the editor, only the cast outside the Lamp Room (the rest arrive in the sends)
+  function theirRuns() { const r = allRuns(); return isEditor() ? r.filter(x => outsideCast(x.r)) : r; }
   // my runs (what a co-narrator sends) — only in a chapter someone else narrates
   function myRuns() { return runsOf((i) => B.mine[i] ? B.readingAs : null); }
   const duetData = () => (B.audio.duet = B.audio.duet || {});
@@ -1958,7 +1968,7 @@
       B.peaks = B.peaks || {};
     }
     const rc = Object.entries(B.recut || {}).filter(([r, n]) => n && recutOf(r).length);
-    if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Co-narrator tab ▸ Swap them in.");
+    if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
     if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;
@@ -1998,7 +2008,7 @@
         <div class="bd-sec"><b>Your lines</b>${runs.map((x, i) => `<div class="co-line"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 18)))}</span><span></span></div>`).join("") || `<div class="stu-note">None in this chapter.</div>`}</div>`;
     }
     const runs = theirRuns();
-    if (!runs.length) return `<div class="bd-sec"><b>Co-narrator</b><div class="stu-note">No one else reads in this chapter.</div></div>`;
+    if (!runs.length) return `<div class="bd-sec"><b>Collaborate</b><div class="stu-note">No one else reads in this chapter.</div></div>`;
     const arrived = runs.filter(x => lineFor(x)).length, placed = runs.filter(x => placedClip(x)).length, slots = runs.filter(x => !placedClip(x) && slotOf(x)).length, who = [...new Set(runs.map(x => x.r))].join(" & ");
     const rcs = [...new Set(runs.map(x => x.r))].map(r => [r, recutOf(r).length]).filter(z => z[1]);
     const miss = [...new Set(runs.map(x => x.r))].map(r => [r, runs.filter(x => x.r === r && ((duetData()[r] || {}).missing || []).includes(x.from) && !lineFor(x)).length]).filter(z => z[1]);
@@ -2802,7 +2812,7 @@
   // ======================= outside cast & pickups =======================
   // other readers' runs in any chapter (the same rule theirRuns uses for the open one)
   function runsIn(chap) {
-    if (chap === B.chap) return theirRuns();
+    if (chap === B.chap) return allRuns();
     const toks = Prep.tokens(chap), out = []; let cur = null;
     toks.forEach((t, i) => { const r = isMine(t, chap) ? null : Prep.readerOf(t.part, chap, B.book);
       if (r && cur && cur.r === r && cur.to === i - 1) cur.to = i; else if (r) { cur = { r, from: i, to: i }; out.push(cur); } else cur = null; });
@@ -2933,7 +2943,7 @@
       const checks = pairs.filter(p => segs[p[0]].check).length, chs = Object.keys(per).map(ci => B.book.chapters[ci].title.replace(/^Chapter\s+/i, "Ch ") + ": " + per[ci]).join(", ");
       notice(`🎧 ${r}: ${n} line${n === 1 ? "" : "s"} cut ${mode === "clicks" ? "at " + clicks + " click" + (clicks === 1 ? "" : "s") : "at the pauses"}${byWords ? " and matched by their words" : ""} (${chs}).` +
         (byWords ? (extra > 0 ? ` ${extra} extra take${extra === 1 ? "" : "s"} or stray bit${extra === 1 ? "" : "s"} left out (the last good take of each line is kept).` : "") : (segs.length > targets.length ? ` ${segs.length - targets.length} more stretch${segs.length - targets.length === 1 ? "" : "es"} than lines: listen to the last few.` : "")) +
-        (missing.length ? ` <b>${missing.length} line${missing.length === 1 ? "" : "s"} missing</b> from the file: Co-narrator lists them, with Mark as pickups.` : "") +
+        (missing.length ? ` <b>${missing.length} line${missing.length === 1 ? "" : "s"} missing</b> from the file: Collaborate lists them, with Mark as pickups.` : "") +
         (checks ? ` ${checks} marked “check”.` : "") + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : ""));
       return { n, mode, clicks, segs: segs.length, want: targets.length };
     } catch (e) { console.error(e); toast("Couldn't read that file: " + e.message); }

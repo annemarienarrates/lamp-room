@@ -694,7 +694,7 @@
       <table class="ch"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
       ${["n", ...keys].map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}</td><td class="num">${num((found[k] || {}).passages || 0)}</td><td class="num">${num((found[k] || {}).words || 0)}</td>
         <td><select data-ipart="${esc(k)}">${readerOptions(imp.parts[k])}</select></td></tr>`).join("")}
-      </tbody></table><p class="small muted">Outside cast (Cast 1–4) never open the Lamp Room: they send you a recording and you drop it into the Booth's Co-narrator tab, where it's cut into their lines. You can change all of this later in the book's details.</p></div>`;
+      </tbody></table><p class="small muted">Outside cast (Cast 1–4) never open the Lamp Room: they send you a recording and you drop it into the Booth's Collaborate tab, where it's cut into their lines. You can change all of this later in the book's details.</p></div>`;
   }
   async function loadFile(file) {
     main().innerHTML = `<div class="card welcome"><p>Reading ${esc(file.name)}…</p></div>`;
@@ -756,7 +756,7 @@
       toast("Joined “" + book.title + "”" + (on ? " as " + on.role : "") + "."); location.hash = "#/book/" + book.id;
     } catch (e) { toast(e.message); }
   }
-  const ROLES = [["lead", "Lead narrator"], ["narrator", "Co-narrator"], ["cast", "Cast"], ["editor", "Editor"]];
+  const ROLES = [["lead", "Lead narrator"], ["narrator", "Co-narrator"], ["cast", "Cast"], ["outside", "Outside (sends a file)"], ["editor", "Editor"]];
   function sharedCard(book) {
     const me = Store.me(), owner = !book.shared || book.sharedOwner === me, people = book.sharedPeople || [];
     if (!book.shared) return `<details class="card" id="sharedc"><summary>Shared project <span class="small muted">· for co-narrators, cast and an editor</span></summary>
@@ -767,6 +767,7 @@
       <p class="small muted" style="margin-top:10px">${owner ? "You own this book's shared folder: changes to the text, parts and credits go there when you save." : "Shared by " + esc(book.sharedOwner || "the owner") + ". Their text updates come to you when you open the book."}</p>
       <div class="section-label">Who's on it</div>
       ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
+      <p class="small muted">Someone reading without the Lamp Room? Set them to <b>Outside (sends a file)</b>: chapters don't wait on them, and the editor (or the lead) drops their recording into the Booth's 🤝 Collaborate tab.</p>
       ${owner ? `<button class="btn small" id="shadd">+ Person</button>${narr.filter(n => !people.some(x => x.name === n)).length ? ` <button class="btn small quiet" id="shfill">Add everyone reading parts</button>` : ""}` : ""}
       <div class="row" style="margin-top:10px"><button class="btn small" id="shconn">Connect this computer to the folder…</button><div class="spacer"></div>${owner ? `<button class="btn small" id="shpush">Update the shared copy now</button>` : ""}</div></details>`;
   }
