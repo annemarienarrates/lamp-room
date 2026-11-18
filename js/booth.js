@@ -1217,7 +1217,9 @@
 
   // ======================= shared projects: send a finished chapter, lock it, and the editor's side =======================
   const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => p.name === me); return x ? x.role : null; };
-  const isEditor = () => !!B.book.shared && myRole() === "editor";
+  // the book's owner can tick "Also edits": they read and send like everyone else, then edit each chapter once their own part is sent
+  const editsToo = () => { const me = Store.me(); if (!B.book.shared || !me || B.book.sharedOwner !== me) return false; const x = (B.book.sharedPeople || []).find(p => p.name === me); return !!(x && x.edits && x.role !== "editor"); };
+  const isEditor = () => !!B.book.shared && (myRole() === "editor" || (editsToo() && (!!(B.chap.sent && B.chap.sent[Store.me()]) || !(B.mine || []).some(Boolean))));
   // in a shared book, anyone not on its people list reads outside the Lamp Room: they send a file, and it's dropped in 🤝 Collaborate
   const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => x.name === r); return !p || p.role === "outside"; };
   function lockedHere() { const me = Store.me() || B.readingAs; return !!(B && B.book.shared && !isEditor() && B.chap.sent && B.chap.sent[me]); }
@@ -1227,7 +1229,7 @@
   // who has to send before the editor can start: the narrator, and everyone with lines here who isn't already in someone else's send
   function sharedNeeds() {
     const narr = Prep.readerOf("n", B.chap, B.book), out = new Set(narr ? [narr] : []);
-    for (const x of runsIn(B.chap)) if (x.r && !outsideCast(x.r)) out.add(x.r);
+    for (const x of everyoneRuns()) if (x.r && !outsideCast(x.r)) out.add(x.r);
     const ed = (B.book.sharedPeople || []).filter(p => p.role === "editor").map(p => p.name); ed.forEach(n => out.delete(n));
     return [...out];
   }
@@ -1246,9 +1248,9 @@
     if (!B.book.shared) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This book isn't shared. Book page ▸ Shared project sets up a Drive folder for co-narrators, cast and an editor.</div></div>`;
     if (!h) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This computer isn't connected to the book's shared folder yet.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shconn">Connect the shared folder…</button></div></div>`;
     const st = await sharedStatus(), dis = B.rec || B.busy ? "disabled" : "";
-    if (role === "editor") {
+    if (isEditor()) {
       const has = T().hasAudio(B.audio);
-      return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b><div class="stu-note">You're the editor. A chapter opens once everyone with lines in it has sent.</div>
+      return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b><div class="stu-note">${role === "editor" ? "You're the editor." : "You're editing this book too, and your part here is sent."} A chapter opens once everyone with lines in it has sent.</div>
         ${st.need.map(n => `<div class="co-line ${st.waiting.includes(n) ? "" : "placed"}"><span class="n">${st.waiting.includes(n) ? "…" : "✓"}</span><span><b>${esc(n)}</b><br><i>${st.waiting.includes(n) ? "waiting" : st.sends[n] ? "sent " + new Date(st.sends[n].sentAt).toLocaleDateString() : "in someone else's send"}</i></span><span></span></div>`).join("")}
         <div class="fx-chips">${has ? `<button class="stu-btn" data-p="shre" ${dis} ${st.ready ? "" : "disabled"}>Start over from the sends</button>` : `<button class="stu-btn stu-rec" data-p="shin" ${dis} ${st.ready ? "" : "disabled"}>${st.ready ? "Bring in everyone's sends" : "Waiting on " + esc(st.waiting.join(", "))}</button>`}</div></div>
         ${outsideNote()}
@@ -1314,7 +1316,7 @@
         const tis = sd.tracks.map(t => addTrack(t.actor || p, t, []));
         while (B.audio.tracks.length < tracks.length) B.audio.tracks.push({ clips: [] });
         const their = (sd.anchors || []).slice().sort((a, b) => a[0] - b[0]), timeOf = w => { let x = null; for (const q of their) { if (q[1] >= w) { x = q[0]; break; } } return x; };
-        for (const run of runsIn(B.chap).filter(x => x.r === p)) {
+        for (const run of everyoneRuns().filter(x => x.r === p)) {
           const a = timeOf(run.from), nx = their.find(q => q[1] > run.to); if (a == null) continue;
           const t0 = Math.max(0, a - 0.15), t1 = Math.min(sd.length, (nx ? nx[0] : a + 3) - 0.05), dur = Math.max(0.2, t1 - t0);
           // which of their tracks has this line
@@ -1717,6 +1719,8 @@
     return out;
   }
   // other readers' runs (what the lead waits for)
+  // every reader's runs, mine included (what the editor assembles from)
+  function everyoneRuns() { return runsOf((i, t) => Prep.readerOf(t.part, B.chap, B.book)); }
   function allRuns() { if (!B.runsCache || B.runsCache.v !== B.toks) B.runsCache = { v: B.toks, runs: runsOf((i, t) => B.mine[i] ? null : Prep.readerOf(t.part, B.chap, B.book)) }; return B.runsCache.runs; }
   // what I bring in by hand: everyone else's lines — or, for the editor, only the cast outside the Lamp Room (the rest arrive in the sends)
   function theirRuns() { const r = allRuns(); return isEditor() ? r.filter(x => outsideCast(x.r)) : r; }

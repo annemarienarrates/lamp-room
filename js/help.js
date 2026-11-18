@@ -159,6 +159,7 @@
         ["Writing and audio", "The Dashboard and Titles keep audio projects and writing projects in separate sections."],
         ["Full-cast books", "When others read most of a book (Arrangement D), the book page and Dashboard count only your and Jack's lines: words, words left, booth time and pay. The whole book's words and hours sit beside them."],
         ["Planner word counts", "Change who reads what and the planner's word counts for you and Jack follow a few seconds later (a note says what changed). An outside partner's words stay as you typed them."],
+        ["Also edits", "The book's owner only: tick Also edits beside your name on the Shared project card. You read and send your part like everyone else; once it's sent, that chapter opens to you as its editor (no lock), and Bring in everyone's sends includes your own."],
         ["Editing pay", "The editor of a shared book sees their pay on its page: Settings ▸ Estimates ▸ Editing pay ($ per finished hour) × the whole book's finished hours. $50 unless changed."],
         ["One booth, two people", "Click 👤 in the top bar (or ☰ Menu in the Booth) and pick who's recording. Switch before you press Record."],
         ["Moving takes home", "Recordings stay on the computer they were made on. Afterwards: Settings ▸ Recordings on this computer ▸ Copy their takes to a folder (a USB stick or Drive). On the other Mac: Bring takes in. Nothing gets overwritten."],
