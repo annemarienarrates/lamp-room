@@ -697,3 +697,7 @@ html.fx-calm body::before { animation: none !important; }
 html.fx-calm .ms .w.cur::after { animation: none !important; }
 html.fx-calm #lr-rain { display: none; }
 @media (prefers-reduced-motion: reduce) { [data-theme] body::before, .ms .w.cur::after { animation: none !important; } #lr-rain { display: none; } }
+/* pickup zones in the text: exactly what Fix re-records */
+#ms .w.pk { background: rgba(255,59,79,.16); box-shadow: 0 2px 0 rgba(255,59,79,.75); color: inherit; }
+#ms .w.pk.cur { background: rgba(255,59,79,.32); }
+.pk-t { color: #ff3b4f; }
