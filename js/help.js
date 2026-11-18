@@ -69,7 +69,8 @@
       items: [
         ["📼 Finished audio", "A book that's already recorded, or a narrator's chapters for cast assembly: bring it in, map it, find words in it, replace bits. See Finished audio below."],
         ["👥 Co-narrator", "Duet lines: send yours, bring in your partner's. See Duets below."],
-        ["🚩 Pickups", "Every flag in the chapter. Fix goes to the start of that sentence and punches in. ✓ marks it dealt with."],
+        ["🚩 Pickups", "Each flag's sentence is red in the text and on the waveform; drag the red edges to adjust. ▶ plays it in context. Fix re-records the zone on the same track and the chapter fits around it. ✓ removes the flag."],
+        ["🎭 Characters", "Right-hand tab: your private guide, on this computer, for the whole series. Shows your characters in this chapter. Add: double-click a name ▸ 🎭 Add, or ＋ Add. Cards hold other names, description, voice notes, samples and FX (Save track's FX here / Arm on track)."],
         ["⤓ Export checks", "The Export dialog has two ticks it remembers for you: Proof the chapter (lists any misreads first: Review them, or Export anyway) and Even out pauses (your head, heading, scene-break, tail and gap settings)."],
         ["🔎 Proofing", "Settings ▸ Reading & proofing, or Booth ▸ 🎙 Mic & reading, each person their own: Off, When I stop (each take is checked), or Live (every ~20 s). Misreads are underlined in red in the text and listed in Pickups. Always ignore stops a name being flagged again in that book."],
         ["🎛 Effects", "Pitch, double, reverb, echo, chorus, robot and placement. Preview first, then Apply (Undo brings the original back). Arm keeps an effect on a track so every new take there gets it. E repeats the last effect."],

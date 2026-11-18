@@ -422,6 +422,7 @@
         <div class="row" style="margin-top:12px">
           <label style="flex:2">Title<input data-f="title" value="${esc(book.title)}"></label>
           <label style="flex:1">Author<input data-f="author" value="${esc(book.author || "")}"></label>
+          <label style="flex:1" title="Books in the same series share your character guide">Series<input data-f="series" value="${esc(book.series || "")}" placeholder="e.g. Monster Girls in Space"></label>
           <label style="flex:1">Client / publisher<input data-f="client" value="${esc(book.client || "")}"></label>
           <label>Due date<input type="date" data-f="due" value="${esc(book.due || "")}"></label>
         </div>
