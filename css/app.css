@@ -75,7 +75,8 @@
   --shadow: 0 0 0 1px #ff2a9d33, 0 0 18px -6px #ff2a9d88, 0 8px 22px #000; --shadow2: 0 0 30px -4px #ff2a9daa, 0 0 50px -20px #ffe600aa;
   --lane: #030303; --lane2: #0b080a; --tick: #4a1f36; --tick-ink: #ffe600; --wave: #ff2a9d; --wave2: #ffe600;
   --head: #0c0a0c; --head-line: #4a1f36; --head-sel: #2a0718; --head-btn: #1d0f17; --head-ink: #fff4fa; }
-[data-theme="signal"] body { background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,42,157,.03) 3px 4px), radial-gradient(900px 500px at 100% 0%, #ff2a9d1c, transparent 60%), radial-gradient(700px 400px at 0% 100%, #ffe6000f, transparent 60%), #050505; }
+html[data-theme="signal"] { background: radial-gradient(900px 500px at 100% 0%, #ff2a9d1c, transparent 60%), radial-gradient(700px 400px at 0% 100%, #ffe6000f, transparent 60%), #050505; }
+[data-theme="signal"] body { background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,42,157,.03) 3px 4px); }
 [data-theme="signal"] h1, [data-theme="signal"] h2, [data-theme="signal"] .brand { color: #fff; text-shadow: 0 0 4px #fff, 0 0 12px #ff2a9d, 0 0 26px #ff2a9d, 0 0 48px #ff2a9d88; }
 [data-theme="signal"] .view-header h2::after { background: linear-gradient(90deg, #ff2a9d, #ffe600); height: 3px; box-shadow: 0 0 12px #ff2a9d, 0 0 20px #ffe60088; }
 [data-theme="signal"] .btn.primary, [data-theme="signal"] .stu-rec { background: #ff2a9d; border-color: #ff6ec0; color: #120008; box-shadow: 0 0 10px #ff2a9d, 0 0 28px -4px #ff2a9d; text-shadow: none; }
@@ -750,3 +751,15 @@ html.fx-calm #lr-rain { display: none; }
 .cue-mini { display: flex; align-items: baseline; gap: 6px; font-size: .95rem; }
 .cue-mini .cue-who { font-size: .95rem; }
 .cue-fx { font-size: .78rem; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--accent); color: var(--accent); }
+
+/* Signal: the neon horizon behind the panels, and a reading position that hums */
+#lr-rain.fx-grid { opacity: .5; }
+[data-theme="signal"] .ms .w.cur { position: relative; z-index: 0; color: #fff; background: linear-gradient(180deg, #ff2a9d26, #ff2a9d40); border-radius: 3px; box-shadow: 0 0 0 1px #ff2a9d99, 0 0 12px -1px #ff2a9d, 0 0 26px -6px #ffe600; text-shadow: 0 0 6px #ff2a9d, 0 0 14px #ff2a9d88; animation: sgHum 2.4s ease-in-out infinite; }
+[data-theme="signal"] .ms .w.cur::after { content: ""; position: absolute; left: -2px; right: -2px; bottom: -4px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, #ff2a9d, #ffe600, #ff2a9d); background-size: 200% 100%; box-shadow: 0 0 8px #ffe600, 0 0 14px #ff2a9d; animation: sgSweep 1.2s linear infinite; }
+[data-theme="signal"] .ms .w.cur::before { content: ""; position: absolute; left: -240px; right: -240px; top: 50%; height: 1.5em; transform: translateY(-50%); z-index: -1; pointer-events: none; background: radial-gradient(closest-side, #ff2a9d66, #ff2a9d26 60%, transparent), linear-gradient(90deg, transparent, #ffe60099 50%, transparent) center 92% / 100% 1px no-repeat; animation: sgBeam 2.4s ease-in-out infinite; }
+[data-theme="signal"] .ms .w.cur + .w, [data-theme="signal"] .ms .w.cur + .w + .w { text-shadow: 0 0 10px #ff2a9d55; }
+@keyframes sgBeam { 50% { opacity: .7; transform: translateY(-50%) scaleX(1.08); } }
+@keyframes sgHum { 0%, 100% { box-shadow: 0 0 0 1px #ff2a9d99, 0 0 12px -1px #ff2a9d, 0 0 26px -6px #ffe600; } 50% { box-shadow: 0 0 0 1px #ffe600aa, 0 0 18px 0 #ff2a9d, 0 0 34px -4px #ffe600; } 92% { opacity: 1; } 94% { opacity: .75; } 96% { opacity: 1; } }
+@keyframes sgSweep { to { background-position: -200% 0; } }
+html.fx-calm[data-theme="signal"] .ms .w.cur, html.fx-calm[data-theme="signal"] .ms .w.cur::after, html.fx-calm[data-theme="signal"] .ms .w.cur::before { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { [data-theme="signal"] .ms .w.cur, [data-theme="signal"] .ms .w.cur::after { animation: none !important; } }
