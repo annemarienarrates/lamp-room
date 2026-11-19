@@ -631,7 +631,7 @@
     let html = "";
     cuesNow();
     const tagAt = {}; if (cueTags()) for (const q of B.cues) if (!tagAt[q.a]) tagAt[q.a] = q;
-    const tagHtml = q => `<span class="cue-tag" data-cuewho="${esc(q.who)}" title="${esc(q.who)}${q.tone ? " · " + esc(q.tone) : ""} — open the Character guide"><b>${esc(q.who)}</b>${q.tone ? " · " + esc(q.tone) : ""}</span>`;
+    const tagHtml = q => `<span class="cue-tag" data-cuewho="${esc(q.who)}" title="${esc(q.who)}${q.tone ? " · " + esc(q.tone) : ""}${q.fx ? " · FX: " + esc(q.fx) : ""} — open the Character guide"><b>${esc(q.who)}</b>${q.tone ? " · " + esc(q.tone) : ""}${q.fx ? ` · <i>FX</i>` : ""}</span>`;
     const cueFrom = new Set();
     for (let i = 1; i < B.toks.length; i++) if (B.mine[i] && !B.mine[i - 1]) { let j = i - 1; while (j >= 0 && !B.mine[j] && B.toks[j].p === B.toks[i - 1].p) { cueFrom.add(j); j--; } }
     const tokenByPara = {}; B.toks.forEach((t, i) => (tokenByPara[t.p] = tokenByPara[t.p] || []).push(i));
@@ -665,13 +665,13 @@
     const after = q ? pool[pool.indexOf(q) + 1] : null;
     if (cueMini()) {
       el.className = "cue-win slim";
-      el.innerHTML = toggles + (q ? `<span class="cue-mini"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? ` <span class="cue-tone">(${esc(q.tone)})</span>` : ""}</span>` : `<span class="small muted">No more cued lines in this chapter.</span>`);
+      el.innerHTML = toggles + (q ? `<span class="cue-mini"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? ` <span class="cue-tone">(${esc(q.tone)})</span>` : ""}${q.fx ? ` <span class="cue-fx">FX</span>` : ""}</span>` : `<span class="small muted">No more cued lines in this chapter.</span>`);
       bindCueWin(el); return;
     }
     el.className = "cue-win";
     el.innerHTML = toggles + (q ? `
       ${q.prev ? `<div class="cue-prev"><b>${esc(q.prev.who)}:</b> ${esc(q.prev.text.length > 140 ? q.prev.text.slice(0, 140) + "…" : q.prev.text)}</div>` : ""}
-      <div class="cue-now"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? `<span class="cue-tone">(${esc(q.tone)})</span>` : ""}<span class="cue-line">${esc(lineText(q))}</span></div>
+      <div class="cue-now"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? `<span class="cue-tone">(${esc(q.tone)})</span>` : ""}${q.fx ? `<span class="cue-fx">FX: ${esc(q.fx)}</span>` : ""}<span class="cue-line">${esc(lineText(q))}</span></div>
       ${after ? `<div class="cue-next small muted">then <b>${esc(after.who)}</b>${after.tone ? " (" + esc(after.tone) + ")" : ""}</div>` : ""}` : `<span class="small muted">No more cued lines in this chapter.</span>`);
     bindCueWin(el);
   }

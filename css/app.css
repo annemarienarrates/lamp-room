@@ -749,3 +749,4 @@ html.fx-calm #lr-rain { display: none; }
 .cue-next { margin-top: 4px; }
 .cue-mini { display: flex; align-items: baseline; gap: 6px; font-size: .95rem; }
 .cue-mini .cue-who { font-size: .95rem; }
+.cue-fx { font-size: .78rem; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--accent); color: var(--accent); }
