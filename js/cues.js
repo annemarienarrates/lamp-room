@@ -34,18 +34,33 @@
     if (!char) { const c = {}; lines.forEach(l => c[l.who] = (c[l.who] || 0) + 1); char = Object.keys(c).sort((a, b) => c[b] - c[a])[0] || String(fileName || "").replace(/\.docx$/i, ""); }
     const tidy = s => s.toLowerCase().replace(/(^|[\s\-'’])\S/g, x => x.toUpperCase());
     lines.forEach(l => l.whoName = tidy(l.who));
-    return { char: tidy(char), lines };
+    return { char: tidy(char), lines: tidyLines(lines).map(({ occ, ...x }) => x) };
   }
 
+  // clean a script's lines: tone lines with notes, the credits, and the bracketed helpers some scripts carry —
+  // [responding to Laura: “…”] (the line being answered), [beat: …] (the narration around it), [laughs] (a direction)
+  const RESP = /^\[responding to(?:\s+([^:\]]+?))?\s*:\s*(.+?)\]$/i, BEAT = /^\[beat:\s*(.+)\]$/i, DIR = /^\[([^\]]{1,80})\]$/;
+  const unq = t => t.replace(/^["“”']+|["“”']+$/g, "").trim();
   function tidyLines(lines) {
-    const out = []; let tone = null, fx = "", who = null, carry = null;
+    const out = []; let tone = null, fx = "", who = null, carry = null, dir = "", lastCh = null;
+    const occ = {}, seenAt = {};
     for (const l of lines || []) {
       if (l.who === "CREDITS") continue;
-      if (l.who !== who) { who = l.who; tone = null; fx = ""; }
-      const tm = TONE.exec(l.text);
+      if (l.ch !== lastCh) { lastCh = l.ch; occ[l.ch] = l.ch in seenAt ? occ[l.ch] + 1 : 0; seenAt[l.ch] = true; }
+      if (l.who !== who) { who = l.who; tone = null; fx = ""; dir = ""; }
+      const t = String(l.text || "").trim(), last = out[out.length - 1], sameBlock = last && last.who === l.who && last.ch === l.ch;
+      const tm = TONE.exec(t);
       if (tm) { tone = tm[1].trim(); fx = (tm[2] || "").replace(/^FX:\s*/i, "").trim(); if (l.prev) carry = l.prev; continue; }
-      let x = tone != null && !l.tone ? Object.assign({}, l, { tone, fx: l.fx || fx }) : l;
-      if (carry && !x.prev) x = Object.assign({}, x, { prev: carry }); carry = null;
+      const rm = RESP.exec(t);
+      if (rm) { const pv = { who: (rm[1] || "").trim(), text: unq(rm[2]) }; if (sameBlock && !last.prev) last.prev = pv; else carry = pv; continue; }
+      const bm = BEAT.exec(t);
+      if (bm) { if (sameBlock) last.beat = (last.beat ? last.beat + " " : "") + bm[1].trim(); continue; }
+      const dm = DIR.exec(t);
+      if (dm) { dir = dm[1].trim(); continue; }
+      let x = Object.assign({}, l, { occ: occ[l.ch] || 0 });
+      if (tone != null && !l.tone) { x.tone = tone; x.fx = l.fx || fx; }
+      if (dir) { x.tone = x.tone ? dir + ", " + x.tone : dir; dir = ""; }
+      if (carry && !x.prev) x.prev = carry; carry = null;
       out.push(x);
       if (l.tone) { tone = null; fx = ""; }
     }
@@ -75,15 +90,21 @@
   }
 
   // this chapter's cues from every script: [{ a, b, who, tone, prev, sid }], in reading order
+  // chapters can share a title (two "Interlude: Fated Dreams"): a line goes to the one it matches best, in script order on a tie
+  const sameKey = (book, k) => book.chapters.filter(c => c.included !== false && key(c.title) === k);
   function forChapter(book, chapter, toks) {
-    const out = [], ck = key(chapter.title);
+    const out = [], ck = key(chapter.title), sibs = sameKey(book, ck), me = sibs.indexOf(chapter);
+    const tokOf = new Map(); const tk = c => c === chapter ? toks : (tokOf.get(c) || (tokOf.set(c, Prep.tokens(c)), tokOf.get(c)));
     for (const sc of (book.cues && book.cues.scripts) || []) {
-      let from = 0;
+      const from = new Map();
       for (const l of tidyLines(sc.lines)) {
         if (key(l.ch) !== ck) continue;
-        const p = place(toks, l.text, from); if (!p) continue;
-        from = p.b + 1;
-        out.push({ a: p.a, b: p.b, who: l.whoName || l.who, tone: l.tone, fx: l.fx || "", prev: l.prev, sid: sc.id });
+        let pick = null;
+        sibs.forEach((c, i) => { const p = place(tk(c), l.text, from.get(c) || 0); if (p && (!pick || p.sc > pick.p.sc + 1e-9 || (Math.abs(p.sc - pick.p.sc) < 1e-9 && i === (l.occ || 0)))) pick = { c, i, p }; });
+        if (!pick) continue;
+        from.set(pick.c, pick.p.b + 1);
+        if (pick.c !== chapter) continue;
+        out.push({ a: pick.p.a, b: pick.p.b, who: l.whoName || l.who, tone: l.tone, fx: l.fx || "", prev: l.prev, beat: l.beat || "", sid: sc.id });
       }
     }
     // the same line in two scripts (a full-cast script and an actor's own) is cued once
@@ -93,15 +114,15 @@
 
   // every line that didn't find a home, for the book page
   function unplaced(book, tokensOf) {
-    const res = [], byKey = {};
-    book.chapters.forEach(c => (byKey[key(c.title)] = byKey[key(c.title)] || c));
+    const res = [];
     for (const sc of (book.cues && book.cues.scripts) || []) {
-      const froms = {};
+      const from = new Map();
       for (const l of tidyLines(sc.lines)) {
-        const c = byKey[key(l.ch)];
-        if (!c) { res.push({ sid: sc.id, char: sc.char, ch: l.ch, text: l.text, why: "no chapter called that" }); continue; }
-        const p = place(tokensOf(c), l.text, froms[c.id] || 0);
-        if (!p) res.push({ sid: sc.id, char: sc.char, ch: l.ch, text: l.text, why: "not found in the chapter" }); else froms[c.id] = p.b + 1;
+        const sibs = sameKey(book, key(l.ch));
+        if (!sibs.length) { res.push({ sid: sc.id, char: sc.char, ch: l.ch, text: l.text, why: "no chapter called that" }); continue; }
+        let pick = null;
+        sibs.forEach((c, i) => { const p = place(tokensOf(c), l.text, from.get(c) || 0); if (p && (!pick || p.sc > pick.p.sc + 1e-9 || (Math.abs(p.sc - pick.p.sc) < 1e-9 && i === (l.occ || 0)))) pick = { c, p }; });
+        if (!pick) res.push({ sid: sc.id, char: sc.char, ch: l.ch, text: l.text, why: "not found in the chapter" }); else from.set(pick.c, pick.p.b + 1);
       }
     }
     return res;
