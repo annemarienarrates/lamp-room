@@ -24,7 +24,7 @@
   };
   // Look & feel belongs to a person, not the shared folder: each of you keeps your own on each computer
   // (and two people sharing one computer each keep theirs).
-  const PERSONAL = ["theme", "readFont", "confetti", "encouragement", "celebrations", "combo", "comboHidden", "calm", "goalEarn", "duet", "voiceWave", "confirmations", "progressNotes", "duetCues", "proofMode", "proofModel", "pacer", "proofIgnore", "editorRate"];
+  const PERSONAL = ["theme", "readFont", "confetti", "encouragement", "celebrations", "combo", "comboHidden", "calm", "goalEarn", "duet", "voiceWave", "confirmations", "progressNotes", "duetCues", "proofMode", "proofModel", "pacer", "proofIgnore", "editorRate", "cueTags", "cueWin"];
   // browser-remembered things that are also personal (hotkeys, text size, track height, zoom, pre-roll…)
   const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|done-open|dash-mode|dash-sort|xproof|xspace|matchlvl|castwords)$/;
   const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
@@ -228,7 +228,7 @@
     async pickSharedFolder() { return window.showDirectoryPicker({ id: "lamp-room-shared", mode: "readwrite", startIn: "documents" }); },
     projectSnapshot(book) {
       const ch = book.chapters.map(c => ({ id: c.id, title: c.title, included: c.included, paras: c.paras, words: c.words, credits: c.credits || null, pov: c.pov || null }));
-      return { v: 1, id: book.id, title: book.title, author: book.author || "", series: book.series || "", client: book.client || "", clientId: book.clientId || "", credits: book.credits || {}, parts: book.parts || {}, chapters: ch, people: book.sharedPeople || [], owner: book.sharedOwner || "", updated: new Date().toISOString() };
+      return { v: 1, id: book.id, title: book.title, author: book.author || "", series: book.series || "", client: book.client || "", clientId: book.clientId || "", credits: book.credits || {}, parts: book.parts || {}, cues: book.cues || null, chapters: ch, people: book.sharedPeople || [], owner: book.sharedOwner || "", updated: new Date().toISOString() };
     },
     async writeProject(book) {
       const h = await this.sharedHandle(book); if (!h) return false;
@@ -254,7 +254,7 @@
       const p = await this.readProject(h); if (!p) throw new Error("That folder has no project.json. Choose the book's shared folder (the one with Chapters, Pickups and Finished in it).");
       let book = this.byId(p.id);
       if (!book) {
-        book = { id: p.id, title: p.title, author: p.author, series: p.series, client: p.client, clientId: p.clientId, credits: p.credits, parts: p.parts, status: "active", chapters: p.chapters.map(c => Object.assign({}, c, { status: "todo" })), shared: true, sharedPeople: p.people, sharedOwner: p.owner, sharedUpdated: p.updated };
+        book = { id: p.id, title: p.title, author: p.author, series: p.series, client: p.client, clientId: p.clientId, credits: p.credits, parts: p.parts, cues: p.cues || null, status: "active", chapters: p.chapters.map(c => Object.assign({}, c, { status: "todo" })), shared: true, sharedPeople: p.people, sharedOwner: p.owner, sharedUpdated: p.updated };
         await this.createBook(book);
       } else { book.shared = true; book.sharedPeople = p.people; book.sharedOwner = p.owner; }
       await this.rememberShared(book, h);
@@ -269,6 +269,8 @@
       const old = Object.fromEntries(book.chapters.map(c => [c.id, c]));
       book.chapters = p.chapters.map(c => Object.assign(old[c.id] || { status: "todo" }, { title: c.title, included: c.included, paras: c.paras, words: c.words, credits: c.credits, pov: c.pov }));
       Object.assign(book, { title: p.title, author: p.author, series: p.series, client: p.client, clientId: p.clientId, credits: p.credits, parts: p.parts, sharedPeople: p.people, sharedOwner: p.owner, sharedUpdated: p.updated });
+      // character scripts: the owner's, plus any this person added for themselves
+      if (p.cues && p.cues.scripts) { const theirs = new Set(p.cues.scripts.map(x => x.id)); book.cues = { scripts: [...p.cues.scripts, ...((book.cues && book.cues.scripts) || []).filter(x => !theirs.has(x.id) && x.mine)] }; }
       await this.writeBook(book); return true;
     },
 
