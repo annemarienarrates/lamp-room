@@ -73,8 +73,11 @@
     const cands = [];
     const tryAt = s => {
       let j = s, hit = 0, last = s;
-      for (const w of W) {
+      for (let wi = 0; wi < W.length; wi++) {
+        const w = W[wi];
         let k = -1; for (let d = 0; d <= 2 && j + d < toks.length; d++) if (toks[j + d].k === w) { k = j + d; break; }
+        // a script often joins a line split by a dialogue tag ("…interrupting," Bobbi said, "Grace mentioned…"): jump the tag
+        if (k < 0 && hit >= 1 && wi + 1 < W.length) for (let d = 3; d <= 40 && j + d + 1 < toks.length; d++) if (toks[j + d].k === w && toks[j + d + 1].k === W[wi + 1]) { k = j + d; break; }
         if (k >= 0) { hit++; last = k; j = k + 1; }
       }
       cands.push({ a: s, b: last, sc: hit / W.length });
@@ -91,14 +94,19 @@
 
   // this chapter's cues from every script: [{ a, b, who, tone, prev, sid }], in reading order
   // chapters can share a title (two "Interlude: Fated Dreams"): a line goes to the one it matches best, in script order on a tie
-  const sameKey = (book, k) => book.chapters.filter(c => c.included !== false && key(c.title) === k);
+  // "Chapter 1" in a script is "Chapter 1: Power Plays" in the book (but never "Chapter 10")
+  const headMatch = (a, b) => a === b || (a.length < b.length ? b.startsWith(a + " ") : a.startsWith(b + " "));
+  const sameKey = (book, k) => { const inc = book.chapters.filter(c => c.included !== false), ex = inc.filter(c => key(c.title) === k); return ex.length ? ex : inc.filter(c => headMatch(key(c.title), k)); };
   function forChapter(book, chapter, toks) {
-    const out = [], ck = key(chapter.title), sibs = sameKey(book, ck), me = sibs.indexOf(chapter);
+    const out = [], ck = key(chapter.title);
     const tokOf = new Map(); const tk = c => c === chapter ? toks : (tokOf.get(c) || (tokOf.set(c, Prep.tokens(c)), tokOf.get(c)));
     for (const sc of (book.cues && book.cues.scripts) || []) {
       const from = new Map();
+      const sibOf = new Map();
       for (const l of tidyLines(sc.lines)) {
-        if (key(l.ch) !== ck) continue;
+        const lk = key(l.ch); if (!headMatch(lk, ck)) continue;
+        if (!sibOf.has(lk)) sibOf.set(lk, sameKey(book, lk));
+        const sibs = sibOf.get(lk); if (!sibs.includes(chapter)) continue;
         let pick = null;
         sibs.forEach((c, i) => { const p = place(tk(c), l.text, from.get(c) || 0); if (p && (!pick || p.sc > pick.p.sc + 1e-9 || (Math.abs(p.sc - pick.p.sc) < 1e-9 && i === (l.occ || 0)))) pick = { c, i, p }; });
         if (!pick) continue;
