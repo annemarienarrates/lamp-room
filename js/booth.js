@@ -86,6 +86,8 @@
   const progOf = (c, r) => { c.prog = c.prog || {}; return c.prog[r] = c.prog[r] || { pos: 0, readTo: 0, done: false, boothSec: 0 }; };
   const prog = () => progOf(B.chap, B.readingAs);
   // tracks belong to the book (per reader): name, volume (dB), mute, solo
+  // the chapter's own name for buttons ("Chapter 3", "Opening Credits"), never its place in the file list
+  function chLabel() { const t = String((B && B.chap && B.chap.title) || "").split(/[:—–]/)[0].trim() || "this chapter"; return t.length > 22 ? t.slice(0, 21) + "…" : t; }
   function trackSet() {
     B.book.trackSet = B.book.trackSet || {};
     const ts = B.book.trackSet[B.readingAs] = B.book.trackSet[B.readingAs] || [{ name: B.readingAs, vol: 0, mute: false, solo: false }];
@@ -169,10 +171,10 @@
       <div class="bd-grp">${bt("track", ICON.rows + " Track " + (B.track + 1) + "/" + nt, { dis: rec, tip: "Next track (T)" })}${bt("addTrack", "+ Track", { dis: rec || nt >= MAX_TRACKS, tip: "Add a track to every chapter (Shift+T)" })}</div>
       <div class="bd-grp bd-textzoom">${bt("tsm", "A−", { tip: "Smaller text (" + kl("textSmaller") + ", or ⌘ + scroll over the text)" })}<span class="bd-zl">${Math.round(zoom() * 100)}%</span>${bt("tbg", "A+", { tip: "Larger text (" + kl("textBigger") + ")" })}</div>
       <div class="bd-grp">${bt("smaller", "▾", { tip: "Shorter tracks ([)" })}${bt("bigger", "▴", { tip: "Taller tracks (])" })}${bt("zout", "−", { tip: "Zoom out (−)" })}${bt("zin", "＋", { tip: "Zoom in (=)" })}</div>
-      <div class="bd-grp">${bt("readHere", ICON.dl + " Read from here", { dis: rec, tip: "Move your reading position to the start of this chapter" })}${bt("resetCh", ICON.reset + " Reset Ch " + n, { dis: rec, tip: "Clear read marks, booth time and completion on this chapter (recordings are kept)" })}</div>
+      <div class="bd-grp">${bt("readHere", ICON.dl + " Read from here", { dis: rec, tip: "Move your reading position to the start of this chapter" })}${bt("resetCh", ICON.reset + " Reset " + chLabel(), { dis: rec, tip: "Clear read marks, booth time and completion on this chapter (recordings are kept)" })}</div>
       <label class="bd-fld" title="How much of the lead-in plays before a punch-in starts recording"><span>Pre-roll</span><select class="stu-sel" data-b="pre">${[0, 1, 2, 3, 4, 5, 8, 10, 15, 20, 30].map(v => `<option value="${v}" ${v === B.prerollSec ? "selected" : ""}>${v ? v + " s" : "Off"}</option>`).join("")}</select></label>
       <span style="flex:1"></span>
-      ${bt("chDone", ICON.check + " " + (done ? "Completed · reopen" : "Mark Ch " + n + " complete"), { cls: done ? "" : "bd-done", dis: rec, tip: done ? "This chapter is marked complete. Click to reopen it." : "Mark this chapter complete: stops its booth clock and offers to export it" })}
+      ${bt("chDone", ICON.check + " " + (done ? "Completed · reopen" : "Mark " + chLabel() + " complete"), { cls: done ? "" : "bd-done", dis: rec, tip: done ? "This chapter is marked complete. Click to reopen it." : "Mark this chapter complete: stops its booth clock and offers to export it" })}
       ${bt("export", ICON.dl + " Export chapter", { cls: "stu-rec", dis: rec || !T().hasAudio(B.audio), tip: "Export as WAV, MP3, or raw for Auphonic" })}
       <span class="stu-note" id="bd-busy">${esc(B.busyTxt || "")}</span>
       ${bt("keys", ICON.kbd + " Hotkeys", { cls: "bd-quiet" })}`;
@@ -233,7 +235,7 @@
     if (a === "zin" || a === "zout") return setZoom(a === "zin" ? 1.5 : 1 / 1.5);
     if (a === "bigger" || a === "smaller") return laneSize(a === "bigger" ? 1.3 : 1 / 1.3);
     if (a === "readHere") { B.f.set(0); prog().pos = B.f.pos; Store.saveBook(B.book); markPos(true); return; }
-    if (a === "resetCh") { if (!confirm(`Clear read marks, booth time and completion on chapter ${B.ci + 1} for ${B.readingAs}? Recordings are kept.`)) return; B.chap.prog[B.readingAs] = { pos: 0, readTo: 0, done: false, boothSec: 0 }; delete B.bRun[B.ci]; Store.saveBook(B.book); openChapter(B.ci); return; }
+    if (a === "resetCh") { if (!confirm(`Clear read marks, booth time and completion on ${chLabel()} for ${B.readingAs}? Recordings are kept.`)) return; B.chap.prog[B.readingAs] = { pos: 0, readTo: 0, done: false, boothSec: 0 }; delete B.bRun[B.ci]; Store.saveBook(B.book); openChapter(B.ci); return; }
     if (a === "chDone") { if (prog().done) { prog().done = false; Store.saveBook(B.book); bookCounts(); renderEditBar(); renderSide(); } else chapterComplete(true); return; }
     if (a === "keys") return hotkeys();
     if (a === "export") return exportDialog();
