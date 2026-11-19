@@ -523,6 +523,7 @@
     $$("[data-delcast]").forEach(b => b.onclick = () => { book.cast.splice(+b.dataset.delcast, 1); save(true); });
     const mk = $("#mkparts"); if (mk) mk.onclick = () => { book.parts = { n: Store.me() || (S.narrators[0] || {}).name }; save(true); };
     $$("[data-part]").forEach(el => el.onchange = () => { book.parts[el.dataset.part] = el.value; save(true); });
+    $$("[data-castname]").forEach(el => el.onchange = () => { book.castNames = book.castNames || {}; const v = el.value.trim(); if (v) book.castNames[el.dataset.castname] = v; else delete book.castNames[el.dataset.castname]; save(true); });
     const np = $("#noparts"); if (np) np.onclick = () => { if (!confirm("Turn off parts? Everyone's lines count as one reader again.")) return; delete book.parts; save(true); };
     const ac = $("#addcast"); if (ac) ac.onclick = () => { book.cast = book.cast || []; const used = book.cast.map(c => c.name); const n = S.narrators.find(x => !used.includes(x.name)) || S.narrators[0]; book.cast.push({ name: n.name, share: book.cast.length ? 0 : 100 }); save(true); };
     $("#archive").onclick = () => { book.status = book.status === "archived" ? "active" : "archived"; save(false); location.hash = "#/library"; };
@@ -549,9 +550,9 @@
     return `<div style="margin-top:14px"><div class="row" style="align-items:center"><div class="small muted">Who reads what — from the highlight colours in the manuscript</div><div class="spacer"></div><button class="btn small quiet" id="noparts">Turn off parts</button></div>
       <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
       ${keys.map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
-        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k])}</select></td></tr>`).join("")}
-      </tbody></table>
-      <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(k) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
+        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k], book)}</select>${CAST.includes(book.parts[k]) ? ` <input class="cast-real" data-castname="${book.parts[k]}" value="${esc((book.castNames || {})[book.parts[k]] || "")}" placeholder="their name" list="castpeople" title="Who ${book.parts[k]} is: shown to you and the editor in the Booth" style="width:150px">` : ""}</td></tr>`).join("")}
+      </tbody></table><datalist id="castpeople">${(book.sharedPeople || []).filter(x => x.role === "outside").map(x => `<option value="${esc(x.name)}">`).join("")}</datalist>
+      <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(Store.castName(book, k)) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
   }
   function setStatus(book, c, v) {
     const before = c.status; c.status = v; Store.saveBook(book);
@@ -717,9 +718,9 @@
   }
   // who can read a part: the two of you, plus outside cast who just send files
   const CAST = ["Cast 1", "Cast 2", "Cast 3", "Cast 4"];
-  function readerOptions(sel) {
+  function readerOptions(sel, book) {
     const S = Store.settings, names = S.narrators.map(n => n.name);
-    return `<optgroup label="Narrators">${names.map(n => `<option ${sel === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup><optgroup label="Outside cast (send files)">${CAST.map(n => `<option ${sel === n ? "selected" : ""}>${n}</option>`).join("")}</optgroup>`;
+    return `<optgroup label="Narrators">${names.map(n => `<option ${sel === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup><optgroup label="Outside cast (send files)">${CAST.map(n => `<option value="${n}" ${sel === n ? "selected" : ""}>${n}${book && Store.castName(book, n) !== n ? " · " + esc(Store.castName(book, n)) : ""}</option>`).join("")}</optgroup>`;
   }
   const partSwatch = k => ({ n: "transparent", m: "#BDD7EE", f: "#F8CBDE", s: "#FFF59D" }[k] || Prep.colorCss(k));
   // highlight colours found in the manuscript → who reads each
