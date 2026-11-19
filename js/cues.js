@@ -86,7 +86,9 @@
         out.push({ a: p.a, b: p.b, who: l.whoName || l.who, tone: l.tone, fx: l.fx || "", prev: l.prev, sid: sc.id });
       }
     }
-    return out.sort((x, y) => x.a - y.a);
+    // the same line in two scripts (a full-cast script and an actor's own) is cued once
+    const seen = new Set();
+    return out.sort((x, y) => x.a - y.a).filter(q => { const k = q.a + "|" + q.who.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
   }
 
   // every line that didn't find a home, for the book page
