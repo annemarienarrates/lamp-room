@@ -50,7 +50,7 @@
         ["Markers", "M drops a flub marker to fix later. N drops a named marker (it goes into your WAV export)."],
         ["Two clocks", "Booth time counts the time you spend on the chapter (it pauses after a few idle minutes; click it to pause or start). FH is the finished length of the audio."],
         ["Level check", "🎚 Level: speak at narration volume and aim for the green band."],
-        ["Mark complete", "When the chapter's done, press Mark Ch complete. It stops the booth clock, celebrates and offers to export."],
+        ["Mark complete", "When the chapter's done, press Mark (chapter name) complete. It stops the booth clock, celebrates and offers to export."],
         ["Text size", "A− and A+ in the top bar, ⌘− / ⌘=, or hold ⌘ and scroll over the text. Drag the line above the tracks to make them taller or shorter."],
         ["↓ and ↑", "Jump to the start of your next line, or back to your previous one. Not recording, the playhead follows if that line is recorded."],
         ["Chapters", "The Chapters tab, next to Tools on the left, lists every chapter with words left and time spent. Click one to jump to it."],
