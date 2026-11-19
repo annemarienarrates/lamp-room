@@ -17,7 +17,7 @@
     for (const b of blocks) {
       const t = String(b.text || "").replace(/\s+/g, " ").trim();
       if (!t) continue;
-      const m0 = /actor script\s*[—–-]\s*(.+)$/i.exec(t);
+      const m0 = /\b(?:actor|duet|cast|partner|character)\s+script\s*[—–-]\s*(.+)$/i.exec(t);
       if (m0 && !char) { char = m0[1].trim(); continue; }
       if (b.heading) { ch = t; sawHead = true; who = null; prev = null; continue; }
       if (!sawHead) continue;                                   // title page and highlight key
