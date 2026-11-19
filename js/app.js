@@ -294,7 +294,7 @@
         return `<div class="project-card ${t.status === "done" ? "completed" : t.starred ? "is-current" : ""}" data-tid="${esc(t.id)}">
           <div class="pc-head">${cover(t.id, t.color, (t.name || "?")[0])}
             <div class="pc-title">${esc(t.name)}<div class="project-meta" style="margin-top:3px">${t.kind === "author" ? "Author work" + (t.series ? " · " + esc(t.series) + (t.seriesNo ? " #" + t.seriesNo : "") : "") : esc([t.client, LL.CAT[t.category]].filter(Boolean).join(" · "))}</div></div>
-            <div class="pc-icons"><button data-coverpick="${esc(t.id)}" title="Add a cover">🖼</button>${t.kind !== "author" ? `<a href="#/import?title=${esc(t.id)}" data-booth title="Add the manuscript">📖</a>` : ""}</div></div>
+            <div class="pc-icons"><button data-coverpick="${esc(t.id)}" title="Add a cover">🖼</button>${t.kind !== "author" ? `<a href="#/import?title=${esc(t.id)}" data-booth title="Add the manuscript">📖</a>` : `<a href="../writing-desk/${Store.testMode ? "?test" : ""}#/title/${encodeURIComponent(t.id)}" target="writing-desk" data-booth title="Open in the Writing Desk">✒</a>`}</div></div>
           <div class="pc-bar"><i style="width:${stg.length ? 100 * dn / stg.length : 0}%"></i></div>
           <div class="project-meta">${dn} / ${stg.length} stages · ${stg.filter(s => !s.done).slice(0, 1).map(s => "next: " + esc(LL.stageLabel(s))).join("")}</div>
           ${t.kind !== "author" && LL.partWords(t) ? `<div class="project-meta">${num(LL.partWords(t))} words · ${LL.titleFH(t).toFixed(2)} FH</div>` : ""}
