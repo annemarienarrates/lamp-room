@@ -666,7 +666,8 @@ html[data-theme="phosphor"] { background: radial-gradient(1100px 600px at 50% -1
   --shadow: 0 0 0 1px #ff1f3d1a, 0 8px 24px #000c; --shadow2: 0 0 30px -10px #ff1f3d99, 0 10px 30px -12px #000;
   --lane: #030102; --lane2: #0d0305; --tick: #5a1820; --tick-ink: #d6a84a; --wave: #e0142f; --wave2: #d6a84a;
   --head: #120507; --head-line: #3a0f15; --head-sel: #3a0710; --head-btn: #240a0e; --head-ink: #f6e9e9; }
-[data-theme="sanguine"] body { background: radial-gradient(1000px 520px at 50% -12%, #3a0610 0%, transparent 62%), radial-gradient(700px 400px at 100% 100%, #2a040b55, transparent 60%), #050203; }
+html[data-theme="sanguine"] { background: radial-gradient(1000px 520px at 50% -12%, #3a0610 0%, transparent 62%), radial-gradient(700px 400px at 100% 100%, #2a040b55, transparent 60%), #050203; }
+[data-theme="sanguine"] body { background: transparent; }
 [data-theme="sanguine"] body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9400; background: radial-gradient(ellipse at center, transparent 55%, rgba(30,0,6,.55) 100%); animation: sgCandle 5.5s ease-in-out infinite; }
 @keyframes sgCandle { 0%, 100% { opacity: .85; } 18% { opacity: 1; } 31% { opacity: .78; } 47% { opacity: .95; } 63% { opacity: .82; } 80% { opacity: 1; } }
 [data-theme="sanguine"] h1, [data-theme="sanguine"] h2, [data-theme="sanguine"] .brand { font-family: var(--black); font-weight: 400; letter-spacing: .01em; color: #ffe9ea; text-shadow: 0 0 6px #ff1f3d, 0 0 18px #ff1f3d88, 0 0 36px #a0001844; }
@@ -684,7 +685,15 @@ html[data-theme="phosphor"] { background: radial-gradient(1100px 600px at 50% -1
 [data-theme="sanguine"] #ms-page { background: #0e0406; border-color: #3a0f15; box-shadow: 0 0 0 1px #ff1f3d1c, 0 0 50px -20px #ff1f3d, 0 20px 40px -20px #000; }
 [data-theme="sanguine"] body.read-serif .ms { font-size: 1.08em; }
 [data-theme="sanguine"] .ms > p:first-child { font-family: var(--black); font-size: 1.9em; color: #ffe9ea; text-shadow: 0 0 10px #ff1f3d66; line-height: 1.3; }
-[data-theme="sanguine"] .ms .w.cur { background: #ff1f3d33; box-shadow: 0 0 0 2px #ff1f3d33, 0 0 14px -3px #ff1f3d; color: #fff; }
+[data-theme="sanguine"] .ms .w.cur { position: relative; z-index: 0; background: #ff1f3d2e; border-radius: 3px; box-shadow: 0 0 0 1px #ff1f3d55, 0 0 14px -3px #ff1f3d; color: #fff; animation: sqInk 1.1s ease-out both, sqFlame 3.2s ease-in-out 1.1s infinite; }
+/* the ink bleeds into the page as you reach the word; the candle under the line flickers */
+[data-theme="sanguine"] .ms .w.cur::before { content: ""; position: absolute; left: -220px; right: -220px; top: 50%; height: 1.6em; transform: translateY(-50%); z-index: -1; pointer-events: none; background: radial-gradient(closest-side, #ff7a3a40, #c8102e22 55%, transparent); animation: sqCandle 2.7s ease-in-out infinite; }
+@keyframes sqInk { 0% { text-shadow: 0 0 0 #ff1f3d00; box-shadow: 0 0 0 0 #ff1f3d00; } 35% { text-shadow: 0 0 2px #ff1f3d, 0 0 22px #ff1f3daa; box-shadow: 0 0 0 4px #ff1f3d40, 0 0 26px 2px #ff1f3d88; } 100% { text-shadow: 0 0 8px #ff1f3d88; box-shadow: 0 0 0 1px #ff1f3d55, 0 0 14px -3px #ff1f3d; } }
+@keyframes sqFlame { 0%, 100% { text-shadow: 0 0 8px #ff1f3d88; } 40% { text-shadow: 0 0 10px #ff5a3a99, 0 0 2px #ffb36a66; } 70% { text-shadow: 0 0 6px #ff1f3d77; } }
+@keyframes sqCandle { 0%, 100% { opacity: .85; } 20% { opacity: .65; } 35% { opacity: .95; } 55% { opacity: .7; } 80% { opacity: 1; } }
+#lr-rain.fx-candle { opacity: .9; }
+html.fx-calm[data-theme="sanguine"] .ms .w.cur, html.fx-calm[data-theme="sanguine"] .ms .w.cur::before { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { [data-theme="sanguine"] .ms .w.cur, [data-theme="sanguine"] .ms .w.cur::before { animation: none !important; } }
 [data-theme="sanguine"] .trk-head.sel { box-shadow: 0 0 14px -3px #ff1f3d; }
 [data-theme="sanguine"] #cele-words .cw-title { font-family: var(--black); font-weight: 400; text-transform: none; letter-spacing: .01em; }
 /* the record button can't hide in a red theme: white-hot when you're live */
