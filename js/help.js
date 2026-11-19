@@ -91,6 +91,7 @@
       ] },
     { id: "duets", icon: "👥", title: "Duets", lead: "Whoever narrates the chapter is the lead. The other person records only their lines and sends them over.",
       items: [
+        ["Recorded somewhere else", "Lines from Audition or anywhere: Collaborate ▸ 📥 Bring in my lines from a file. Cut at clicks, WAV markers or pauses, matched by the words, laid on your track to check and send. Words count; booth time doesn't."],
         ["If you're not the lead", "Record all your lines straight through, with a breath between them, and press C at the end of each one: the cutter splits exactly there. Then Tools ▸ Collaborate ▸ 📤 Send my lines. Each line is cut out and lands in the shared folder."],
         ["Chapter done", "When the co-narrator marks a chapter complete, the done card offers 📤 Send my lines, so the lead gets them straight away."],
         ["If you're the lead", "Your partner's lines arrive on their own. Just read: when you finish the line before theirs and go quiet, their line drops in on their track (and plays in your headphones if you like). Wait for “Your turn”, then carry on."],

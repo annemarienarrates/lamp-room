@@ -449,6 +449,7 @@
       case "pkrec": { const q = pkForMe().find(z => z.id === x); if (q) pickupRecorder(q); return; }
       case "pkcopy": return copyCastList(x);
       case "pkdrop": { const f = await pickAudioFile(); if (f) return castPickupDrop(x, f); return; }
+      case "impmine": { const f = await pickAudioFile(); if (f) return importMine(f); return; }
       case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) toggleAud("pk:" + x, () => playPickupReply(q, "pk:" + x)); return; }
       case "pkin": return applyPickups();
       case "pkcancel": return cancelPickup(x);
@@ -2063,6 +2064,7 @@
       return `<div class="bd-sec"><b>You're reading for ${esc(lead)}</b><div class="stu-note">${esc(lead)} narrates this chapter. Record your ${runs.length} line${runs.length === 1 ? "" : "s"} (${num(runs.reduce((a, x) => a + x.words, 0))} words) straight through, with a breath between lines. Then <b>Send</b>: each line is cut out by your word timing and the pauses around it, and lands in the shared Library where ${esc(lead)}'s Booth picks it up.</div>
           <div class="fx-chips"><button class="stu-btn stu-rec" data-p="send" ${dis} ${len() ? "" : "disabled"}>${B.busy === "send" ? "Sending…" : "📤 Send my lines"}</button><button class="stu-btn" data-p="sendcopy" ${dis} ${len() ? "" : "disabled"} title="Also save the lines in a folder you choose (to share another way)">Send + save a copy…</button></div>
           ${s ? `<div class="co-chips"><span class="ok">${s.n} sent</span>${s.guessed ? `<span class="warn">${s.guessed} placed by pauses (no word timing)</span>` : ""}${s.missing ? `<span class="warn">${s.missing} not found in the recording</span>` : ""}</div>` : ""}</div>
+        <div class="bd-sec"><b>Recorded somewhere else?</b><div class="stu-note">Bring in a file of your lines from Audition or anywhere: it's cut at the clicks, markers or pauses between lines, each piece matched to its line by the words, and laid on your track in order. Then it's yours to check and send like a Booth recording. Its words count toward your day; booth time doesn't.</div><div class="fx-chips"><button class="stu-btn" data-p="impmine" ${dis} ${runs.length ? "" : "disabled"}>${B.busy === "import" ? "Bringing in…" : "📥 Bring in my lines from a file…"}</button></div></div>
         <div class="bd-sec"><b>Your lines</b>${runs.map((x, i) => `<div class="co-line"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 18)))}</span><span></span></div>`).join("") || `<div class="stu-note">None in this chapter.</div>`}</div>`;
     }
     const runs = theirRuns();
@@ -3029,6 +3031,62 @@
     toast("🔁 " + n + " missing line" + (n === 1 ? "" : "s") + " added to " + r + "'s pickups." + (isNarrator(r) ? "" : " Pickups ▸ Copy the list to send them."));
     renderSide();
   }
+  // markers saved inside a WAV (Audition: Include markers and other metadata), in seconds
+  async function wavMarkers(file) {
+    try {
+      const v = new DataView(await file.arrayBuffer()); if (v.getUint32(0, false) !== 0x52494646 || v.getUint32(8, false) !== 0x57415645) return [];
+      let sr = 0, out = [], i = 12;
+      while (i + 8 <= v.byteLength) {
+        const id = String.fromCharCode(v.getUint8(i), v.getUint8(i + 1), v.getUint8(i + 2), v.getUint8(i + 3)), sz = v.getUint32(i + 4, true);
+        if (id === "fmt ") sr = v.getUint32(i + 12, true);
+        if (id === "cue ") { const n = v.getUint32(i + 8, true); for (let k = 0; k < n; k++) { const o = i + 12 + k * 24; if (o + 24 > v.byteLength) break; const pos = v.getUint32(o + 4, true), so = v.getUint32(o + 20, true); out.push(so || pos); } }
+        i += 8 + sz + (sz & 1);
+      }
+      return sr ? out.map(x => x / sr).sort((a, b) => a - b) : [];
+    } catch (e) { return []; }
+  }
+  // a marker inside a stretch of speech splits it there
+  function splitAtMarks(segs, marks) {
+    let out = segs.slice();
+    for (const m of marks) { const k = out.findIndex(s => s.a + 0.2 < m && m < s.b - 0.2); if (k >= 0) { const s = out[k]; out.splice(k, 1, Object.assign({}, s, { b: m - 0.03 }), Object.assign({}, s, { a: m + 0.03 })); } }
+    return out;
+  }
+  // my own lines, recorded somewhere else: cut, matched by words, laid on my track in reading order with word timing, so Send works as usual
+  async function importMine(file) {
+    if (B.rec || B.busy || !file) return;
+    if (!(await ensureStudio())) return;
+    const runs = myRuns(); if (!runs.length) { toast("You have no lines in this chapter."); return; }
+    if (T().hasAudio(B.audio) && !confirm("This chapter already has audio. Replace it with the lines from " + file.name + "? (Undo brings it back.)")) return;
+    B.busy = "import"; renderSide(); busyNote("Reading " + file.name + "…"); pushUndo();
+    try {
+      const R = LRAudio.RATE, x = await decodeFile(file), marks = await wavMarkers(file), L0 = x.length / R;
+      const targets = runs.map(run => ({ ci: B.ci, c: B.chap, run }));
+      let { segs, mode } = cutTakes(x, targets.length); segs = splitAtMarks(segs, marks);
+      let pairs = null;
+      if (window.LRProof && Store.lsGet("lr-castwords") !== "0") {
+        try { pairs = await matchByWords(x, segs, targets, B.readingAs); } catch (e) { console.warn(e); toast("Couldn't listen to the file (" + e.message + "), so lines were matched in order."); }
+      }
+      if (!pairs) pairs = segs.slice(0, targets.length).map((s, i) => [i, i]);
+      pairs.sort((p, q) => p[1] - q[1]);
+      const d = await Store.chapterAudioDir(B.book, B.chap), stamp = Date.now().toString(36), clips = [], anchors = [];
+      let at = 0.5, last = -1;
+      for (let k = 0; k < pairs.length; k++) {
+        const [si, ti] = pairs[k], s = segs[si], run = targets[ti].run, h0 = Math.min(0.15, s.a), h1 = Math.min(0.15, L0 - s.b);
+        busyNote("Placing your lines… " + (k + 1) + " / " + pairs.length);
+        const piece = x.slice(Math.round((s.a - h0) * R), Math.round((s.b + h1) * R)), name = "imp-" + stamp + "-" + String(k + 1).padStart(3, "0") + ".wav";
+        const w = await LRAudio.WavWriter.create(d, name, R); w.push(piece); await w.close();
+        const dur = piece.length / R; clips.push({ file: name, off: 0, dur, at });
+        anchors.push([at + h0, run.from], [at + dur - h1, run.to + 1]); at += dur + 0.6; last = Math.max(last, run.to + 1);
+      }
+      B.audio.tracks = [{ clips }]; B.audio.anchors = anchors; B.audio.markers = [];
+      const missing = targets.filter((t, j) => !pairs.some(p => p[1] === j));
+      if (last > 0) { const p = prog(); advanced(p.readTo || 0, Math.max(p.readTo || 0, last)); p.pos = last; }
+      flushSession(); edited(); loadPeaks();
+      notice("📥 " + pairs.length + " of your " + targets.length + " lines brought in from " + file.name + (marks.length ? " (" + marks.length + " marker" + (marks.length === 1 ? "" : "s") + " used)" : "") + "." +
+        (missing.length ? " Not in the file: " + missing.map(t => "“" + short(t.run.text, 6) + "”").join(", ") + ". Record those here, then send." : " Check it over, then send."));
+    } catch (e) { toast("Couldn't bring that file in: " + e.message); }
+    finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
+  }
   async function castDropPick(r) { const f = await pickAudioFile(); if (f) return castDrop(r, f); }
 
   // ---- pickups: the lead asks, the reader re-records and sends, it replaces the old line in the timeline ----
@@ -3179,5 +3237,5 @@
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { markPos, renderCueWin, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { markPos, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();
