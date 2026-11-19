@@ -53,7 +53,15 @@
     const w = await fh.createWritable(); await w.write(data); await w.close();
   }
 
+  // "Anne" is "Anne Marie" on a people list (a first name matches a full name), but "Anne Marie" isn't "Anne Smith"
+  function samePerson(a, b) {
+    const n = x => String(x || "").toLowerCase().replace(/\s+/g, " ").trim(); a = n(a); b = n(b);
+    if (!a || !b) return false; if (a === b) return true;
+    const A = a.split(" "), B = b.split(" ");
+    return (A.length === 1 || B.length === 1) && A[0] === B[0];
+  }
   const Store = {
+    samePerson,
     root: null, settings: Object.assign({}, DEFAULT_SETTINGS), books: [], testMode: false, lastError: null,
     supported: typeof window.showDirectoryPicker === "function",
 
@@ -258,7 +266,7 @@
         await this.createBook(book);
       } else { book.shared = true; book.sharedPeople = p.people; book.sharedOwner = p.owner; }
       await this.rememberShared(book, h);
-      if (me && !(book.sharedPeople || []).some(x => x.name === me)) { /* not on the list: they can still open it read-only */ }
+      if (me && !(book.sharedPeople || []).some(x => samePerson(x.name, me))) { /* not on the list: they can still open it read-only */ }
       await this.writeBook(book); return book;
     },
     // a joined book takes the owner's newer text (keeping its own recordings and progress)

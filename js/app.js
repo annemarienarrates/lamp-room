@@ -208,7 +208,7 @@
   }
   // the people recording on this computer (Settings ▸ Narrators): in a full-cast book, only their lines are "ours"
   const oursName = n => n && n !== "?" && Store.settings.narrators.some(x => x.name === n);
-  const roleIn = book => { if (!book.shared) return null; const x = (book.sharedPeople || []).find(p => p.name === Store.me()); return x ? x.role : null; };
+  const roleIn = book => { if (!book.shared) return null; const x = (book.sharedPeople || []).find(p => Store.samePerson(p.name, Store.me())); return x ? x.role : null; };
   const chapCache = new Map();
   function chapterReaders(book) {
     const key = book.id + "|" + book.updated; if (chapCache.has(key)) return chapCache.get(key);
@@ -808,7 +808,7 @@
     return `<details class="card" id="sharedc" ${sharedOpenUI[book.id] ? "open" : ""}><summary>Shared project <span class="small muted" id="shstat">· checking…</span></summary>
       <p class="small muted" style="margin-top:10px">${owner ? "You own this book's shared folder: changes to the text, parts and credits go there when you save." : "Shared by " + esc(book.sharedOwner || "the owner") + ". Their text updates come to you when you open the book."}</p>
       <div class="section-label">Who's on it</div>
-      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${x.name && x.name === (book.sharedOwner || me) && x.role !== "editor" ? `<label class="check" title="Only the book's owner can edit alongside reading: you record and send your part, then each chapter opens to you as its editor"><input type="checkbox" ${owner ? "" : "disabled"} data-shedit="${i}" ${x.edits ? "checked" : ""}> Also edits</label>` : ""}${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
+      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${x.name && Store.samePerson(x.name, book.sharedOwner || me) && x.role !== "editor" ? `<label class="check" title="Only the book's owner can edit alongside reading: you record and send your part, then each chapter opens to you as its editor"><input type="checkbox" ${owner ? "" : "disabled"} data-shedit="${i}" ${x.edits ? "checked" : ""}> Also edits</label>` : ""}${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
       <p class="small muted">Someone reading without the Lamp Room? Set them to <b>Outside (sends a file)</b>: chapters don't wait on them, and the editor (or the lead) drops their recording into the Booth's 🤝 Collaborate tab.</p>
       ${owner ? `<button class="btn small" id="shadd">+ Person</button>${narr.filter(n => !people.some(x => x.name === n)).length ? ` <button class="btn small quiet" id="shfill">Add everyone reading parts</button>` : ""}` : ""}
       <div class="row" style="margin-top:10px"><button class="btn small" id="shconn">Connect this computer to the folder…</button><div class="spacer"></div>${owner ? `<button class="btn small" id="shpush">Update the shared copy now</button>` : ""}</div></details>`;
@@ -831,7 +831,7 @@
     $$("[data-shedit]", el).forEach(i => i.onchange = () => { book.sharedPeople[+i.dataset.shedit].edits = i.checked; sharedOpenUI[book.id] = true; save(true); });
     $$("[data-shpdel]", el).forEach(b => b.onclick = () => { book.sharedPeople.splice(+b.dataset.shpdel, 1); sharedOpenUI[book.id] = true; save(true); });
     const ad = $("#shadd", el); if (ad) ad.onclick = () => { (book.sharedPeople = book.sharedPeople || []).push({ name: "", role: "editor" }); sharedOpenUI[book.id] = true; save(true); };
-    const fl = $("#shfill", el); if (fl) fl.onclick = () => { for (const n of new Set(Object.values(book.parts || {}).filter(Boolean))) if (!book.sharedPeople.some(x => x.name === n)) book.sharedPeople.push({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }); save(true); };
+    const fl = $("#shfill", el); if (fl) fl.onclick = () => { for (const n of new Set(Object.values(book.parts || {}).filter(Boolean))) if (!book.sharedPeople.some(x => Store.samePerson(x.name, n))) book.sharedPeople.push({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }); save(true); };
     const cn = $("#shconn", el); if (cn) cn.onclick = async () => {
       let h = await Store.sharedHandle(book, true);
       if (!h) { try { h = await Store.pickSharedFolder(); } catch (e) { return; } const p = await Store.readProject(h).catch(() => null); if (p && p.id !== book.id) { toast("That folder belongs to “" + p.title + "”."); return; } await Store.rememberShared(book, h); }

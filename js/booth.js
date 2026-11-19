@@ -670,8 +670,9 @@
     }
     el.className = "cue-win";
     el.innerHTML = toggles + (q ? `
-      ${q.prev ? `<div class="cue-prev"><b>${esc(q.prev.who)}:</b> ${esc(q.prev.text.length > 140 ? q.prev.text.slice(0, 140) + "…" : q.prev.text)}</div>` : ""}
+      ${q.prev ? `<div class="cue-prev">${q.prev.who ? `<b>${esc(q.prev.who)}:</b> ` : "<b>Answering:</b> "}${esc(q.prev.text.length > 140 ? q.prev.text.slice(0, 140) + "…" : q.prev.text)}</div>` : ""}
       <div class="cue-now"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? `<span class="cue-tone">(${esc(q.tone)})</span>` : ""}${q.fx ? `<span class="cue-fx">FX: ${esc(q.fx)}</span>` : ""}<span class="cue-line">${esc(lineText(q))}</span></div>
+      ${q.beat ? `<div class="cue-beat small muted">beat: ${esc(q.beat.length > 160 ? q.beat.slice(0, 160) + "…" : q.beat)}</div>` : ""}
       ${after ? `<div class="cue-next small muted">then <b>${esc(after.who)}</b>${after.tone ? " (" + esc(after.tone) + ")" : ""}</div>` : ""}` : `<span class="small muted">No more cued lines in this chapter.</span>`);
     bindCueWin(el);
   }
@@ -1259,12 +1260,12 @@
   function pacerManual() { return Store.settings.pacer === "manual"; }
 
   // ======================= shared projects: send a finished chapter, lock it, and the editor's side =======================
-  const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => p.name === me); return x ? x.role : null; };
+  const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => Store.samePerson(p.name, me)); return x ? x.role : null; };
   // the book's owner can tick "Also edits": they read and send like everyone else, then edit each chapter once their own part is sent
-  const editsToo = () => { const me = Store.me(); if (!B.book.shared || !me || B.book.sharedOwner !== me) return false; const x = (B.book.sharedPeople || []).find(p => p.name === me); return !!(x && x.edits && x.role !== "editor"); };
+  const editsToo = () => { const me = Store.me(); if (!B.book.shared || !me || !Store.samePerson(B.book.sharedOwner, me)) return false; const x = (B.book.sharedPeople || []).find(p => Store.samePerson(p.name, me)); return !!(x && x.edits && x.role !== "editor"); };
   const isEditor = () => !!B.book.shared && (myRole() === "editor" || (editsToo() && (!!(B.chap.sent && B.chap.sent[Store.me()]) || !(B.mine || []).some(Boolean))));
   // in a shared book, anyone not on its people list reads outside the Lamp Room: they send a file, and it's dropped in 🤝 Collaborate
-  const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => x.name === r); return !p || p.role === "outside"; };
+  const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => Store.samePerson(x.name, r)); return !p || p.role === "outside"; };
   function lockedHere() { const me = Store.me() || B.readingAs; return !!(B && B.book.shared && !isEditor() && B.chap.sent && B.chap.sent[me]); }
   function lockNote() { toast("🔒 " + B.chap.title + " is with the editor, so it's locked here. Pickups they ask for come to you through 🚩 Pickups."); }
   async function sharedH(ask) { return B.book.shared ? Store.sharedHandle(B.book, ask) : null; }
@@ -1301,7 +1302,7 @@
     }
     const sent = B.chap.sent && B.chap.sent[me];
     return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b>${sent ? `<div class="stu-note">🔒 Sent ${esc(new Date(sent).toLocaleString())}. It's with the editor now and locked here; pickups they ask for come through 🚩 Pickups.</div>`
-      : `<div class="stu-note">When the chapter's done, send it: your tracks (one file each, with their FX settings), where every line sits in the text. It then locks here until the editor asks for pickups.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shsend" ${dis} ${T().hasAudio(B.audio) ? "" : "disabled"}>📤 Send to Shared</button></div>`}
+      : `<div class="stu-note">When the chapter's done, send it to the editor: your tracks (one file each, with their FX settings) and where every line sits in the text. After that it stays as sent here, and any changes come back as pickups. (⤓ Export still saves to your own Studio folder whenever you like.)</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shsend" ${dis} ${T().hasAudio(B.audio) ? "" : "disabled"}>📤 Send to Editor</button></div>`}
       <div class="stu-note" style="margin-top:6px">${st.need.length ? "This chapter needs: " + st.need.map(n => esc(n) + (st.waiting.includes(n) ? " (not yet)" : " ✓")).join(", ") : ""}</div></div>`;
   }
   function sharedTabHtml() { setTimeout(async () => { const el = document.getElementById("sh-body"); if (el && B) el.innerHTML = await sharedTabHtmlAsync(); }, 0); return `<div id="sh-body"><div class="stu-note">Checking the shared folder…</div></div>`; }
@@ -1311,7 +1312,7 @@
     const me = Store.me() || B.readingAs;
     if (!(await sharedH(true))) { toast("Connect this computer to the shared folder first (📦 Shared)."); return false; }
     if (B.chap.sent && B.chap.sent[me]) { toast("Already sent."); return false; }
-    if (!fromDialog && !confirm("Send " + B.chap.title + " to the shared folder? It locks here once it's sent; after that, changes come through pickups.")) return false;
+    if (!fromDialog && !confirm("Send " + B.chap.title + " to the editor? Your tracks go to the book's shared folder, and this chapter stays as sent here; any changes come back to you as pickups.")) return false;
     B.busy = "send"; renderSide();
     try {
       const out = await Store.sharedChapterDir(B.book, B.chap, me, true), d = await dir(), L = len(), ts = trackSet(), tracks = [];
@@ -2669,13 +2670,13 @@
         if (bookMineDone) LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines in " + B.book.title + ". Go outside. Briefly.", level: 3 });
       } else cheer("chapterRecorded");
       const next = B.book.chapters.findIndex((c, i) => i > B.ci && c.included && myCount(B.book, c).mine > 0);
-      const has = T().hasAudio(B.audio), sendable = has && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]);
+      const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]);
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
         <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
-        ${shSend ? `<p class="small" style="margin:4px 0 10px">Shared book: send it to the shared folder for the editor. It locks here once it's sent.</p>` : ""}
-        <div class="row" style="justify-content:center">${shSend ? `<button class="btn primary" data-shs>📤 Send to Shared</button>` : ""}${sendable ? `<button class="btn ${shSend ? "" : "primary"}" data-send>📤 Send my lines</button>` : ""}${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Export</b> saves it to your own Studio folder, as usual. <b>Send to Editor</b> puts your tracks in the book's shared folder for the editor; after that this chapter stays as sent, and any changes come back to you as pickups. You can do both, or send later from Tools ▸ 📦 Shared.</p>` : ""}
+        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn" data-shs>📤 Send to Editor</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
