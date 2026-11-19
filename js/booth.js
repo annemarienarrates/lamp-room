@@ -53,7 +53,7 @@
     return i >= 0 ? i : book.chapters.findIndex(c => c.included);
   }
   function onLeave() { if (!/^#\/booth\//.test(location.hash)) close(); }
-  async function close() { { const le = document.getElementById("line-ed"); if (le) le.remove(); const fn = document.getElementById("fnext"); if (fn) fn.remove(); }
+  async function close() { try { stopLine(); stopSample(); } catch (e) {} { const le = document.getElementById("line-ed"); if (le) le.remove(); const fn = document.getElementById("fnext"); if (fn) fn.remove(); }
     if (!B) return;
     if (B.rec) await stopRecording();
     stopListening(); B.player.stop(); stopPreview(); hidePartPop(); B.mic.close();
@@ -132,7 +132,7 @@
     $("#main").innerHTML = `
       <div id="booth-editbar" class="bbar"></div>
       <div id="stats-bar" class="bbar"></div>
-      <div id="ms-wrap"><div id="ms-page"><div class="ms-head"><span class="ms-book">${esc(B.book.title)}</span>${c.pov ? `<span class="ms-pov">${esc(c.pov)}'s POV</span>` : ""}</div>
+      <div id="ms-wrap"><div id="cue-win" class="hidden"></div><div id="ms-page"><div class="ms-head"><span class="ms-book">${esc(B.book.title)}</span>${c.pov ? `<span class="ms-pov">${esc(c.pov)}'s POV</span>` : ""}</div>
         <div id="ms" class="ms ${B.edit ? "editing" : ""}" style="font-size:${(BASE_TEXT * zoom()).toFixed(2)}rem"></div></div></div>
       <canvas id="voice-wave"></canvas>
       <div id="booth-dock"><div class="bd-grip" id="bd-grip" title="Drag to make the waveform taller or shorter"></div><div class="bd-main" id="bd-main"></div>
@@ -434,7 +434,7 @@
       case "shfin": B.exp = null; B.expShared = true; return exportDialog(true);
       case "asmoff": return assemble(false);
       case "recut": return swapRecut(x);
-      case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) playLine(l); return; }
+      case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) toggleAud("l:" + x, () => playLine(l, null, "l:" + x)); return; }
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
       case "lout": return unplace(theirRuns()[+x]);
       case "lin": { const xr = theirRuns()[+x], l = lineFor(xr); if (!l || B.rec) return; pushUndo(); const t = await spliceAt(xr, l, B.playhead != null ? B.playhead : len(), true); B.playhead = t + l.dur + 0.3; edited(); renderSide(); return; }
@@ -449,7 +449,7 @@
       case "pkrec": { const q = pkForMe().find(z => z.id === x); if (q) pickupRecorder(q); return; }
       case "pkcopy": return copyCastList(x);
       case "pkdrop": { const f = await pickAudioFile(); if (f) return castPickupDrop(x, f); return; }
-      case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) playPickupReply(q); return; }
+      case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) toggleAud("pk:" + x, () => playPickupReply(q, "pk:" + x)); return; }
       case "pkin": return applyPickups();
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
@@ -629,20 +629,57 @@
       return;
     }
     let html = "";
+    cuesNow();
+    const tagAt = {}; if (cueTags()) for (const q of B.cues) if (!tagAt[q.a]) tagAt[q.a] = q;
+    const tagHtml = q => `<span class="cue-tag" data-cuewho="${esc(q.who)}" title="${esc(q.who)}${q.tone ? " · " + esc(q.tone) : ""} — open the Character guide"><b>${esc(q.who)}</b>${q.tone ? " · " + esc(q.tone) : ""}</span>`;
     const cueFrom = new Set();
     for (let i = 1; i < B.toks.length; i++) if (B.mine[i] && !B.mine[i - 1]) { let j = i - 1; while (j >= 0 && !B.mine[j] && B.toks[j].p === B.toks[i - 1].p) { cueFrom.add(j); j--; } }
     const tokenByPara = {}; B.toks.forEach((t, i) => (tokenByPara[t.p] = tokenByPara[t.p] || []).push(i));
     c.paras.forEach((p, pi) => {
       if (p === Prep.SCENE_MARK) { html += `<div class="brk">⁂</div>`; return; }
       const ids = tokenByPara[pi] || [];
-      html += `<p>` + ids.map(i => `<span class="${B.mine[i] ? "w mine" : cueFrom.has(i) ? "w cue" : "w other"}${i < B.f.pos && B.mine[i] ? " read" : ""}" data-i="${i}">${esc(B.toks[i].w)}</span>`).join(" ") + `</p>`;
+      html += `<p>` + ids.map(i => (tagAt[i] ? tagHtml(tagAt[i]) : "") + `<span class="${B.mine[i] ? "w mine" : cueFrom.has(i) ? "w cue" : "w other"}${i < B.f.pos && B.mine[i] ? " read" : ""}" data-i="${i}">${esc(B.toks[i].w)}</span>`).join(" ") + `</p>`;
     });
     ms.innerHTML = html;
-    ms.onclick = e => { const w = e.target.closest(".w"), sel = window.getSelection(); if (!w || (sel && !sel.isCollapsed)) return; clickWord(+w.dataset.i); };
+    ms.onclick = e => { const tg = e.target.closest(".cue-tag"); if (tg) { charAddOrOpen(tg.dataset.cuewho); return; } const w = e.target.closest(".w"), sel = window.getSelection(); if (!w || (sel && !sel.isCollapsed)) return; clickWord(+w.dataset.i); };
     markPos(true); applyProofMarks();
   }
+  // ---------------- character-script cues ----------------
+  const cueTags = () => Store.settings.cueTags !== false, cueWinOn = () => Store.settings.cueWin !== false;
+  function cuesNow() {
+    if (!LRCues.has(B.book)) { B.cues = []; B.cuesFor = null; return B.cues; }
+    if (B.cuesFor !== B.toks) { B.cues = LRCues.forChapter(B.book, B.chap, B.toks); B.cuesFor = B.toks; }
+    return B.cues;
+  }
+  function renderCueWin() {
+    const el = $("#cue-win"); if (!el) return;
+    const list = cuesNow();
+    if (!LRCues.has(B.book) || B.edit) { el.className = "hidden"; el.innerHTML = ""; return; }
+    const toggles = `<span class="cue-tg"><button class="stu-btn ${cueTags() ? "on" : ""}" data-cuet="tags" title="Show who speaks above each line">🏷 Tags</button><button class="stu-btn ${cueWinOn() ? "on" : ""}" data-cuet="win" title="The cue window">🎭 Cues</button></span>`;
+    if (!cueWinOn() || !list.length) { el.className = "cue-win slim"; el.innerHTML = toggles + (list.length ? "" : `<span class="small muted">No cued lines in this chapter.</span>`); bindCueWin(el); return; }
+    // the next cued line I read (or any, if none are mine): the one under the reading position, else the next one
+    const pos = B.f.pos, pool = list.filter(q => B.mine[q.a]);
+    if (!pool.length) { el.className = "cue-win slim"; el.innerHTML = toggles + `<span class="small muted">None of your lines here are cued (the tags still show who's who).</span>`; bindCueWin(el); return; }
+    const q = pool.find(x => x.b >= pos) || null;
+    const lineText = x => B.toks.slice(x.a, Math.min(x.b + 1, x.a + 14)).map(t => t.w).join(" ") + (x.b - x.a >= 14 ? " …" : "");
+    const after = q ? pool[pool.indexOf(q) + 1] : null;
+    el.className = "cue-win";
+    el.innerHTML = toggles + (q ? `
+      ${q.prev ? `<div class="cue-prev"><b>${esc(q.prev.who)}:</b> ${esc(q.prev.text.length > 140 ? q.prev.text.slice(0, 140) + "…" : q.prev.text)}</div>` : ""}
+      <div class="cue-now"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? `<span class="cue-tone">(${esc(q.tone)})</span>` : ""}<span class="cue-line">${esc(lineText(q))}</span></div>
+      ${after ? `<div class="cue-next small muted">then <b>${esc(after.who)}</b>${after.tone ? " (" + esc(after.tone) + ")" : ""}</div>` : ""}` : `<span class="small muted">No more cued lines in this chapter.</span>`);
+    bindCueWin(el);
+  }
+  function bindCueWin(el) {
+    el.onclick = e => {
+      const w = e.target.closest("[data-cuewho]"); if (w) { charAddOrOpen(w.dataset.cuewho); return; }
+      const t = e.target.closest("[data-cuet]"); if (!t) return;
+      const k = t.dataset.cuet === "tags" ? "cueTags" : "cueWin"; Store.settings[k] = !(Store.settings[k] !== false); Store.saveSettings();
+      if (k === "cueTags") renderManuscript(); else renderCueWin();
+    };
+  }
   function markPos(scroll) {
-    renderPacer(); if (!B.rec) applyProofMarks();
+    renderPacer(); renderCueWin(); if (!B.rec) applyProofMarks();
     const ms = $("#ms"); if (!ms || B.edit) return;
     $$(".w.cur", ms).forEach(e => e.classList.remove("cur"));
     $$(".w.mine", ms).forEach(e => e.classList.toggle("read", +e.dataset.i < B.f.pos));
@@ -1388,7 +1425,7 @@
         <label class="ch-l">Description<textarea data-cf="desc" rows="2" placeholder="Who they are, at a glance">${esc(c.desc || "")}</textarea></label>
         <label class="ch-l">Voice notes<textarea data-cf="notes" rows="2" placeholder="Accent, age, pace, quirks">${esc(c.notes || "")}</textarea></label>
         <div class="ch-l">Samples</div>
-        ${(c.samples || []).map(sm => `<div class="ch-sm"><button class="stu-btn" data-c="play:${sm.id}">▶</button><input data-sm="${sm.id}" value="${esc(sm.label || "")}" placeholder="calm, shouting…"><span>${sm.dur ? sm.dur.toFixed(1) + " s" : ""}</span><button class="stu-btn" data-c="smx:${sm.id}" title="Remove this sample">✕</button></div>`).join("") || `<div class="stu-note">None yet.</div>`}
+        ${(c.samples || []).map(sm => `<div class="ch-sm">${audBtn("sm:" + sm.id, `data-c="play:${sm.id}"`, "Play this sample")}<input data-sm="${sm.id}" value="${esc(sm.label || "")}" placeholder="calm, shouting…"><span>${sm.dur ? sm.dur.toFixed(1) + " s" : ""}</span><button class="stu-btn" data-c="smx:${sm.id}" title="Remove this sample">✕</button></div>`).join("") || `<div class="stu-note">None yet.</div>`}
         <div class="fx-chips"><button class="stu-btn" data-c="smsel" title="Select some audio on the waveform (or a take) first">＋ From selection</button><button class="stu-btn" data-c="smup">＋ Upload</button></div>
         <div class="ch-l">FX</div>
         <div class="stu-note">${fxs ? esc(fxs) : "None saved."}</div>
@@ -1415,7 +1452,7 @@
     if (a === "add") { const n = prompt("Character's name:", (B.charQ || "").trim()); if (n && n.trim()) charAddOrOpen(n.trim()); return; }
     const c = charCur(); if (!c) return;
     const d = await charDir(true);
-    if (a === "play") { const sm = c.samples.find(z => z.id === x); if (!sm) return; try { const f = await (await d.getFileHandle(sm.file)).getFile(); if (B.charAudio) B.charAudio.pause(); B.charAudio = new Audio(URL.createObjectURL(f)); B.charAudio.play(); } catch (er) { toast("That sample's file is missing."); } return; }
+    if (a === "play") { const sm = c.samples.find(z => z.id === x); if (!sm) return; toggleAud("sm:" + x, async () => { try { const f = await (await d.getFileHandle(sm.file)).getFile(); const au = new Audio(URL.createObjectURL(f)); B.charAudio = au; au.onended = () => { if (B && B.charAudio === au) stopSample(); }; await au.play(); } catch (er) { stopSample(); toast("That sample's file is missing."); } }); return; }
     if (a === "smx") { if (!confirm("Remove this sample?")) return; c.samples = c.samples.filter(z => z.id !== x); await charSave(); return renderChars(); }
     if (a === "smsel" || a === "smup") {
       let x48;
@@ -1742,8 +1779,8 @@
   const duetOpt = k => { const o = Store.settings.duet || {}; return o[k] !== false; };
   function setDuetOpt(k, v) { Store.settings.duet = Store.settings.duet || {}; Store.settings.duet[k] = v; Store.saveSettings(); }
   // hear a line in the headphones
-  async function playLine(l, onEnd) {
-    stopLine();
+  async function playLine(l, onEnd, key) {
+    stopLine(); if (key) { B.audKey = key; paintAud(); }
     try {
       const x = await LRAudio.renderRange(await dir(), [{ file: l.file, off: l.hin || 0, dur: l.dur, at: 0 }], 0, l.dur);
       const ctx = new AudioContext({ sampleRate: LRAudio.RATE }), buf = ctx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0);
@@ -1752,7 +1789,12 @@
       B.coPlay = ctx; src.onended = () => { if (B && B.coPlay === ctx) stopLine(); onEnd && onEnd(); };
     } catch (e) { toast("Couldn't play that line: " + e.message); }
   }
-  function stopLine() { if (B && B.coPlay) { B.coPlay.close().catch(() => {}); B.coPlay = null; } }
+  function stopLine() { if (B && B.coPlay) { B.coPlay.close().catch(() => {}); B.coPlay = null; } if (B && B.audKey && !String(B.audKey).startsWith("sm:")) { B.audKey = null; paintAud(); } }
+  // a ▶ button that turns into ■ while its clip plays: one clip at a time
+  const audBtn = (key, attr, tip) => `<button class="stu-btn${B.audKey === key ? " on" : ""}" ${attr} data-aud="${esc(key)}" title="${B.audKey === key ? "Stop" : tip || "Listen"}">${B.audKey === key ? "■" : "▶"}</button>`;
+  function paintAud() { document.querySelectorAll("[data-aud]").forEach(b => { const on = b.dataset.aud === (B && B.audKey); b.textContent = on ? "■" : "▶"; b.classList.toggle("on", on); b.title = on ? "Stop" : (b.dataset.tip || "Listen"); }); }
+  function stopSample() { if (B && B.charAudio) { B.charAudio.pause(); B.charAudio = null; } if (B && B.audKey && String(B.audKey).startsWith("sm:")) { B.audKey = null; paintAud(); } }
+  function toggleAud(key, start) { const was = B.audKey === key; stopLine(); stopSample(); if (was) return; B.audKey = key; paintAud(); start(); }
   function duetBanner(title, text, secs, go) {
     let b = $("#duet-banner"); if (b) b.remove();
     const mode = Store.settings.duetCues || "full"; if (mode === "off") return null;
@@ -2024,7 +2066,7 @@
         <div class="fx-chips"><button class="stu-btn stu-rec" data-p="spliceall" ${dis} ${arrived > placed ? "" : "disabled"} title="Fill the slots, and place any line not yet in by your word timing">⤓ Splice all</button><button class="stu-btn" data-p="bring" ${dis}>Check for new lines</button><button class="stu-btn" data-p="bringfrom" ${dis}>Load from a folder…</button></div></div>
       <div class="bd-sec">${runs.map((x, i) => { const l = lineFor(x), p = placedClip(x), sl = !p && slotOf(x);
         return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(x.r)} · ${!l && !p && ((duetData()[x.r] || {}).missing || []).includes(x.from) ? '<b class="warn-t">missing from their file</b> · ' : ""}${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" + (l.check ? ' · <b class="warn-t">check</b>' : "") + (l.pk ? " · pickup" : "") : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
-          <span class="fx-chips">${l ? `<button class="stu-btn" data-p="lplay:${i}" title="Listen">▶</button>` : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}<button class="stu-btn" data-p="lask:${i}" title="Mark as a pickup for ${esc(x.r)}">🔁</button></span></div>`; }).join("")}</div>
+          <span class="fx-chips">${l ? audBtn("l:" + i, `data-p="lplay:${i}"`, "Listen") : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}<button class="stu-btn" data-p="lask:${i}" title="Mark as a pickup for ${esc(x.r)}">🔁</button></span></div>`; }).join("")}</div>
       <div class="bd-sec"><b>A recording from outside the Lamp Room</b><div class="stu-note">Cast who don't use the Lamp Room send you a file. Drop it here and it's cut into their lines: at the clicks or claps between lines if there are any, otherwise at the pauses. WAV, MP3, M4A, AIFF or FLAC.</div>
         <div class="fx-chips">${[...new Set(runs.map(x => x.r))].map(r => `<button class="stu-btn" data-p="castdrop:${esc(r)}" ${dis}>🎧 ${esc(r)}'s file…</button>`).join("")}</div>
         <label class="check"><input type="checkbox" data-duet="spill" ${spillOn() ? "checked" : ""}> The file runs on into the next chapters</label>
@@ -3095,10 +3137,11 @@
     finally { B.busy = null; busyNote(""); renderSide(); }
     await applyPickups();
   }
-  async function playPickupReply(q) {
+  async function playPickupReply(q, key) {
     const rep = Store.pickupReply(B.book, q); if (!rep) return;
     try { const d = await Store.pickupsDir(B.book, q.to); const x = await LRAudio.renderRange(d, [{ file: rep.file, off: 0, dur: rep.dur, at: 0 }], 0, rep.dur); stopLine();
-      const ctx = new AudioContext({ sampleRate: LRAudio.RATE }), buf = ctx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination); s.start(); B.coPlay = ctx; } catch (e) { toast(e.message); }
+      const ctx = new AudioContext({ sampleRate: LRAudio.RATE }), buf = ctx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination); s.start(); B.coPlay = ctx;
+      if (key) { B.audKey = key; paintAud(); } s.onended = () => { if (B && B.coPlay === ctx) stopLine(); }; } catch (e) { stopLine(); toast(e.message); }
   }
   function pickupsAskedHtml() {
     const dis = B.rec || B.busy ? "disabled" : "";
@@ -3118,11 +3161,11 @@
         return `<div class="pk-who"><b>${esc(r)}</b> <span class="muted">${waiting ? waiting + " waiting" : "nothing waiting"}</span>${isNarrator(r) ? "" : `<div class="fx-chips"><button class="stu-btn" data-p="pkcopy:${esc(r)}" ${waiting ? "" : "disabled"}>📋 Copy the list</button><button class="stu-btn" data-p="pkdrop:${esc(r)}" ${dis} ${waiting ? "" : "disabled"}>🎧 Drop in their pickups…</button></div>`}</div>` +
           qs.map(q => { const rep = Store.pickupReply(B.book, q), here = q.chapterId === B.chap.id, st = q.status === "in" ? "in" : rep ? "arrived" : "waiting";
             return `<div class="co-line ${st === "in" ? "placed" : st === "arrived" ? "" : "slot"}"><span class="n">${st === "in" ? "✓" : st === "arrived" ? "⬇" : "…"}</span><span>${esc(qt(short(q.text, 14)))}<br><i>${esc(q.chapter || "")} · ${st}${q.note ? " · “" + esc(short(q.note, 10)) + "”" : ""}</i></span>
-              <span class="fx-chips">${rep ? `<button class="stu-btn" data-p="pkplay:${q.id}" title="Listen">▶</button>` : ""}${st === "arrived" ? (here ? `<button class="stu-btn stu-rec" data-p="pkin" ${dis}>Put in</button>` : `<button class="stu-btn" data-ci="${chIndex(q.chapterId)}" title="Open that chapter: it goes in">go</button>`) : ""}${q.status === "open" ? `<button class="stu-btn" data-p="pkcancel:${q.id}" title="Never mind">✕</button>` : ""}</span></div>`; }).join("");
+              <span class="fx-chips">${rep ? audBtn("pk:" + q.id, `data-p="pkplay:${q.id}"`, "Listen") : ""}${st === "arrived" ? (here ? `<button class="stu-btn stu-rec" data-p="pkin" ${dis}>Put in</button>` : `<button class="stu-btn" data-ci="${chIndex(q.chapterId)}" title="Open that chapter: it goes in">go</button>`) : ""}${q.status === "open" ? `<button class="stu-btn" data-p="pkcancel:${q.id}" title="Never mind">✕</button>` : ""}</span></div>`; }).join("");
       }).join("") + `</div>`;
     }
     return h;
   }
 
-  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
+  window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a), _test: { markPos, renderCueWin, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState } };
 })();

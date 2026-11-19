@@ -486,6 +486,7 @@
           <button class="btn small quiet" id="archive">${book.status === "archived" ? "Restore from archive" : "Archive book"}</button></div>
       </details>
       ${creditsCard(book)}
+      ${charScriptsCard(book)}
       ${sharedCard(book)}
 
       <div class="card">
@@ -506,7 +507,7 @@
 
     $("#details").ontoggle = e => { detailsOpen[book.id] = e.target.open; };
     const save = (rerender) => { Store.saveBook(book); if (rerender) viewBook(); };
-    bindCredits(book, save); bindShared(book, save);
+    bindCredits(book, save); bindShared(book, save); bindCharScripts(book, save);
     const toTitle = f => { if (!T) return; const m = { title: "name", due: "due", client: "client", color: "color" }[f]; if (m) LL.patch("titles", T.id, { [m]: book[f] || (f === "due" ? null : "") }); };
     $(".book-cover").onclick = () => pickCover(coverKey(book), viewBook);
     const lb = $("#linkbk"); if (lb) lb.onclick = () => linkBook(book.id);
@@ -841,6 +842,38 @@
     Store.sharedHandle(book).then(h => { const s = $("#shstat"); if (s) s.textContent = h ? "· connected on this computer" : "· not connected on this computer yet"; });
   }
   // ---- credits on the book page: which client, the details the credits need, cast credit tags, then add/update the credit chapters ----
+  // character scripts: who speaks each line and how, shown in the Booth as tags and a cue window
+  const csOpen = {};
+  function charScriptsCard(book) {
+    const list = (book.cues && book.cues.scripts) || [];
+    let miss = null;
+    if (csOpen[book.id] && list.length) { const cache = new Map(); miss = LRCues.unplaced(book, c => cache.get(c) || (cache.set(c, Prep.tokens(c)), cache.get(c))); }
+    const missOf = id => miss ? miss.filter(m => m.sid === id).length : 0;
+    return `<details class="card" id="cscripts" ${csOpen[book.id] ? "open" : ""}><summary>Character scripts ${list.length ? `<span class="small muted">· ${list.map(x => esc(x.char)).join(", ")}</span>` : '<span class="small muted">· optional</span>'}</summary>
+      <p class="small muted" style="margin-top:10px">${book.shared ? "In a shared book, scripts the owner adds go to everyone; ones you add stay with you. " : ""}Add an actor script (.docx: a chapter heading, then each line's NAME, its (tone) and the words). In the Booth, each line gets a tag saying who speaks it and how, and a cue window follows your reading, with the line you're answering. Click a name to open its Character guide. Nothing shows in books without one.</p>
+      ${list.map(x => `<div class="cast-row"><b style="flex:1">${esc(x.char)}</b><span class="small muted">${x.lines.length} lines${miss ? ` · ${x.lines.length - missOf(x.id)} placed` : ""} · ${esc(x.file || "")}</span><button class="btn small" data-csre="${x.id}" title="A newer version of this script">Replace</button><button class="btn small ghost" data-csdel="${x.id}" title="Remove">✕</button></div>`).join("")}
+      <div class="row" style="margin-top:8px"><button class="btn" id="csadd">+ Add a character script</button></div>
+      ${miss && miss.length ? `<details style="margin-top:10px"><summary class="small">${miss.length} line${miss.length === 1 ? "" : "s"} couldn't be placed</summary><div class="small" style="max-height:240px;overflow:auto">${miss.map(m => `<div style="margin:4px 0"><b>${esc(m.char)}</b> · ${esc(m.ch || "?")} <span class="muted">(${esc(m.why)})</span><br>“${esc(m.text.slice(0, 160))}”</div>`).join("")}</div><p class="small muted">Usually the manuscript changed after the script was made. These lines just don't get a cue.</p></details>` : ""}
+    </details>`;
+  }
+  function bindCharScripts(book, save) {
+    const el = $("#cscripts"); if (!el) return;
+    el.ontoggle = () => { const was = !!csOpen[book.id]; csOpen[book.id] = el.open; if (el.open && !was && LRCues.has(book)) viewBook(); };
+    const pick = () => new Promise(res => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".docx"; inp.onchange = () => res(inp.files[0]); inp.click(); });
+    const load = async (replaceId) => {
+      const f = await pick(); if (!f) return;
+      let sc; try { sc = LRCues.parse(await window.readDocx(await f.arrayBuffer(), {}), f.name); } catch (e) { toast("Couldn't read that file: " + e.message); return; }
+      if (!sc.lines.length) { toast("No lines found. A character script has a chapter heading, then NAME, (tone) and the line."); return; }
+      book.cues = book.cues || { scripts: [] }; book.cues.scripts = book.cues.scripts || [];
+      const old = replaceId ? book.cues.scripts.find(x => x.id === replaceId) : book.cues.scripts.find(x => x.char === sc.char);
+      const rec = { id: old ? old.id : Prep.uid(), char: sc.char, file: f.name, added: new Date().toISOString(), lines: sc.lines, mine: !!(book.shared && book.sharedOwner && book.sharedOwner !== Store.me()) };
+      if (old) book.cues.scripts.splice(book.cues.scripts.indexOf(old), 1, rec); else book.cues.scripts.push(rec);
+      csOpen[book.id] = true; save(true); toast("🎭 " + sc.char + ": " + sc.lines.length + " lines" + (old ? " (replaced)" : ""));
+    };
+    const ad = $("#csadd", el); if (ad) ad.onclick = () => load(null);
+    $$("[data-csre]", el).forEach(b => b.onclick = () => load(b.dataset.csre));
+    $$("[data-csdel]", el).forEach(b => b.onclick = () => { if (!confirm("Remove this character script? Its cues go too.")) return; book.cues.scripts = book.cues.scripts.filter(x => x.id !== b.dataset.csdel); csOpen[book.id] = true; save(true); });
+  }
   function creditsCard(book) {
     const cr = book.credits = book.credits || {}, cl = LRCredits.clientOf(book), list = LRCredits.clients(), S = Store.settings;
     const has = book.chapters.some(c => c.credits), b = cl ? LRCredits.build(Object.assign({}, book, { parts: Object.assign({}, book.parts) })) : null;
