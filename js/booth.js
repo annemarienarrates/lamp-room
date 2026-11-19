@@ -645,7 +645,7 @@
     markPos(true); applyProofMarks();
   }
   // ---------------- character-script cues ----------------
-  const cueTags = () => Store.settings.cueTags !== false, cueWinOn = () => Store.settings.cueWin !== false;
+  const cueTags = () => Store.settings.cueTags !== false, cueWinOn = () => Store.settings.cueWin !== false, cueMini = () => Store.settings.cueMini === true;
   function cuesNow() {
     if (!LRCues.has(B.book)) { B.cues = []; B.cuesFor = null; return B.cues; }
     if (B.cuesFor !== B.toks) { B.cues = LRCues.forChapter(B.book, B.chap, B.toks); B.cuesFor = B.toks; }
@@ -655,7 +655,7 @@
     const el = $("#cue-win"); if (!el) return;
     const list = cuesNow();
     if (!LRCues.has(B.book) || B.edit) { el.className = "hidden"; el.innerHTML = ""; return; }
-    const toggles = `<span class="cue-tg"><button class="stu-btn ${cueTags() ? "on" : ""}" data-cuet="tags" title="Show who speaks above each line">🏷 Tags</button><button class="stu-btn ${cueWinOn() ? "on" : ""}" data-cuet="win" title="The cue window">🎭 Cues</button></span>`;
+    const toggles = `<span class="cue-tg">${cueWinOn() ? `<button class="stu-btn" data-cuet="mini" title="${cueMini() ? "Open the cue window" : "Shrink the cue window to one line"}">${cueMini() ? "▾" : "▴"}</button>` : ""}<button class="stu-btn ${cueTags() ? "on" : ""}" data-cuet="tags" title="Show who speaks above each line">🏷 Tags</button><button class="stu-btn ${cueWinOn() ? "on" : ""}" data-cuet="win" title="The cue window">🎭 Cues</button></span>`;
     if (!cueWinOn() || !list.length) { el.className = "cue-win slim"; el.innerHTML = toggles + (list.length ? "" : `<span class="small muted">No cued lines in this chapter.</span>`); bindCueWin(el); return; }
     // the next cued line I read (or any, if none are mine): the one under the reading position, else the next one
     const pos = B.f.pos, pool = list.filter(q => B.mine[q.a]);
@@ -663,6 +663,11 @@
     const q = pool.find(x => x.b >= pos) || null;
     const lineText = x => B.toks.slice(x.a, Math.min(x.b + 1, x.a + 14)).map(t => t.w).join(" ") + (x.b - x.a >= 14 ? " …" : "");
     const after = q ? pool[pool.indexOf(q) + 1] : null;
+    if (cueMini()) {
+      el.className = "cue-win slim";
+      el.innerHTML = toggles + (q ? `<span class="cue-mini"><button class="cue-who" data-cuewho="${esc(q.who)}" title="Open ${esc(q.who)}'s Character guide">${esc(q.who)}</button>${q.tone ? ` <span class="cue-tone">(${esc(q.tone)})</span>` : ""}</span>` : `<span class="small muted">No more cued lines in this chapter.</span>`);
+      bindCueWin(el); return;
+    }
     el.className = "cue-win";
     el.innerHTML = toggles + (q ? `
       ${q.prev ? `<div class="cue-prev"><b>${esc(q.prev.who)}:</b> ${esc(q.prev.text.length > 140 ? q.prev.text.slice(0, 140) + "…" : q.prev.text)}</div>` : ""}
@@ -674,6 +679,7 @@
     el.onclick = e => {
       const w = e.target.closest("[data-cuewho]"); if (w) { charAddOrOpen(w.dataset.cuewho); return; }
       const t = e.target.closest("[data-cuet]"); if (!t) return;
+      if (t.dataset.cuet === "mini") { Store.settings.cueMini = !cueMini(); Store.saveSettings(); renderCueWin(); return; }
       const k = t.dataset.cuet === "tags" ? "cueTags" : "cueWin"; Store.settings[k] = !(Store.settings[k] !== false); Store.saveSettings();
       if (k === "cueTags") renderManuscript(); else renderCueWin();
     };

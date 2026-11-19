@@ -6,7 +6,7 @@
   const waits = {};
   function w() {
     if (worker) return worker;
-    worker = new Worker("js/proof-worker.js?v=202611190047", { type: "module" });
+    worker = new Worker("js/proof-worker.js?v=202611190050", { type: "module" });
     worker.onmessage = e => {
       const m = e.data || {};
       if (m.type === "progress") { onProgress && onProgress(m); return; }
