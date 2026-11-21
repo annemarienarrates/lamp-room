@@ -147,7 +147,7 @@
       items: [
         ["Almanac", "The calendar. Each day shows who's doing what. “Today I…” logs your day in a sentence. The year's reckoning sits at the bottom."],
         ["Titles", "One card per job: client, pay, due date, stages and who does each, money, star, check received. The Pipeline holds maybes that aren't booked yet. 📖 opens the book."],
-        ["Log", "Your hours. Read my note turns a free-written note into log lines (with an API key; without one, a simple reader does it and you check). Log by hand: title, stage, hours. Booth time is already filled in from recording. Days off live here too."],
+        ["Log", "Your hours. Read my note turns a free-written note into log lines (a simple word-matcher on this computer; you check before saving). Log by hand: title, stage, hours. Booth time is already filled in from recording. Days off live here too."],
         ["Ledger", "Money by month: checks, royalties, bills, partner payouts and the running balance. Download the year as a spreadsheet (CSV)."],
         ["The Key", "How the planner thinks: stages, paces, turnaround, colours. Open it from the button at the end of this guide."],
         ["Planning & money settings", "Settings ▸ Planning & money: hours, workdays and paces for each of you, turnaround times, goals and holidays."]

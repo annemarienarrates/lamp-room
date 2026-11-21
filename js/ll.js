@@ -386,7 +386,7 @@ function quickLogHTML(){
   <div class="row" style="margin-top:6px"><button class="btn mic" id="micbtn" data-act="mic" title="Dictate" aria-label="Dictate" ${S.dict?'':'hidden'}>🎙</button>
   <input type="date" id="qdate" class="in" value="${TODAY}" aria-label="Date of this log">
   <button class="btn" data-act="log-hand" style="margin-left:auto" title="Pick title, stage and hours yourself (today's booth time is filled in)">Log by hand</button><button class="btn primary" data-act="read-log">Read my note</button></div>
-  <div class="muted" style="font-size:13px;margin-top:4px">Leave out hours and I'll split the day for you. Say "finished" and I'll check the stage off.${S.sample?'':' <i>Reading uses a simple word-matcher until you add a Claude API key in Settings.</i>'}</div></div>`;
+  <div class="muted" style="font-size:13px;margin-top:4px">Leave out hours and I'll split the day for you. Say "finished" and I'll check the stage off.</div></div>`;
 }
 function goalsHTML(){
   const y=+TODAY.slice(0,4);const g=yearTotals(y);const G=S.cfg.goals;
@@ -632,7 +632,7 @@ function titleForm(t,kind){
   }
   return modal(`<h2>${t.id?'Edit':'New'} Audio Project</h2>
   <div class="grid3"><label class="f">Title<input id="f-name" value="${esc(t.name||'')}"></label><label class="f">Short name<input id="f-short" value="${esc(t.short||'')}" placeholder="MGIS9"></label><label class="f">Client<input id="f-client" value="${esc(t.client||'')}" list="clients"></label></div>
-  <datalist id="clients"><option>Royal Guard</option><option>Pivot Press</option></datalist>
+  <datalist id="clients">${clientOpts()}</datalist>
   <div class="duebox"><label for="f-due">Due date</label><input id="f-due" type="date" value="${esc(t.due||'')}">
    <button class="btn" data-act="suggest-due">Help me set a due date</button><span id="sugg" class="muted">${t.due?'':'No date yet? Fill in the word counts below, then ask.'}</span>
    <label class="row" style="gap:6px;font-size:15px;flex-basis:100%"><input type="checkbox" id="f-own" ${t.ownProject?'checked':''}> Our own project, no client deadline (never marked overdue; client work goes first)</label></div>
@@ -743,40 +743,6 @@ function titleContext(){
 async function readLog(text,date,writer,existing){
   if(!text.trim()){toast('Write or dictate a note first.');return;}
   let parsed=null,reply='';
-  if(S.sample){
-    const prompt=`You turn a narrator's daily work note into ledger entries. Answer with JSON only.
-The note was written by ${PNAME[writer]} (${writer}) about the workday ${date}. The two people are anne (Anne) and jack (Jack).
-Signed titles and their stages:
-${JSON.stringify(titleContext())}
-Household bills: ${JSON.stringify(S.bills.map(b=>({id:b.id,name:b.name,amount:b.amount})))}
-
-Return: {"entries":[{"person":"anne|jack","titleId":"id or null","stageId":"id or null","kind":"work|admin|author|other","hours":number or null,"finished":true|false,"finishedOn":"YYYY-MM-DD or null","note":"short description"}],"payments":[{"titleId":"id","date":"YYYY-MM-DD","amount":number or null}],"billsPaid":[{"billId":"id","date":"YYYY-MM-DD","amount":number or null,"month":"YYYY-MM or null"}],"royalties":[{"date":"YYYY-MM-DD","amount":number,"note":"source if named"}],"daysOff":[{"person":"anne|jack|both","date":"YYYY-MM-DD","reason":"text"}]}
-Rules:
-- One entry per distinct activity. The person is the writer unless the note names the other person ("Jack recorded…").
-- Match shorthand to titles (MGIS9 = Monster Girls in Space 9, EoD2 = The Earl of Dracumont 2, SAB1 = Sunfire Academy Book 1). Pick the stage that fits: recording/booth = the person's Record stage, editing/clean-up = Edit, invoicing/sending files = Deliver & invoice, pickups/corrections = Pickups; writing work = the book's matching stage.
-- hours only when the note states a number for that activity; otherwise null. Never guess hours.
-- finished is true only when the note says that stage was finished, done, completed, sent or delivered. "Sent/filed/submitted an invoice for X" means X's Deliver & invoice stage is finished.
-- Work with no matching title (email, accounts, training someone, admin) gets titleId null and kind "admin"; publishing or writing for an unlisted book gets kind "author".
-- Notes often report events from other days ("submitted on the 9th", "invoice sent on the 10th"). Make an entry for each with finished true, finishedOn set to that date (the year is ${date.slice(0,4)}; the month is the log's month unless stated) and hours 0. Recording, editing, delivering or invoicing a title all count, and so does "X is recorded" or "X is done" for a person's part.
-- "Paid", "check came", "got paid" for a title goes in payments with that date (default ${date}); amount only if stated.
-- If the note says someone did not record or did no project work today ("neither of us recorded", "Jack didn't record"), add an entry for EACH person named, with titleId null, kind "other", hours null and a note like "No recording today", unless the note says what they did instead. "Admin", "email", "accounts" and similar are kind "admin" entries.
-- "Paid the electric bill $312 on the 9th" goes in billsPaid with the matching bill id, that date (default ${date}) and the amount if stated. If the note names which month's bill it was ("paid October's mortgage", "the Oct 1 payment"), set month to that month (YYYY-MM); otherwise month is null. Paying a bill is not an entry unless hours are given.
-- "Alaric submitted his lines", "the partner's lines are in" means that title's "Partner records" stage is finished (finishedOn that date).
-- Royalty money ("received $214 in royalties", "KDP royalties came in, $80", "ACX paid $55") goes in royalties with that date (default ${date}). Never tie royalties to a title.
-- Every activity in the note must appear somewhere. Never return an empty entries list for a note that describes work.
-- "took today off", "holiday", "sick day" go in daysOff (date ${date} unless stated), not entries.
-- titleId and stageId must be ids copied from the list above (like "t-mgis9" and "edit"), never a name.
-
-Example. Note: "Recorded MGIS9 for 3 hours and finished the SAB1 pickups. Jack spent an hour on admin."
-Reply: {"entries":[{"person":"${writer}","titleId":"<MGIS9's id>","stageId":"rec-${writer}","kind":"work","hours":3,"finished":false,"finishedOn":null,"note":"Recorded"},{"person":"${writer}","titleId":"<SAB1's id>","stageId":"pickups","kind":"work","hours":null,"finished":true,"finishedOn":"${date}","note":"Finished pickups"},{"person":"jack","titleId":null,"stageId":null,"kind":"admin","hours":1,"finished":false,"finishedOn":null,"note":"Admin"}],"payments":[],"billsPaid":[],"royalties":[],"daysOff":[]}
-
-The note to read:
-"""${text}"""`;
-    try{const r=await S.sample(prompt,{modelTier:'default',cache:false});reply=r.text||'';parsed=extractJSON(reply);
-      if(Array.isArray(parsed))parsed={entries:parsed};if(parsed&&typeof parsed!=='object')parsed=null;
-      if(parsed&&!Array.isArray(parsed.entries)){const k=Object.keys(parsed).find(k=>/entr/i.test(k)&&Array.isArray(parsed[k]));if(k)parsed.entries=parsed[k];}}
-    catch(e){reply=e?.text||'';if(e?.code==='not_granted'){toast("Reading notes needs your OK for Claude. Here's my own best guess instead.");}else toast("Claude couldn't read the note just now. Here's my own best guess.");}
-  }
   const arr=x=>Array.isArray(x)?x.filter(e=>e&&typeof e==='object'):null;
   if(parsed){parsed.entries=arr(parsed.entries);parsed.payments=arr(parsed.payments)||[];parsed.billsPaid=arr(parsed.billsPaid)||[];parsed.royalties=arr(parsed.royalties)||[];parsed.daysOff=arr(parsed.daysOff)||[];}
   const resolveT=x=>{if(!x)return null;if(tById(x))return x;const q=String(x).toLowerCase();return S.titles.find(t=>(t.short||'').toLowerCase()===q||t.name.toLowerCase()===q)?.id||null;};
@@ -785,17 +751,19 @@ The note to read:
   if(!src||!src.length){const loc=localParse(text,date,writer);if(loc.length&&!((parsed?.royalties||[]).length||(parsed?.billsPaid||[]).length||(parsed?.payments||[]).length||(parsed?.daysOff||[]).length)){src=loc;guessed=true;}}
   const entries=(src||[{person:writer,titleId:null,stageId:null,kind:'other',hours:null,finished:false,note:text.slice(0,120)}])
     .map(e=>({person:PEOPLE.includes(e.person)?e.person:writer,titleId:resolveT(e.titleId),stageId:e.stageId||null,kind:e.kind||'work',hours:e.hours==null?null:+e.hours,finished:!!e.finished,finishedOn:/^\d{4}-\d{2}-\d{2}$/.test(e.finishedOn||'')?e.finishedOn:null,note:e.note||''}));
-  let warn=guessed?"Claude's reading came back empty, so this is my own best guess. Check each line before saving.":'';if(!entries.length&&!(parsed?.royalties||[]).length&&!(parsed?.billsPaid||[]).length&&!(parsed?.payments||[]).length&&!(parsed?.daysOff||[]).length){warn="I couldn't match anything in that note. Fill in the lines below.";entries.push({person:writer,titleId:null,stageId:null,kind:'admin',hours:null,finished:false,note:text.slice(0,120)});}
+  let warn=guessed?"Read by the word-matcher on this computer. Check each line before saving.":'';if(!entries.length&&!(parsed?.royalties||[]).length&&!(parsed?.billsPaid||[]).length&&!(parsed?.payments||[]).length&&!(parsed?.daysOff||[]).length){warn="I couldn't match anything in that note. Fill in the lines below.";entries.push({person:writer,titleId:null,stageId:null,kind:'admin',hours:null,finished:false,note:text.slice(0,120)});}
   const billsPaid=(parsed?.billsPaid||[]).filter(x=>S.bills.some(b=>b.id===x.billId)&&/^\d{4}-\d{2}-\d{2}$/.test(x.date||''));
   const payments=(parsed?.payments||[]).filter(x=>tById(x.titleId)&&/^\d{4}-\d{2}-\d{2}$/.test(x.date||''));
   logPreview({id:existing?.id||null,date,person:writer,raw:text,reply,entries,warn,payments,billsPaid,royalties:(parsed?.royalties||[]).filter(r=>+r.amount>0).map(r=>({date:/^\d{4}-\d{2}-\d{2}$/.test(r.date||'')?r.date:date,amount:+r.amount,note:r.note||''})),daysOff:parsed?.daysOff||[],ot:existing?.ot||null,createdAt:existing?.createdAt||null});
 }
+// Client suggestions come from your own titles, so no names live in the app's code.
+function clientOpts(){return [...new Set(S.titles.map(t=>(t.client||'').trim()).filter(Boolean))].sort().map(c=>`<option>${esc(c)}</option>`).join('');}
 function extractJSON(t){if(!t)return null;try{return JSON.parse(t);}catch(_){}
   const f=t.match(/```(?:json)?\s*([\s\S]*?)```/);if(f){try{return JSON.parse(f[1]);}catch(_){}}
   const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1));}catch(_){}}
   const c=t.indexOf('['),d=t.lastIndexOf(']');if(c>=0&&d>c){try{return JSON.parse(t.slice(c,d+1));}catch(_){}}
   return null;}
-// A plain reading of the note, used when Claude's comes back empty.
+// A plain reading of the note (word-matching on this computer).
 function localParse(text,date,writer){
   const NUM={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,half:.5,an:1,a:1};
   const norm=x=>' '+String(x).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()+' ';
@@ -888,29 +856,6 @@ async function saveLog(){
   toast('Entered in the Ledger.');
 }
 
-/* FH parsing */
-async function readFH(){
-  const text=val('fh-text');const file=document.getElementById('fh-file')?.files?.[0];
-  if(!text&&!file){toast('Paste stats or choose a screenshot first.');return;}
-  if(!S.sample){toast('Reading stats needs Claude, which this view can’t reach.');return;}
-  const prompt=`Extract recording statistics from Finished Hour, an audiobook narration tool. Answer with JSON only.
-Today is ${TODAY}. The viewer is ${PNAME[S.me||'anne']}. People: anne (Anne), jack (Jack).
-Signed titles: ${JSON.stringify(S.titles.filter(t=>t.status==='active'&&t.kind!=='author').map(t=>({id:t.id,name:t.name,short:t.short})))}
-Return {"rows":[{"date":"YYYY-MM-DD","person":"anne|jack","titleId":"id or null","boothHours":number,"words":number}]}
-One row per person per title per day. Booth hours as decimal hours (1:30 = 1.5). Words = words read that day. If a person isn't named, use ${S.me||'anne'}. If no date is shown, use ${TODAY}.
-${text?'Stats text:\n'+text:''}`;
-  try{
-    const opts={modelTier:'default'};
-    if(file){const lim=S.sample.limits?await S.sample.limits().catch(()=>null):null;if(lim&&!lim.images){toast("Screenshots can't be read in this view. Paste the text instead.");return;}opts.images=[file];}
-    const r=await S.sample.json(prompt,opts);
-    const rows=(r?.rows||[]).filter(x=>x&&x.date);
-    if(!rows.length){toast("I couldn't find booth time or words in that.");return;}
-    modal(`<h2>Finished Hour, as I read it</h2><table class="led"><tr><th>Date</th><th>Who</th><th>Title</th><th class="r">Booth</th><th class="r">Words</th></tr>
-    ${rows.map(x=>`<tr><td>${fmtShort(x.date)}</td><td>${PNAME[x.person]||x.person}</td><td>${esc(tById(x.titleId)?.name||'(no match)')}</td><td class="r num">${hrs(+x.boothHours||0)}</td><td class="r num">${(+x.words||0).toLocaleString()}</td></tr>`).join('')}</table>
-    <div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="fh-save">Save these</button></div>`);
-    PREV={fhRows:rows};
-  }catch(e){toast(e?.code==='not_granted'?'Reading stats needs your OK for Claude.':"Couldn't read those stats just now.");}
-}
 
 /* ============ LEDGER ============ */
 let ledMonth=TODAY.slice(0,7);
@@ -999,7 +944,7 @@ function viewGuide(){
     <tr><td>The Key</td><td>This page.</td></tr>
     <tr><td>Settings</td><td>Paces, hours, workdays, holidays, goals, and every timing rule described below.</td></tr></table>`],
   ['k-note','Writing the daily note',`
-    <p>Write the way you'd tell each other. A Claude reader turns the note into ledger lines and shows you how it read them before anything is saved, so you can fix a title, stage, hours or checkmark first.</p>
+    <p>Write the way you'd tell each other. A simple word-matcher on this computer turns the note into ledger lines and shows you how it read them before anything is saved, so you can fix a title, stage, hours or checkmark first.</p>
     <div class="ex"><span class="lbl">It understands</span>
     <code>Recorded MGIS9 for 3 hours, rest was admin</code> · <code>Finished SAB1 edits</code> · <code>Invoice sent for BS1 redo on the 10th</code> · <code>Alaric's lines are in for FE3</code> · <code>Jack took Friday off</code> · <code>Neither of us recorded today</code> · <code>Paid electric $312 on the 9th</code> · <code>Received $214 in royalties</code> · <code>Cartomyth was paid 11/1</code></div>
     <h4>Hours you leave out</h4>
@@ -1050,7 +995,7 @@ function viewGuide(){
     <p>Click ☆ beside an audio project's name to star it. Only one title can be starred; starring another moves the star.</p>
     <ul><li>The starred title gets every whole day it can use.</li>
     <li>If that would push another title later than it would otherwise land, and past its aim, that title gets whole days back, starting as late as possible while still hitting its aim. When the aim can't be saved, the title is at least kept no later than it would have been without the star.</li>
-    <li>A notice tells you each time: "⭐ Lunar is starred. Sunfire gets whole days from Nov 18…"</li></ul>
+    <li>A notice tells you each time: "⭐ Book A is starred. Book B gets whole days from Nov 18…"</li></ul>
     <p><b>Deadlines win over the star.</b> The star is a preference, the deadline is the contract.</p>`],
   ['k-money','Money: checks, partners, costs',`
     <p><b>Finished hours (FH)</b> = the estimate you enter, or total words ÷ ${n(wpf)}.</p>
@@ -1215,7 +1160,7 @@ document.addEventListener('click',async ev=>{
         stages:[],_pipelineId:p.id});break;}
     case 'pipe-new':modal(`<h2>Add a maybe</h2><div class="grid3"><label class="f">Title<input id="p-name"></label><label class="f">Client<input id="p-client" list="clients"></label><label class="f">Narrator / partner<input id="p-who" placeholder="Jack / Anne"></label>
       <label class="f">Words<input id="p-words" type="number"></label><label class="f">Est. FH<input id="p-fh" type="number" step="0.1"></label><label class="f">Est. net $<input id="p-net" type="number"></label></div><label class="f" style="margin-top:8px">Note<input id="p-note"></label>
-      <datalist id="clients"><option>Royal Guard</option><option>Pivot Press</option></datalist><div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="pipe-save">Add</button></div>`);break;
+      <datalist id="clients">${clientOpts()}</datalist><div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="pipe-save">Add</button></div>`);break;
     case 'pipe-save':{const [n,pa]=val('p-who').split('/').map(s=>s?.trim());const doc={name:val('p-name')||'Untitled',client:val('p-client'),narrator:n||'',partner:pa||'',words:+val('p-words')||0,fh:+val('p-fh')||0,net:+val('p-net')||0,note:val('p-note'),rate:200,order:99};closeModal();await put('pipeline','p-'+uid(),doc);break;}
     case 'pipe-del':{if(a.dataset.confirm!=='1'){a.dataset.confirm='1';a.textContent='click again';break;}await del('pipeline',id);break;}
     case 'read-log':{a.disabled=true;a.textContent='Reading…';const txt=$('#qlog')?.value||'';const dt=$('#qdate')?.value||TODAY;
@@ -1236,7 +1181,6 @@ document.addEventListener('click',async ev=>{
     case 'ot-ok':await patch('logs',id,{ot:'confirmed'});break;
     case 'notice':{const t=tById(id);const txt=noticeDraft(t);modal(`<h2>Client notice · ${esc(t.name)}</h2><textarea id="nt" class="in" rows="12" style="width:100%">${esc(txt)}</textarea><div class="foot"><button class="btn" data-act="close">Close</button><button class="btn primary" data-act="copy-notice">Copy</button></div>`);break;}
     case 'copy-notice':try{await navigator.clipboard.writeText($('#nt').value);toast('Copied.');}catch(e){$('#nt').select();toast('Select all and copy.');}break;
-    case 'read-fh':{a.disabled=true;a.textContent='Reading…';await readFH();a.disabled=false;a.textContent='Read stats';break;}
     case 'fh-save':{const rows=PREV?.fhRows||[];closeModal();for(const r of rows)await put('fh','fh-'+r.date+'-'+r.person+'-'+(r.titleId||'x')+'-'+uid().slice(0,4),{date:r.date,person:PEOPLE.includes(r.person)?r.person:(S.me||'anne'),titleId:r.titleId||null,boothHours:+r.boothHours||0,words:+r.words||0});toast('Booth time filed.');break;}
     case 'fh-del':await del('fh',id);break;
     case 'off-add':{let f=val('off-from'),t=val('off-to')||f;if(!f)break;if(t<f)[f,t]=[t,f];const who=val('off-who'),why=val('off-why');let d=f,n=0;while(d<=t&&n++<60){await put('daysoff','off-'+d+'-'+who,{date:d,person:who,reason:why});d=addDays(d,1);}toast('Marked. Forecasts moved.');break;}
@@ -1364,16 +1308,8 @@ function handLog(date) {
   return { id: null, date, person: me, raw: "", entries, payments: [], billsPaid: [], royalties: [], daysOff: [] };
 }
 
-// Claude, with the user's own API key (Settings ▸ Planning ▸ Claude API key), for reading free-written notes
-function makeSample() {
-  if (!window.LRAI || !LRAI.key()) return null;
-  const fn = async (prompt) => {
-    try { return { text: await LRAI.ask(prompt, 2000) }; }
-    catch (er) { const e = new Error(er.message); e.text = ""; throw e; }
-  };
-  fn.json = async (p) => extractJSON((await fn(p)).text);
-  return fn;
-}
+// Notes are read on this computer with a simple word-matcher (no AI, nothing sent anywhere).
+function makeSample() { return null; }
 // dictation into the "Today I…" box, with Chrome's speech recognition
 function makeDict() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return null;

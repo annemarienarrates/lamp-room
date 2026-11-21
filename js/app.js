@@ -1,6 +1,8 @@
 /* The Lamp Room — screens. */
 (function () {
   "use strict";
+  // The work-log AI is gone; forget any key a past version saved on this computer.
+  try { localStorage.removeItem("lr-anthropic-key"); localStorage.removeItem("lr-anthropic-model"); } catch (e) {}
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => [...(el || document).querySelectorAll(s)];
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -988,6 +990,9 @@
           <div class="row"><div class="spacer"></div><button class="btn small quiet" data-cldel="${i}">Remove this client</button></div></details>`).join("")}
         <button class="btn small" id="addcl">+ Client</button></div>
       <div class="card"><h3>This computer</h3><div class="row"><label>Keyboard<select id="platSel"><option value="">Automatic (${LRPlat.guess() === "mac" ? "Mac" : "Windows"})</option><option value="mac" ${LRPlat.chosen() === "mac" ? "selected" : ""}>Mac: ⌘ Command, ⌥ Option</option><option value="pc" ${LRPlat.chosen() === "pc" ? "selected" : ""}>Windows: Ctrl, Alt</option></select></label></div><p class="small muted">Shortcuts and their labels follow this. The shortcuts work with Ctrl either way.</p></div>
+      <div class="card"><h3>Problem log</h3><p class="small muted">The last 100 things that went wrong on this computer: errors, failed saves, "couldn't" messages. It never interrupts you. When something misbehaves, press Copy for Claude and paste it into the chat.</p>
+        <div class="row"><span class="small" id="plCount"></span><div class="spacer"></div><button class="btn small" id="plCopy">Copy for Claude</button><button class="btn small quiet" id="plClear">Clear</button></div>
+        <details style="margin-top:8px"><summary class="small">Show the latest</summary><div id="plList" class="small" style="max-height:260px;overflow:auto;margin-top:6px"></div></details></div>
       <div class="card"><h3>Who's working here</h3><div class="row"><label>Working as<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
         <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
@@ -999,21 +1004,14 @@
           <li>In Drive's settings, set that folder to <b>Available offline</b> (Mirror files) on both Macs, so the Lamp Room reads real files, not placeholders.</li>
           <li>Here, press <b>Switch to a different folder</b> and choose it. Do the same on the other Mac.</li></ol>
           <p class="small muted">Recordings stay in each computer's Studio folder, outside Drive. Each of you only rewrites your own progress files, so you can both work at the same time. Changes from the other computer show up within about 20 seconds.</p></details></div>
-      <div class="card"><h3>Planning &amp; money</h3><p class="small muted">The planner's house rules: hours, workdays and paces for each of you (they keep learning as stages finish), turnaround times, goals and holidays.</p><div class="ll" id="llset"></div></div>
-      <div class="card"><h3>Claude for the work log</h3><p class="small muted">With your own API key (Anthropic or OpenRouter), “Read my note” turns a free-written “Today I…” into log lines, the way Ledger & Lamp did. Without one, a simple word-matcher reads it and you check the lines. The key stays on this computer only (not in the shared folder). Costs are a fraction of a cent per note.</p>
-        <div class="row"><label style="flex:1">API key<input type="password" id="akey" placeholder="sk-ant-… or sk-or-…" value="${esc((() => { try { return localStorage.getItem("lr-anthropic-key") || ""; } catch (e) { return ""; } })())}"></label>
-        <label>Model<input id="amodel" value="${esc(LRAI.modelFor(LRAI.key(), LRAI.model()))}" style="width:230px"></label><button class="btn small" id="atest">Test</button></div>
-        <p class="small muted" id="aprov">${LRAI.key() ? (LRAI.isOR(LRAI.key()) ? "Using <b>OpenRouter</b>. Model names there start with the maker, like anthropic/claude-sonnet-5." : "Using <b>Anthropic</b> directly.") : "Paste an Anthropic key (starts sk-ant-) or an OpenRouter key (starts sk-or-): the Lamp Room works out which."}</p></div>`;
+      <div class="card"><h3>Planning &amp; money</h3><p class="small muted">The planner's house rules: hours, workdays and paces for each of you (they keep learning as stages finish), turnaround times, goals and holidays.</p><div class="ll" id="llset"></div></div>`;
     const ls = $("#llset"); ls.innerHTML = LL.settingsHTML().replace(/^<h2>Settings<\/h2>/, ""); LL.views.el = null;
-    $("#akey").onchange = e => { const k = e.target.value.trim(); try { localStorage.setItem("lr-anthropic-key", k); } catch (er) {}
-      const m = LRAI.modelFor(k, $("#amodel").value); $("#amodel").value = m; try { localStorage.setItem("lr-anthropic-model", m); } catch (er) {}
-      $("#aprov").innerHTML = !k ? "" : LRAI.isOR(k) ? "Using <b>OpenRouter</b>. Model names there start with the maker, like anthropic/claude-sonnet-5." : "Using <b>Anthropic</b> directly.";
-      toast(k ? "Key saved on this computer." : "Key removed."); };
-    $("#amodel").onchange = e => { const m = LRAI.modelFor($("#akey").value.trim(), e.target.value); e.target.value = m; try { localStorage.setItem("lr-anthropic-model", m); } catch (er) {} };
-    $("#atest").onclick = async () => { const b = $("#atest"); b.disabled = true; b.textContent = "Testing…";
-      try { const t = await LRAI.ask("Reply with the single word: lit", 20, $("#akey").value.trim(), $("#amodel").value.trim()); toast("Claude answers: " + t.trim().slice(0, 40) + (LRAI.isOR($("#akey").value.trim()) ? " (through OpenRouter)" : "")); }
-      catch (e) { toast("That didn't work: " + e.message); } b.disabled = false; b.textContent = "Test"; };
     const save = () => { Store.saveSettings().catch(e => toast("Couldn't save settings: " + e.message)); };
+    const plDraw = () => { const L = LRProblems.read(); $("#plCount").textContent = L.length ? L.length + " logged, latest " + LRProblems.stamp(L[L.length - 1].t) : "Nothing logged. Good.";
+      $("#plList").innerHTML = L.length ? L.slice(-20).reverse().map(p => `<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="muted">${esc(LRProblems.stamp(p.t))} · ${esc(p.kind)} · ${esc(p.where)}${p.n > 1 ? " · ×" + p.n : ""}</span><br>${esc(p.msg)}</div>`).join("") : ""; };
+    plDraw();
+    $("#plCopy").onclick = async () => { try { await navigator.clipboard.writeText(LRProblems.forClaude()); toast("Copied. Paste it into the chat with Claude."); } catch (e) { toast("Couldn't reach the clipboard. Click the page once, then try again."); } };
+    $("#plClear").onclick = () => { LRProblems.clear(); plDraw(); toast("Problem log cleared."); };
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
     $("#cf").onchange = e => { S.confetti = e.target.checked; save(); };
     $("#cele").onchange = e => { S.celebrations = e.target.checked; save(); };
