@@ -10,6 +10,10 @@ TESTS = os.path.join(HERE, "tests")
 if not os.path.exists(os.path.join(HERE, "fixtures", "ch01.wav")):
     subprocess.run([sys.executable, "make_fixtures.py"], cwd=os.path.join(HERE, "fixtures"), check=True)
 
+# the app loads js/booth.js, joined from js/booth/*.js; testing a stale join would test old code
+if subprocess.run([sys.executable, os.path.join(HERE, "tools", "build_booth.py"), "--check"]).returncode:
+    sys.exit("Stopped: build the Booth first (python3 dev/tools/build_booth.py).")
+
 names = sys.argv[1:] or sorted((f[:-3] for f in os.listdir(TESTS) if re.match(r"e2e\d+\.py$", f)), key=lambda n: int(n[3:]))
 
 def bad(out):

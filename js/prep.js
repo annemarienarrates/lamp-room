@@ -380,13 +380,27 @@
   }
   // Words each reader voices in one chapter (runs split mid-word are counted once, by tokens())
   function wordsByReader(chapter, book) {
-    const out = {};
-    for (const t of tokens(chapter)) { const who = readerOf(t.part, chapter, book) || "?"; out[who] = (out[who] || 0) + 1; }
+    const out = {}, byPart = cached(chapter).byPart;
+    for (const part in byPart) { const who = readerOf(part, chapter, book) || "?"; out[who] = (out[who] || 0) + byPart[part]; }
     return out;
   }
 
-  // Chapter → word tokens: { w (display text), k (match key), part, p (paragraph index), end (ends a sentence) }
-  function tokens(chapter) {
+  // Splitting a chapter into words is the slow part of every count (about 100 ms for a whole novel), and the Booth
+  // counts often while you record. So each chapter's words are kept until its text or highlights actually change:
+  // the paragraphs are fingerprinted (a fraction of a millisecond) and compared, so no edit can leave a stale count.
+  // Who reads which part is looked up fresh every time, since that can change without the text changing.
+  const tokCache = new WeakMap();
+  function cached(chapter) {
+    const sig = JSON.stringify(chapter.paras || []), hit = tokCache.get(chapter);
+    if (hit && hit.sig === sig) return hit;
+    const toks = tokenize(chapter), byPart = {};
+    for (const t of toks) byPart[t.part] = (byPart[t.part] || 0) + 1;
+    const rec = { sig, toks, byPart }; tokCache.set(chapter, rec); return rec;
+  }
+  // Chapter → word tokens: { w (display text), k (match key), part, p (paragraph index), end (ends a sentence) }.
+  // The list is shared between callers: read it, don't change it.
+  function tokens(chapter) { return cached(chapter).toks; }
+  function tokenize(chapter) {
     const out = [];
     chapter.paras.forEach((p, pi) => {
       if (p === SCENE_MARK) return;
@@ -537,6 +551,6 @@
   }
 
   const Prep = { setPart, paraText, paraRuns, partOfColor, partLabel, colorName, colorCss, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
-    estimate, usFederalHolidays, isWorkday, workdaysUntil, addWorkdays, ymd, uid, METHOD_LABELS, SCENE_MARK };
+    __tokenizeForTest: tokenize, estimate, usFederalHolidays, isWorkday, workdaysUntil, addWorkdays, ymd, uid, METHOD_LABELS, SCENE_MARK };
   if (typeof module !== "undefined" && module.exports) module.exports = Prep; else root.Prep = Prep;
 })(typeof window !== "undefined" ? window : globalThis);

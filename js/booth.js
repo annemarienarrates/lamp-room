@@ -1,3 +1,4 @@
+/* GENERATED from js/booth/*.js by dev/tools/build_booth.py. Don't edit this file: edit the parts. */
 /* The Lamp Room — the Booth & Studio: follow-along manuscript, multitrack recorder, punch-and-roll, editing, export.
    Laid out like Finished Hour's Booth. */
 (function () {
