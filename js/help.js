@@ -177,7 +177,9 @@
         ["No microphone", "Tools ▸ Mic & reading ▸ choose the microphone. Check Chrome's mic permission (the icon in the address bar)."],
         ["Partner's changes don't show", "Make sure Google Drive is running and the Lamp Room Library folder is set to Available offline (Mirror files)."],
         ["A take won't play on this Mac", "It was recorded on the other computer. Bring the takes in (see Sharing)."],
-        ["Made a mess", "⌘Z. Undo goes back step by step, in the Booth and the editor."]
+        ["Made a mess", "⌘Z. Undo goes back step by step, in the Booth and the editor."],
+        ["Lost work", "Settings ▸ Backups ▸ Restore: a day, then a book or the planner. Undoable."],
+        ["Keeps going wrong", "Settings ▸ Problem log ▸ Copy for Claude."]
       ] }
   ];
   window.LRHelp = { HELP };

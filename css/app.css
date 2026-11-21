@@ -772,3 +772,7 @@ html.fx-calm #lr-rain { display: none; }
 @keyframes sgSweep { to { background-position: -200% 0; } }
 html.fx-calm[data-theme="signal"] .ms .w.cur, html.fx-calm[data-theme="signal"] .ms .w.cur::after, html.fx-calm[data-theme="signal"] .ms .w.cur::before { animation: none !important; }
 @media (prefers-reduced-motion: reduce) { [data-theme="signal"] .ms .w.cur, [data-theme="signal"] .ms .w.cur::after { animation: none !important; } }
+
+/* restore dialog: tick boxes beside their words */
+.rs-chk { display: flex !important; flex-direction: row !important; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.rs-chk input { width: auto !important; margin: 3px 0 0; flex: none; }

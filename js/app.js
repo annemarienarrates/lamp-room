@@ -40,6 +40,7 @@
     LL.views.linkBook = id => linkBook(id);
     LL.views.openBook = id => { const b = Store.books.find(b => b.titleId === id); location.hash = b ? "#/book/" + b.id : "#/import?title=" + id; };
     Store.watch();
+    LRBackup.start();
     drawWho();
     $("#whochip").onclick = whoMenu;
     document.addEventListener("lr-me", e => {
@@ -941,6 +942,56 @@
       toast([r.added.length ? "Added " + r.added.join(" and ") : "", r.updated.length ? "Updated " + r.updated.join(" and ") : "", r.kept.length ? "Kept " + r.kept.join(" and ") + " as recorded" : ""].filter(Boolean).join(". ") || "The credits already match.");
     };
   }
+  // Restore: choose a backup, then a book (Lead only) or the planner. Nothing is written until the last button.
+  async function restoreDialog() {
+    const ov = document.createElement("div"); ov.className = "overlay"; document.body.appendChild(ov);
+    const close = () => ov.remove();
+    const fmtDay = b => LRProblems.stamp(b.modified) + " · " + b.by + (b.beforeRestore ? " · before a restore" : "");
+    let all = [];
+    try { all = await LRBackup.list(); } catch (e) {}
+    if (!all.length) { ov.innerHTML = `<div class="card reader"><h2>Restore</h2><p>No backups yet. The first one is made a few seconds after the Lamp Room opens each day, or press <b>Back up now</b>.</p><div class="row"><div class="spacer"></div><button class="btn" data-x>Close</button></div></div>`; $("[data-x]", ov).onclick = close; return; }
+    const pick = async name => {
+      let info = {}; try { info = (await LRBackup.open(name)).info || {}; } catch (e) { toast("Couldn't open that backup: " + e.message); return; }
+      const rows = (info.books || []).slice().sort((a, b) => (a.title || "").localeCompare(b.title || "")).map((b, i) => {
+        const live = Store.books.find(x => x.folder === b.folder || (b.id && x.id === b.id));
+        const ok = LRBackup.canRestore(live || { parts: { n: b.lead } });
+        const lead = LRBackup.leadOf(live || {}) || b.lead;
+        return `<tr><td><b>${esc(b.title)}</b><div class="small muted">${b.chapters} chapter${b.chapters === 1 ? "" : "s"}${live ? "" : " · not in the Library now"}${lead ? " · Lead: " + esc(lead) : ""}</div></td>
+          <td style="text-align:right">${ok ? `<button class="btn small" data-rb="${i}">Restore this book…</button>` : `<span class="small muted">Only ${esc(lead)} can restore it</span>`}</td></tr>`; }).join("");
+      $("#rsBody", ov).innerHTML = `<p class="small muted">Saved ${esc(info.made ? LRProblems.stamp(Date.parse(info.made)) : "")} by ${esc(info.by || "?")}.</p>
+        <table class="ch" style="width:100%">${rows}${info.planner ? `<tr><td><b>The planner</b><div class="small muted">Titles, log, ledger, bills, days off, pipeline, settings</div></td><td style="text-align:right"><button class="btn small" data-rp>Restore the planner…</button></td></tr>` : ""}</table>`;
+      const sorted = (info.books || []).slice().sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      $$("[data-rb]", ov).forEach(bt => bt.onclick = () => confirmBook(name, info, sorted[+bt.dataset.rb]));
+      const rp = $("[data-rp]", ov); if (rp) rp.onclick = () => confirmPlanner(name, info);
+    };
+    const confirmBook = (name, info, b) => {
+      const me = Store.me(), ppl = b.people || [];
+      $("#rsBody", ov).innerHTML = `<h3>${esc(b.title)}, as it was ${esc(LRProblems.stamp(Date.parse(info.made)))}</h3>
+        <label class="small rs-chk"><input type="checkbox" checked disabled><span>The book itself: text, chapters, parts, credits, cues</span></label>
+        ${ppl.slice().sort((a, b) => Store.samePerson(b, me) - Store.samePerson(a, me)).map(p => `<div><label class="small rs-chk"><input type="checkbox" data-rpp="${esc(p)}" ${Store.samePerson(p, me) ? "checked" : ""}><span>${Store.samePerson(p, me) ? "Your own file (" + esc(p) + "): your takes list, markers, track effects and progress" : esc(p) + "'s own file: their takes list, markers, track effects and progress"}${Store.samePerson(p, me) ? "" : ` <span class="muted">(only tick if ${esc(p)} agrees: it replaces their latest)</span>`}</span></label></div>`).join("")}
+        <p class="small muted">Recordings themselves aren't touched. Anything changed since then is saved in a backup first.</p>
+        <div class="row"><div class="spacer"></div><button class="btn quiet" data-back>Back</button><button class="btn primary" id="rsGo">Restore ${esc(b.title)}</button></div>`;
+      $("[data-back]", ov).onclick = () => pick(name);
+      $("#rsGo", ov).onclick = async () => { const bt = $("#rsGo", ov); bt.disabled = true; bt.textContent = "Restoring…";
+        try { await LRBackup.restoreBook(name, b.folder, $$("[data-rpp]", ov).filter(x => x.checked).map(x => x.dataset.rpp)); close(); toast("↩ " + b.title + " is back as it was " + LRProblems.stamp(Date.parse(info.made)) + "."); render(); }
+        catch (e) { toast("Couldn't restore: " + e.message); bt.disabled = false; bt.textContent = "Restore " + b.title; } };
+    };
+    const confirmPlanner = (name, info) => {
+      $("#rsBody", ov).innerHTML = `<h3>The planner, as it was ${esc(LRProblems.stamp(Date.parse(info.made)))}</h3>
+        <p>Titles, log entries, ledger, bills, days off and the pipeline go back to exactly that moment, for everyone sharing this Library. Anything added since then disappears from the planner, but it's kept in a backup made right before, so this can be undone.</p>
+        <div class="row"><div class="spacer"></div><button class="btn quiet" data-back>Back</button><button class="btn primary" id="rsGo">Restore the planner</button></div>`;
+      $("[data-back]", ov).onclick = () => pick(name);
+      $("#rsGo", ov).onclick = async () => { const bt = $("#rsGo", ov); bt.disabled = true; bt.textContent = "Restoring…";
+        try { await LRBackup.restorePlanner(name); close(); toast("↩ The planner is back as it was " + LRProblems.stamp(Date.parse(info.made)) + "."); render(); }
+        catch (e) { toast("Couldn't restore: " + e.message); bt.disabled = false; bt.textContent = "Restore the planner"; } };
+    };
+    ov.innerHTML = `<div class="card reader" style="max-width:720px"><h2>Restore from a backup</h2>
+      <div class="row"><label style="flex:1">Backup<select id="rsPick">${all.map(b => `<option value="${esc(b.name)}">${esc(fmtDay(b))}</option>`).join("")}</select></label><button class="btn quiet" data-x>Close</button></div>
+      <div id="rsBody" style="margin-top:10px"><p class="muted small">Opening…</p></div></div>`;
+    $("[data-x]", ov).onclick = close;
+    $("#rsPick", ov).onchange = e => pick(e.target.value);
+    pick(all[0].name);
+  }
   function viewSettings() {
     const S = Store.settings;
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
@@ -997,6 +1048,8 @@
         <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
         <div class="row"><label>Whose takes<select id="tkWho">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label><button class="btn small" id="tkOut">Copy their takes to a folder…</button><button class="btn small" id="tkIn">Bring takes in from a folder…</button><span class="small muted" id="tkRes"></span></div></div>
+      <div class="card"><h3>Backups</h3><p class="small muted">Once a day this computer saves a copy of your books, everyone's progress, the planner and booth sessions into the Library's <b>Backups</b> folder (recordings stay in the Studio folder). Each of you keeps your last ${LRBackup.KEEP} days. Restoring a book is for its Lead; a fresh backup is made first, so a restore can be undone.</p>
+        <div class="row"><span class="small" id="bkLast"></span><div class="spacer"></div><button class="btn small" id="bkNow">Back up now</button><button class="btn small" id="bkRestore">Restore…</button></div></div>
       <div class="card"><h3>Library folder</h3><p>📁 ${esc(Store.testMode ? "test library (browser storage)" : Store.folderName())}</p><button class="btn small" id="sw">Switch to a different folder</button>
         <details style="margin-top:10px"><summary class="small">Sharing it with ${esc((S.narrators.find(n => n.name !== Store.me()) || {}).name || "your partner")} through Google Drive</summary><ol class="small" style="line-height:1.6">
           <li>Install <b>Google Drive for desktop</b> on both Macs and sign in to the same Google account (or share one folder between your two accounts).</li>
@@ -1010,6 +1063,12 @@
     const plDraw = () => { const L = LRProblems.read(); $("#plCount").textContent = L.length ? L.length + " logged, latest " + LRProblems.stamp(L[L.length - 1].t) : "Nothing logged. Good.";
       $("#plList").innerHTML = L.length ? L.slice(-20).reverse().map(p => `<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="muted">${esc(LRProblems.stamp(p.t))} · ${esc(p.kind)} · ${esc(p.where)}${p.n > 1 ? " · ×" + p.n : ""}</span><br>${esc(p.msg)}</div>`).join("") : ""; };
     plDraw();
+    const bkDraw = () => { const t = LRBackup.last(); $("#bkLast").textContent = t ? "Last backup from here: " + LRProblems.stamp(Date.parse(t)) : "No backup from this computer yet."; };
+    bkDraw();
+    $("#bkNow").onclick = async () => { const bt = $("#bkNow"); bt.disabled = true; bt.textContent = "Backing up…";
+      try { const r = await LRBackup.make("by hand"); toast("Backed up " + r.books + " book" + (r.books === 1 ? "" : "s") + " and the planner (" + Math.max(1, Math.round(r.size / 1024)) + " KB)."); bkDraw(); }
+      catch (e) { toast("Couldn't back up: " + e.message); } bt.disabled = false; bt.textContent = "Back up now"; };
+    $("#bkRestore").onclick = () => restoreDialog();
     $("#plCopy").onclick = async () => { try { await navigator.clipboard.writeText(LRProblems.forClaude()); toast("Copied. Paste it into the chat with Claude."); } catch (e) { toast("Couldn't reach the clipboard. Click the page once, then try again."); } };
     $("#plClear").onclick = () => { LRProblems.clear(); plDraw(); toast("Problem log cleared."); };
     $("#th").onchange = e => { S.theme = e.target.value; applyTheme(); save(); };
