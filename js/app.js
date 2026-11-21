@@ -597,8 +597,14 @@
     const key = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const textOf = c => c.paras.map(Prep.paraText).join("\n");
     const rows = [];
+    // "Chapter 5" in the file is "Chapter 5: The Dark Wood" here, or the other way round (never Chapter 50)
+    const headMatch = (a, b) => a === b || (a.length < b.length ? b.startsWith(a + " ") : a.startsWith(b + " "));
+    const findOld = t => book.chapters.find(c => key(c.title) === key(t)) || book.chapters.find(c => headMatch(key(c.title), key(t)));
+    // one chapter on its own with no heading the Lamp Room recognises: ask which chapter it replaces
+    const real = fresh.filter(nc => nc.title !== "Front matter");
+    if (real.length <= 1 && !(real[0] && findOld(real[0].title))) return pickChapterFor(book, file, Prep.buildChapters(blocks, [])[0], textOf);
     fresh.forEach((nc, k) => {
-      const old = book.chapters.find(c => key(c.title) === key(nc.title));
+      const old = findOld(nc.title);
       if (old) { if (textOf(old) !== textOf(nc)) rows.push({ nc, old, rec: Object.values(old.audio || {}).some(a => a && (a.tracks || []).some(t => (t.clips || []).length)) }); }
       else if (nc.title !== "Front matter") rows.push({ nc, k, add: true, prev: k ? fresh[k - 1].title : null });
     });
@@ -620,6 +626,28 @@
       });
       ov.remove(); if (!n) return;
       Store.saveBook(book, true); viewBook(); toast("Updated " + n + " chapter" + (n === 1 ? "" : "s") + ".");
+    };
+  }
+
+  function pickChapterFor(book, file, nc, textOf) {
+    const m = /(?:ch(?:apter)?|ep(?:isode)?)[\s_\-.]*0*(\d{1,3})/i.exec(file.name), guess = m ? book.chapters.findIndex(c => new RegExp("^(chapter|episode)\\s+0*" + m[1] + "(\\b|$)", "i").test(c.title)) : -1;
+    const ov = document.createElement("div"); ov.className = "overlay";
+    ov.innerHTML = `<div class="card reader" style="max-width:560px"><h2>Which chapter is this?</h2>
+      <p class="small muted">${esc(file.name)} holds one chapter (${num(nc.words)} words), and it doesn't start with a heading the Lamp Room recognises. Pick the chapter it replaces. Recordings, notes and status stay; if that chapter is already recorded, its word timing may drift where the text changed.</p>
+      <label>Replaces<select id="pcf"><option value="">Choose a chapter…</option>${book.chapters.map((c, i) => `<option value="${i}" ${i === guess ? "selected" : ""}>${esc(c.title)} · ${num(c.words)} words</option>`).join("")}<option value="new">Add it as a new chapter at the end</option></select></label>
+      <p class="small muted" id="pcfp" style="margin-top:8px"></p>
+      <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" data-go ${guess >= 0 ? "" : "disabled"}>Replace it</button></div></div>`;
+    document.body.appendChild(ov);
+    const sel = $("#pcf", ov), go = $("[data-go]", ov), prev = $("#pcfp", ov);
+    const upd = () => { const v = sel.value; go.disabled = v === ""; go.textContent = v === "new" ? "Add it" : "Replace it";
+      prev.textContent = v === "" || v === "new" ? "" : book.chapters[+v].title + ": " + num(book.chapters[+v].words) + " → " + num(nc.words) + " words. Starts: “" + textOf(nc).slice(0, 90) + "…”"; };
+    sel.onchange = upd; upd();
+    $("[data-x]", ov).onclick = () => ov.remove();
+    go.onclick = () => {
+      const v = sel.value; if (v === "") return;
+      if (v === "new") { nc.title = file.name.replace(/\.docx$/i, ""); book.chapters.push(nc); }
+      else { const old = book.chapters[+v]; old.paras = nc.paras; old.words = nc.words; old.included = true; }
+      ov.remove(); Store.saveBook(book, true); viewBook(); toast(v === "new" ? "Added it as a new chapter." : "Updated " + book.chapters[+v].title + ".");
     };
   }
 
