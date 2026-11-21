@@ -62,6 +62,7 @@
     ["pointerdown", "keydown", "wheel"].forEach(ev => document.removeEventListener(ev, markActive, true));
     window.removeEventListener("beforeunload", flushSession);
     window.removeEventListener("hashchange", onLeave);
+    try { if (Store._timers[B.book.id]) await Store.saveBook(B.book, true); } catch (e) {}   // leave nothing unsaved behind
     await flushSession();
     document.body.classList.remove("booth-on", "booth-recording");
     stopLine(); if (window.LRCele) { LRCele.comboEnd(); LRCele.drawCombo(); }
@@ -87,6 +88,7 @@
   const prog = () => progOf(B.chap, B.readingAs);
   // tracks belong to the book (per reader): name, volume (dB), mute, solo
   // the chapter's own name for buttons ("Chapter 3", "Opening Credits"), never its place in the file list
+  const safeName = n => String(n || "").replace(/[\\/:*?"<>|]+/g, "-").trim() || "Me";
   function chLabel() { const t = String((B && B.chap && B.chap.title) || "").split(/[:—–]/)[0].trim() || "this chapter"; return t.length > 22 ? t.slice(0, 21) + "…" : t; }
   function trackSet() {
     B.book.trackSet = B.book.trackSet || {};
@@ -689,6 +691,7 @@
     };
   }
   function markPos(scroll) {
+    if (B && B.holdScroll) scroll = false;
     renderPacer(); renderCueWin(); if (!B.rec) applyProofMarks();
     const ms = $("#ms"); if (!ms || B.edit) return;
     $$(".w.cur", ms).forEach(e => e.classList.remove("cur"));
@@ -2223,7 +2226,9 @@
     if (who !== "__n") { part = Object.keys(parts).find(k => k !== "n" && parts[k] === who); if (!part) { part = "r:" + who; parts[part] = who; } }
     Prep.setPart(B.chap, from, to, part);
     const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos); B.f.setManual(pacerManual());
-    Store.saveBook(B.book); bookCounts(); renderManuscript(); renderStats();
+    // stay where you are on the page (R, or recording, brings you back to your line)
+    const wrap = $("#ms-wrap"), top = wrap ? wrap.scrollTop : 0;
+    Store.saveBook(B.book); bookCounts(); B.holdScroll = true; try { renderManuscript(); } finally { B.holdScroll = false; } if (wrap) wrap.scrollTop = top; renderStats();
     notice((to - from + 1) + " word" + (to > from ? "s" : "") + " now read by " + (who === "__n" ? "the narrator" : who) + ". Select them again to change it.");
   }
 
@@ -2575,7 +2580,7 @@
           <label class="check"><input type="checkbox" id="xproof" ${st.proof ? "checked" : ""}> 🔎 Proof the chapter: listen through it and flag anything misread first</label>
           <label class="check"><input type="checkbox" id="xspace" ${st.space ? "checked" : ""}> ⏱ Even out pauses: ${pz().head} s head, ${pz().heading} s after the heading, ${pz().scene} s at scene breaks, ${pz().tail} s tail, long gaps down to ${pz().cap} s</label></div>
         <div id="xmsg"></div>
-        <div class="row" style="margin-top:6px"><label class="check"><input type="radio" name="xd" value="folder" ${st.dest === "folder" ? "checked" : ""}> The book's exports folder</label><label class="check"><input type="radio" name="xd" value="choose" ${st.dest === "choose" ? "checked" : ""}> Choose where to save…</label></div>
+        <div class="row" style="margin-top:6px"><label class="check"><input type="radio" name="xd" value="folder" ${st.dest === "folder" ? "checked" : ""}> Your exports folder for this book (Studio ▸ book ▸ exports ▸ ${esc(safeName(B.readingAs || Store.me() || "Me"))})</label><label class="check"><input type="radio" name="xd" value="choose" ${st.dest === "choose" ? "checked" : ""}> Choose where to save…</label></div>
         <div id="xprog" class="bar hidden" style="margin-top:12px"><i style="width:0;background:var(--accent)"></i></div>
         <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" id="xgo">Export ${esc(ext.slice(1).toUpperCase())}</button></div></div>`;
       $$("[data-f]", ov).forEach(b => b.onclick = () => { st.fmt = b.dataset.f; localStorage.setItem("lr-xfmt", st.fmt); draw(); });
@@ -2616,7 +2621,7 @@
       try {
         if (toShared) { const fd = await Store.sharedFinishedDir(B.book); if (!fd) throw new Error("Connect this computer to the shared folder first."); fh = await fd.getFileHandle(name, { create: true }); }
         else if (st.dest === "choose" && window.showSaveFilePicker) fh = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: ext === ".mp3" ? "MP3 audio" : "WAV audio", accept: ext === ".mp3" ? { "audio/mpeg": [".mp3"] } : { "audio/wav": [".wav"] } }] });
-        else { const bd = await Store.studio.getDirectoryHandle(B.book.folder, { create: true }); const xd = await bd.getDirectoryHandle("exports", { create: true }); fh = await xd.getFileHandle(name, { create: true }); }
+        else { const bd = await Store.studio.getDirectoryHandle(B.book.folder, { create: true }); const xd = await (await bd.getDirectoryHandle("exports", { create: true })).getDirectoryHandle(safeName(B.readingAs || Store.me() || "Me"), { create: true }); fh = await xd.getFileHandle(name, { create: true }); }
       } catch (e) { if (e.name !== "AbortError") toast(e.message); return; }
       const bar = $("#xprog", ov), fill = $("#xprog i", ov); bar.classList.remove("hidden"); $("#xgo", ov).disabled = true; $("#xgo", ov).textContent = "Exporting…";
       try {
@@ -2625,8 +2630,7 @@
         const order = ["todo", "recorded", "edited", "mastered", "proofed", "delivered"];
         if (order.indexOf(B.chap.status) < 2) B.chap.status = "edited";
         Store.saveBook(B.book, true);
-        ov.remove(); notice("Exported " + name + (toShared ? " to the shared Finished folder." : st.dest === "folder" ? " to the book's exports folder." : "."));
-        if (B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]) && confirm("Send " + B.chap.title + " to the shared folder too? It locks here once it's sent.")) await sendToShared(true);
+        ov.remove(); notice("Exported " + name + (toShared ? " to the shared Finished folder." : st.dest === "folder" ? " to your exports folder for this book (Studio ▸ " + B.book.folder + " ▸ exports ▸ " + safeName(B.readingAs || Store.me() || "Me") + ")." : "."));
       } catch (e) { toast("Export failed: " + e.message); $("#xgo", ov).disabled = false; $("#xgo", ov).textContent = "Try again"; }
     };
     draw(); document.body.appendChild(ov);

@@ -109,21 +109,44 @@
       try { const f = await (await dir.getFileHandle(name)).getFile(); const t = await f.text(); this._written[path] = t; this._seen[path] = f.lastModified; return t; }
       catch (e) { if (e.name === "NotFoundError") return null; throw e; }
     },
+    // Google Drive renames a file to "name (1).json" when two writes collide. Read whichever copy is newest,
+    // and make sure the next save writes the proper name again.
+    conflicts: [],
+    async newestOf(dir, base, ext) {
+      const re = new RegExp("^" + base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?: \\(\\d+\\))?" + ext.replace(".", "\\.") + "$");
+      const found = [];
+      for await (const [n, fh] of dir.entries()) if (fh.kind === "file" && re.test(n)) { try { found.push({ n, f: await fh.getFile() }); } catch (e) {} }
+      found.sort((a, b) => b.f.lastModified - a.f.lastModified);
+      return found;
+    },
     async readBook(h, folder) {
-      const t = await this.readText(h, "book.json", folder + "/book.json"); if (!t) return null;
+      const copies = await this.newestOf(h, "book", ".json");
+      if (!copies.length) return null;
+      const pick = copies[0], t = await pick.f.text();
+      if (pick.n === "book.json") { this._written[folder + "/book.json"] = t; this._seen[folder + "/book.json"] = pick.f.lastModified; }
+      else delete this._written[folder + "/book.json"];          // the next save writes book.json again
+      if (copies.length > 1 || pick.n !== "book.json") this.conflicts.push({ folder, file: "book.json", used: pick.n, others: copies.slice(1).map(x => x.n) });
       const b = JSON.parse(t); b.folder = folder;
+      if (pick.n !== "book.json") b._repair = true;
       try {
-        const pd = await h.getDirectoryHandle("people");
+        const pd = await h.getDirectoryHandle("people"), groups = {};
         for await (const [n, fh] of pd.entries()) {
           if (fh.kind !== "file" || !n.endsWith(".json")) continue;
-          const pt = await this.readText(pd, n, folder + "/people/" + n); if (!pt) continue;
-          const p = JSON.parse(pt), who = p.person || n.replace(/\.json$/, "");
+          const base = n.replace(/ \(\d+\)\.json$/, ".json"); (groups[base] = groups[base] || []).push(n);
+        }
+        for (const base in groups) {
+          const copiesP = await this.newestOf(pd, base.replace(/\.json$/, ""), ".json"); if (!copiesP.length) continue;
+          const pk = copiesP[0], pt = await pk.f.text(), path = folder + "/people/" + base;
+          if (pk.n === base) { this._written[path] = pt; this._seen[path] = pk.f.lastModified; } else { delete this._written[path]; b._repair = true; }
+          if (copiesP.length > 1 || pk.n !== base) this.conflicts.push({ folder, file: "people/" + base, used: pk.n, others: copiesP.slice(1).map(x => x.n) });
+          const p = JSON.parse(pt), who = p.person || base.replace(/\.json$/, "");
           if (p.trackSet) { b.trackSet = b.trackSet || {}; b.trackSet[who] = p.trackSet; }
           for (const c of b.chapters || []) { const x = (p.chapters || {})[c.id]; if (!x) continue;
             if (x.prog) { c.prog = c.prog || {}; c.prog[who] = x.prog; }
             if (x.audio) { c.audio = c.audio || {}; c.audio[who] = x.audio; } }
         }
       } catch (e) { if (e.name !== "NotFoundError") console.warn(e); }
+      if (b._repair) { delete b._repair; setTimeout(() => this.saveBook(b), 1500); }
       return b;
     },
     splitBook(book) {
@@ -197,6 +220,7 @@
       book.updated = new Date().toISOString();
       clearTimeout(this._timers[book.id]);
       const run = async () => {
+        delete this._timers[book.id];
         try { await this.writeBook(book); this.lastError = null; document.dispatchEvent(new CustomEvent("lr-saved", { detail: book })); if (book.shared && book.sharedOwner === this.me() && this.sharedOpen[book.id]) this.writeProject(book).catch(e => console.warn("project", e)); }
         catch (e) { this.lastError = e; document.dispatchEvent(new CustomEvent("lr-save-error", { detail: e })); }
       };
@@ -438,8 +462,11 @@
           if (!known) { const b = await this.readBook(h, name).catch(() => null); if (b) { this.books.push(b); changed.push("book:" + b.id); } continue; }
           let dirty = !!(await look(h, "book.json", name + "/book.json"));
           try { const pd = await h.getDirectoryHandle("people"); for await (const [n, f] of pd.entries()) if (f.kind === "file" && await look(pd, n, name + "/people/" + n)) dirty = true; } catch (e) {}
-          if (dirty && !(window.Booth && Booth.state && Booth.state.book && Booth.state.book.id === known.id)) {
-            const b = await this.readBook(h, name); if (b) { const i = this.books.indexOf(known); this.books[i] = b; changed.push("book:" + b.id); }
+          if (dirty && !(window.Booth && Booth.state && Booth.state.book && Booth.state.book.id === known.id) && !this._timers[known.id]) {
+            const b = await this.readBook(h, name);
+            // never replace newer work held here with an older copy from Drive: keep ours and write it back
+            if (b && known.updated && b.updated && b.updated < known.updated) { this.saveBook(known); }
+            else if (b) { const i = this.books.indexOf(known); this.books[i] = b; changed.push("book:" + b.id); }
           }
         }
         // ledger
@@ -461,6 +488,13 @@
     },
     watch() {
       if (this._watching) return; this._watching = true;
+      // tell the person once when Drive had made a second copy of a file
+      setInterval(() => {
+        if (!this.conflicts.length || !window.toast) return;
+        const seen = this._toldConflicts = this._toldConflicts || new Set(), fresh = this.conflicts.filter(c => !seen.has(c.folder + "/" + c.file + ">" + c.used));
+        this.conflicts = []; if (!fresh.length) return; fresh.forEach(c => seen.add(c.folder + "/" + c.file + ">" + c.used));
+        toast("Google Drive had made a second copy of " + fresh.map(c => c.folder + " ▸ " + c.file).join(", ") + ". The newest copy is in use and saved under the right name.");
+      }, 3000);
       setInterval(() => { if (document.visibilityState === "visible") this.checkExternal().catch(() => {}); }, 20000);
       window.addEventListener("focus", () => this.checkExternal().catch(() => {}));
     },
