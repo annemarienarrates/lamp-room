@@ -368,6 +368,18 @@
 
   // ---------------- side panels: Chapters & Tools ----------------
   const TOOL_TABS = [["shared", "📦 Shared"], ["orig", "📼 Finished audio"], ["duet", "🤝 Collaborate"], ["pickups", "🚩 Pickups"], ["fx", "🎛 Effects"], ["chain", "🎚 Track sound"], ["takes", "🎞 Takes"], ["levels", "📏 Levels, fades & spacing"], ["mic", "🎙 Mic & reading"]];
+  // The drawer lists the tabs this book uses; the rest wait under ＋ More. Pickups, effects, track sound, takes,
+  // levels and mic are always there. The last tab used is remembered per book, for each person on this computer.
+  function tabsThatApply() {
+    const me = Store.me() || B.readingAs, out = new Set(["pickups", "fx", "chain", "takes", "levels", "mic"]);
+    if (B.book.shared) out.add("shared").add("duet");
+    if (B.assembling || B.book.chapters.some(c => c.orig) || ((r => r && !Store.samePerson(r, me))(Prep.readerOf("n", B.chap, B.book)))) out.add("orig");
+    if (!out.has("duet") && B.book.chapters.some(c => c.included && Object.keys(Prep.wordsByReader(c, B.book)).some(r => r !== "?" && !Store.samePerson(r, me)))) out.add("duet");
+    return out;
+  }
+  function tabMemory() { try { return JSON.parse(localStorage.getItem("lr-tooltab@" + (Store.me() || "")) || "{}"); } catch (e) { return {}; } }
+  function lastTab() { const t = tabMemory()[B.book.id]; return TOOL_TABS.some(([k]) => k === t) ? t : null; }
+  function rememberTab(t) { const m = tabMemory(); if (m[B.book.id] === t) return; m[B.book.id] = t; try { localStorage.setItem("lr-tooltab@" + (Store.me() || ""), JSON.stringify(m)); } catch (e) {} }
   function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -380,8 +392,9 @@
       if (which === "chapters") body = `<div class="bch">${B.book.chapters.map((x, i) => { if (!x.included) return ""; const k = B.counts[i], fin = k.mine && k.done >= k.mine, bs = progOf(x, B.readingAs).boothSec || 0;
             return `<button class="bd-ch ${i === B.ci ? "on" : ""} ${k.mine ? "" : "none"}" data-ci="${i}"><span>${fin ? "✓ " : ""}${esc(x.title)}${x.pov ? `<i class="pov">${esc(x.pov)}'s POV</i>` : ""}</span><em>${k.mine ? num(k.mine - k.done) : "—"}${bs ? " · " + hm(bs) : ""}</em></button>`; }).join("")}</div>`;
       else {
-        const tab = B.tab = B.tab || "fx";
-        body = `<select class="stu-sel bd-tabsel" data-tab>${TOOL_TABS.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" ? (n => n ? " (" + n + ")" : "")(B.audio.markers.filter(m => !m.done && !m.slot).length + pkForMe().filter(q => !Store.pickupReply(B.book, q)).length) : ""}</option>`).join("")}</select>
+        const tab = B.tab = B.tab || lastTab() || "fx"; rememberTab(tab);
+        const fits = tabsThatApply(), shown = TOOL_TABS.filter(([k]) => B.allTabs || fits.has(k) || k === tab), hidden = TOOL_TABS.length - shown.length;
+        body = `<select class="stu-sel bd-tabsel" data-tab>${shown.map(([k, l]) => `<option value="${k}" ${tab === k ? "selected" : ""}>${l}${k === "takes" && (B.audio.alts || []).length ? " (" + B.audio.alts.length + " kept)" : ""}${k === "pickups" ? (n => n ? " (" + n + ")" : "")(B.audio.markers.filter(m => !m.done && !m.slot).length + pkForMe().filter(q => !Store.pickupReply(B.book, q)).length) : ""}</option>`).join("")}${hidden ? `<option value="__more">＋ More… (${hidden})</option>` : B.allTabs ? `<option value="__fewer">− Show only what this book uses</option>` : ""}</select>
           <div class="bd-toolbody">${({ shared: sharedTabHtml, orig: origTabHtml, duet: duetTabHtml, pickups: pickupsTabHtml, fx: fxTabHtml, chain: chainTabHtml, takes: takesTabHtml, levels: levelsTabHtml, mic: micTabHtml }[tab] || fxTabHtml)()}</div>`;
       }
       el.innerHTML = `<div class="bd-tools">${head}${body}</div>`;
@@ -469,7 +482,7 @@
   }
   function sideChange(e) {
     const t = e.target;
-    if (t.dataset.tab != null) { B.tab = t.value; renderSide(); t.blur(); return; }
+    if (t.dataset.tab != null) { if (t.value === "__more") B.allTabs = true; else if (t.value === "__fewer") B.allTabs = false; else B.tab = t.value; renderSide(); t.blur(); return; }
     if (t.dataset.duet) { setDuetOpt(t.dataset.duet, t.checked); renderSide(); return; }
     if (t.dataset.p2 === "ocorr") { B.book.corrections = t.checked; Store.saveBook(B.book, true); renderSide(); return; }
     if (t.dataset.p2 === "castwords") { Store.lsSet("lr-castwords", t.checked ? "1" : "0"); return; }

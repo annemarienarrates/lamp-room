@@ -392,7 +392,7 @@
     const todayCard = `<div class="dt-card"><div class="dt-label">Today${meName ? " · " + esc(meName) : ""}</div><div class="rings">
         ${ring("r-words", "Words", "of " + num(wordsGoal))}${ring("r-booth", "Booth hrs", "of " + hrsGoal)}${ring("r-earn", "Earned", S.goalEarn ? "of $" + num(S.goalEarn) : "today")}</div>${cb && cb.score ? `<div class="dt-sub" style="text-align:center;margin-top:8px">Best combo ${num(cb.score)} pts</div>` : ""}</div>`;
 
-    main().innerHTML = `
+    main().innerHTML = `${LRNews.card()}
       <div class="dash-top">${focusCard}${todayCard}</div>
       <div class="dash-today">${thenCard}${headCard}</div>
       <div class="view-header" style="margin-top:8px"><h2>Your Projects</h2>
@@ -407,6 +407,7 @@
       ${done.length ? `<details style="margin-top:22px" ${ls("lr-done-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-done-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Finished (${done.length})</summary>${list(done)}</details>` : ""}
       ${arch.length ? `<details style="margin-top:26px" ${ls("lr-arch-open", "") ? "open" : ""} ontoggle="try{Store.lsSet('lr-arch-open', this.open ? '1' : '')}catch(e){}"><summary class="section-label" style="display:list-item;cursor:pointer">Archived (${arch.length})</summary>${list(arch)}</details>` : ""}`;
 
+    LRNews.wire(main());
     const stop = e => e.target.closest("[data-star],[data-booth],[data-restore],[data-coverpick],[data-link]");
     $$("[data-id]").forEach(el => el.onclick = e => { if (stop(e)) return; location.hash = "#/book/" + el.dataset.id; });
     $$("[data-tid]").forEach(el => el.onclick = e => { if (stop(e)) return; LL.titleForm(structuredClone(LL.tById(el.dataset.tid))); });
@@ -992,6 +993,40 @@
     $("#rsPick", ov).onchange = e => pick(e.target.value);
     pick(all[0].name);
   }
+  // Settings in four tabs, with a search across all of them. Cards are sorted by their title, so new cards only
+  // need a line here; an unknown card lands in "Me". The open tab is remembered on this computer.
+  const SET_TABS = [["me", "Me"], ["computer", "This computer"], ["money", "Books & money"], ["look", "Look"]];
+  const SET_CARD_TAB = { "Who's working here": "me", "Narrators": "me", "Reading & proofing": "me",
+    "This computer": "computer", "Library folder": "computer", "Recordings on this computer": "computer", "Backups": "computer", "Problem log": "computer",
+    "Estimates": "money", "Clients & credits": "money", "Planning & money": "money", "Export file names": "money", "Look & feel": "look" };
+  function settingsTabs() {
+    const root = main(), cards = $$(":scope > .card", root);
+    const order = Object.keys(SET_CARD_TAB), title = c => { const h = $("h3", c); return h ? h.textContent.trim() : ""; };
+    cards.forEach(c => { c.dataset.stab = SET_CARD_TAB[title(c)] || "me"; });
+    cards.slice().sort((a, b) => (order.indexOf(title(a)) + 1 || 99) - (order.indexOf(title(b)) + 1 || 99)).forEach(c => root.appendChild(c));   // cards in the order listed above
+    const want = route.q && route.q.get("tab");
+    let cur = SET_TABS.some(([k]) => k === want) ? want : (() => { try { return localStorage.getItem("lr-settab") || "me"; } catch (e) { return "me"; } })();
+    const bar = document.createElement("div"); bar.className = "set-bar";
+    bar.innerHTML = `<div class="set-tabs" role="tablist">${SET_TABS.map(([k, l]) => `<button role="tab" data-stab="${k}">${l}</button>`).join("")}</div>
+      <label class="set-find"><span class="sr">Search settings</span><input type="search" id="setq" placeholder="Search settings…" autocomplete="off"></label>`;
+    $("h1", root).after(bar);
+    const none = document.createElement("p"); none.className = "muted set-none hidden"; bar.after(none);
+    const show = () => {
+      const q = ($("#setq").value || "").trim().toLowerCase();
+      $$("[role=tab]", bar).forEach(b => b.setAttribute("aria-selected", String(!q && b.dataset.stab === cur)));
+      let n = 0;
+      cards.forEach(c => {
+        const hit = q ? c.textContent.toLowerCase().includes(q) : c.dataset.stab === cur;
+        c.classList.toggle("hidden", !hit); if (hit) n++;
+        const h = $("h3", c); if (h) h.dataset.where = q && hit ? (SET_TABS.find(([k]) => k === c.dataset.stab) || [, ""])[1] : "";
+        $$("label, .row, p", c).forEach(el => el.classList.toggle("set-hit", !!q && el.children.length < 8 && el.textContent.toLowerCase().includes(q)));
+      });
+      none.textContent = q && !n ? "Nothing in Settings matches “" + $("#setq").value.trim() + "”." : ""; none.classList.toggle("hidden", !(q && !n));
+    };
+    $$("[role=tab]", bar).forEach(b => b.onclick = () => { cur = b.dataset.stab; try { localStorage.setItem("lr-settab", cur); } catch (e) {} $("#setq").value = ""; show(); });
+    $("#setq").oninput = show;
+    show();
+  }
   function viewSettings() {
     const S = Store.settings;
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
@@ -1058,6 +1093,7 @@
           <li>Here, press <b>Switch to a different folder</b> and choose it. Do the same on the other Mac.</li></ol>
           <p class="small muted">Recordings stay in each computer's Studio folder, outside Drive. Each of you only rewrites your own progress files, so you can both work at the same time. Changes from the other computer show up within about 20 seconds.</p></details></div>
       <div class="card"><h3>Planning &amp; money</h3><p class="small muted">The planner's house rules: hours, workdays and paces for each of you (they keep learning as stages finish), turnaround times, goals and holidays.</p><div class="ll" id="llset"></div></div>`;
+    settingsTabs();
     const ls = $("#llset"); ls.innerHTML = LL.settingsHTML().replace(/^<h2>Settings<\/h2>/, ""); LL.views.el = null;
     const save = () => { Store.saveSettings().catch(e => toast("Couldn't save settings: " + e.message)); };
     const plDraw = () => { const L = LRProblems.read(); $("#plCount").textContent = L.length ? L.length + " logged, latest " + LRProblems.stamp(L[L.length - 1].t) : "Nothing logged. Good.";

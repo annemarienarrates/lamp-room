@@ -37,9 +37,10 @@ Writing a new test: copy a short one (e2e38 or e2e40), start with `from _env imp
 ## Publishing
 
 1. `python3 dev/run_all.py` — all green.
-2. **Once per batch** (not every fix): `python3 dev/tools/mkpdf.py` if the help text or keys changed. Each rebuilt PDF adds a full copy to the repo's history, so batch them.
-3. `python3 dev/tools/stamp.py`
-4. Commit, push to `main`. GitHub Pages serves it within a minute or two; check the live site.
+2. Add a line to the top of `js/news.js` for anything people will notice, tagged with who it matters to (`all`, `team`, `narrator`, `cast`, `editor`). It shows once on their Dashboard.
+3. **Once per batch** (not every fix): `python3 dev/tools/mkpdf.py` if the help text or keys changed. Each rebuilt PDF adds a full copy to the repo's history, so batch them.
+4. `python3 dev/tools/stamp.py`
+5. Commit, push to `main`. GitHub Pages serves it within a minute or two; check the live site.
 
 ## Problems from the field
 

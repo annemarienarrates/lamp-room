@@ -10,7 +10,7 @@ async def main():
     ctx = await b.new_context(viewport={"width":1440,"height":900}); await ctx.grant_permissions(["clipboard-read","clipboard-write"])
     pg = await ctx.new_page()
     errs=[]; pg.on("pageerror", lambda e: errs.append(str(e)))
-    await pg.goto(U+"#/settings"); await pg.wait_for_selector("#plCopy")
+    await pg.goto(U+"#/settings?tab=computer"); await pg.wait_for_selector("#plCopy")
     ERR=[]
     if await pg.evaluate("LRProblems.read().length")!=0: ERR.append("log not empty at start")
     if "Nothing logged" not in await pg.inner_text("#plCount"): ERR.append("empty text missing")
@@ -21,7 +21,7 @@ async def main():
     if len(L)!=3: ERR.append("expected 3 entries, got %d"%len(L))
     if any("All saved" in x["msg"] for x in L): ERR.append("logged a happy message")
     if await pg.evaluate("!!document.querySelector('.dot,.badge-dot,[data-problem-dot]')"): ERR.append("a dot appeared")
-    await pg.goto(U+"#/"); await pg.goto(U+"#/settings"); await pg.wait_for_selector("#plCopy")
+    await pg.goto(U+"#/"); await pg.goto(U+"#/settings?tab=computer"); await pg.wait_for_selector("#plCopy")
     print("count:", await pg.inner_text("#plCount"))
     await pg.click("#plCopy"); await pg.wait_for_timeout(200)
     clip = await pg.evaluate("navigator.clipboard.readText()"); print(clip[:300])

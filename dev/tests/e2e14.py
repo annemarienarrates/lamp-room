@@ -11,7 +11,7 @@ async def main():
     await pg.goto(U+"#/library"); await pg.wait_for_timeout(900)
     # legacy state: shared file has a theme; Anne has no personal prefs yet
     print("me:", await pg.evaluate("Store.me()"), "theme:", await pg.evaluate("Store.settings.theme"))
-    await pg.goto(U+"#/settings"); await pg.wait_for_timeout(500)
+    await pg.goto(U+"#/settings?tab=look"); await pg.wait_for_timeout(500)
     await pg.select_option("#th","foundry"); await pg.wait_for_timeout(300)
     await pg.evaluate("Store.lsSet('lr-tzoom','1.4')")
     shared = await pg.evaluate("(async()=>JSON.parse(await (await (await Store.root.getFileHandle('lamp-room.json')).getFile()).text()))()")
@@ -21,7 +21,7 @@ async def main():
     await pg.screenshot(path="shots/w-menu.png")
     await pg.click(".who-menu [data-who=Jack]"); await pg.wait_for_timeout(500)
     print("now:", await pg.evaluate("Store.me()"), "theme:", await pg.evaluate("document.documentElement.dataset.theme"), "tzoom:", await pg.evaluate("Store.lsGet('lr-tzoom')"))
-    await pg.goto(U+"#/settings"); await pg.wait_for_timeout(400)
+    await pg.goto(U+"#/settings?tab=look"); await pg.wait_for_timeout(400)
     await pg.select_option("#th","signal"); await pg.wait_for_timeout(300)
     await pg.evaluate("Store.lsSet('lr-tzoom','0.9')")
     await pg.evaluate("Store.setMe('Anne')"); await pg.wait_for_timeout(400)
@@ -56,6 +56,6 @@ async def main():
     # simulate Jack's own Mac: fresh studio, bring in
     r2 = await pg.evaluate("(async()=>{const old=Store.studio;Store.studio=await Store.root.getDirectoryHandle('_studio2',{create:true});const r=await Store.importTakes(await Store.root.getDirectoryHandle('_out'));const again=await Store.importTakes(await Store.root.getDirectoryHandle('_out'));Store.studio=old;return [r,again];})()")
     print("import:", r2)
-    await pg.goto(U+"#/settings"); await pg.wait_for_timeout(500); await pg.screenshot(path="shots/w-settings.png", full_page=True)
+    await pg.goto(U+"#/settings?tab=look"); await pg.wait_for_timeout(500); await pg.screenshot(path="shots/w-settings.png", full_page=True)
     print("ERRORS:", errs); await b.close()
 asyncio.run(main()); srv.terminate()

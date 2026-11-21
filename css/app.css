@@ -776,3 +776,21 @@ html.fx-calm[data-theme="signal"] .ms .w.cur, html.fx-calm[data-theme="signal"] 
 /* restore dialog: tick boxes beside their words */
 .rs-chk { display: flex !important; flex-direction: row !important; gap: 8px; align-items: flex-start; margin: 6px 0; }
 .rs-chk input { width: auto !important; margin: 3px 0 0; flex: none; }
+
+/* Settings: four tabs and a search */
+.set-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 4px 0 14px; position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0; }
+.set-tabs { display: flex; gap: 4px; flex-wrap: wrap; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.set-tabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .9rem; padding: 7px 14px; border-radius: 7px; cursor: pointer; }
+.set-tabs button[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px #0002; font-weight: 600; }
+.set-find { flex: 1 1 220px; max-width: 360px; margin-left: auto; }
+.set-find input { width: 100%; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.card h3[data-where]:not([data-where=""])::after { content: " · " attr(data-where); text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
+.set-hit { background: color-mix(in srgb, var(--accent, #c9a14a) 16%, transparent); border-radius: 6px; }
+
+/* What's new */
+.news-card { border-left: 3px solid var(--accent); }
+.news-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.news-head h3 { margin: 0; }
+.news-card ul { margin: 8px 0 0; padding-left: 18px; }
+.news-card li { margin: 4px 0; line-height: 1.5; }

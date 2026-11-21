@@ -30,7 +30,7 @@ async def main():
     await pg.evaluate("Store.llPut('titles','t-two',{name:'Title Two'})"); await pg.wait_for_timeout(500)
     name = L[0]["name"]
     # restore the book through the dialog
-    await pg.goto(U+"#/settings"); await pg.wait_for_selector("#bkRestore"); await pg.click("#bkRestore")
+    await pg.goto(U+"#/settings?tab=computer"); await pg.wait_for_selector("#bkRestore"); await pg.click("#bkRestore")
     await pg.wait_for_selector("[data-rb]"); await pg.click("[data-rb]"); await pg.wait_for_selector("#rsGo")
     print("confirm:", (await pg.inner_text(".overlay .card"))[:300].replace("\n"," | "))
     await pg.click("#rsGo"); await pg.wait_for_function("!document.querySelector('.overlay')", timeout=10000)
@@ -61,7 +61,7 @@ async def main():
     print("after prune: Anne daily", len(anne), "Jack", len(jack))
     if len(anne)!=14: ERR.append("Anne should keep 14, has %d"%len(anne))
     if len(jack)!=3: ERR.append("Jack's backups were touched")
-    await pg.goto(U+"#/settings"); await pg.wait_for_selector("#bkLast"); print("card:", await pg.inner_text("#bkLast"))
+    await pg.goto(U+"#/settings?tab=computer"); await pg.wait_for_selector("#bkLast"); print("card:", await pg.inner_text("#bkLast"))
     await pg.screenshot(path=SHOTS+"/backups-card.png")
     print("ERR:", ERR); print("ERRORS:", errs); await b.close()
 asyncio.run(main()); srv.terminate()
