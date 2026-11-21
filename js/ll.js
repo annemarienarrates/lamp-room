@@ -254,7 +254,7 @@ async function del(coll,id){try{await Store.llDel(coll,id);syncS();rerender();}c
 function errMsg(e){const c=e?.code;if(c==='invalid_argument')return "That change wasn't saved: your access to this page may be view-only.";
   if(c==='quota_exceeded')return 'The ledger is full. Delete some old log entries.';if(c==='resource_exhausted')return 'Too many changes at once. Try again in a moment.';
   return "Couldn't save just now. Try again.";}
-async function saveCfg(partial){const next={...(S.cfgDoc||{}),...partial};S.cfgDoc=next;S.cfg=mergeCfg(next);rerender();await put('config','main',next);}
+async function saveCfg(partial){if(await Store.refreshRecord('config'))syncS();const next={...(S.cfgDoc||{}),...partial};S.cfgDoc=next;S.cfg=mergeCfg(next);rerender();await put('config','main',next);}
 const toast=m=>window.toast(m);
 
 /* ============ learning ============ */
@@ -274,6 +274,7 @@ async function learnFromStage(t,s,doneDate){
   if(changed||Object.keys(extra).length)await saveCfg({...(changed?{people:P}:{}),...extra});
 }
 async function setStageDone(tid,sid,done,date){
+  if(await Store.refreshRecord('titles',tid))syncS(); // the Writing Desk may have ticked a stage since we read it
   const t=tById(tid);if(!t)return;const date2=date||TODAY;
   const up=new Set([sid]);
   if(done){const walk=id=>{const x=t.stages.find(y=>y.id===id);for(const a of (x?.after||[]))if(!up.has(a)){up.add(a);walk(a);}};walk(sid);}

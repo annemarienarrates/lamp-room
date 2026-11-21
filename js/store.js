@@ -406,7 +406,19 @@
       await this.writeIfChanged(await this.ledgerDir(coll), safeId(id) + ".json", "Ledger/" + coll + "/" + safeId(id) + ".json", JSON.stringify(rec, null, 1));
       return true;
     },
+    // another app (the Writing Desk) may have written this record since we read it: take the file's copy first, so a patch never undoes that
+    async refreshRecord(coll, id) {
+      try {
+        const cfg = coll === "config", dir = await this.ledgerDir(cfg ? null : coll), name = cfg ? "config.json" : safeId(id) + ".json", path = cfg ? "Ledger/config.json" : "Ledger/" + coll + "/" + name;
+        const f = await (await dir.getFileHandle(name)).getFile();
+        if (this._seen[path] && f.lastModified <= this._seen[path]) return false;
+        const rec = JSON.parse(await f.text()); this._seen[path] = f.lastModified;
+        if (cfg) this.ll.config = rec; else { const list = this.ll[coll], full = Object.assign(rec, { id }), i = list.findIndex(x => x.id === id); if (i >= 0) list[i] = full; else list.push(full); }
+        return true;
+      } catch (e) { return false; }
+    },
     async llPatch(coll, id, data) {
+      await this.refreshRecord(coll, id);
       if (coll === "config") return this.llPut("config", "main", Object.assign({}, this.ll.config || {}, data));
       const cur = this.ll[coll].find(x => x.id === id) || {};
       return this.llPut(coll, id, Object.assign({}, cur, data));
@@ -497,6 +509,7 @@
       }, 3000);
       setInterval(() => { if (document.visibilityState === "visible") this.checkExternal().catch(() => {}); }, 20000);
       window.addEventListener("focus", () => this.checkExternal().catch(() => {}));
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") this.checkExternal().catch(() => {}); });
     },
 
     // ---- duet lines: <Library>/Books/<book>/duet/<chapter id>/<reader>/ (lines.json + one WAV per line).
