@@ -242,6 +242,33 @@
     } catch (e) { toast("Couldn't send: " + e.message); return false; }
     finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
   }
+  // Follow-along sometimes misses a line (short ones: "Yes.") or catches it late, when a reader reads ahead of it.
+  // Each reader reads only their own lines, with a pause before each, so the start of such a line can be found in their
+  // audio: the first speech after the previous line ends. That start becomes a word timing, so the lines around it splice
+  // in the right place, and a flag asks the editor to give it a listen. Returns the flags as markers on that timeline.
+  async function timeLinesByPauses(who, runs, anchors, render, L) {
+    const has = r => anchors.find(q => q[1] >= r.from && q[1] <= r.to);
+    const todo = runs.filter(r => { const q = has(r); return !q || q[1] - r.from > 3; });
+    if (!todo.length || !L) return [];
+    const E = await envelope(render, L), flags = [];
+    { const all = Array.from(E.env).sort((a, b) => a - b); E.thr = Math.max(all[Math.floor(all.length * 0.1)] * 3.5, 0.0035); }   // the quiet between lines counts, even if it's digital silence
+    const thr = E.thr;
+    const loudAt = t => (E.env[Math.round(t / 0.01)] || 0) >= thr;
+    for (const r of todo) {
+      anchors.sort((a, b) => a[0] - b[0]);
+      const prev = anchors.filter(q => q[1] < r.from).pop(), next = anchors.find(q => q[1] > r.to), first = has(r);
+      const lo = prev ? prev[0] : 0, hi = first ? first[0] : next ? next[0] : L;
+      let on = null;
+      if (first) on = quietBack(E, first[0], 0.3, lo);                         // late: back to where that stretch of speech began
+      else { const end = quietFwd(E, lo + 0.05, 0.35, hi); for (let t = end; t < hi - 0.15; t += 0.01) if (loudAt(t)) { on = t; break; } }   // missed: the next speech after a pause
+      if (on == null || on < lo || on >= hi) continue;
+      anchors.push([Math.max(0, on - 0.02), r.from]);
+      const words = B.toks.slice(r.from, Math.min(r.to + 1, r.from + 6)).map(t => t.w).join(" ");
+      flags.push({ t: on, w: r.from, ctx: words, note: who + "'s line “" + words + (r.to - r.from > 5 ? "…" : "") + "” " + (first ? "was caught late" : "wasn't heard") + " by follow-along: placed by its pause. Give it a listen.", auto: true, done: false });
+    }
+    anchors.sort((a, b) => a[0] - b[0]);
+    return flags;
+  }
   // the editor: everyone's sends become one timeline, one track per sent track, grouped by actor; separate reads splice in by their words' positions
   async function bringInSends(replace) {
     if (B.rec || B.busy) return;
@@ -264,13 +291,18 @@
       // everyone's markers come in, tagged with whose they were; the base send's keep their times
       const theirMark = (m, who, t) => Object.assign({}, m, { id: Prep.uid(), t, by: who, note: who + " · " + (m.note || "flub") });
       B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = (bs.markers || []).map(m => theirMark(m, base, m.t)); B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
+      // others' lines (sent, or spliced later from outside cast) go in at the base reader's timings: repair them first
+      if (everyoneRuns().some(x => x.r !== base)) { busyNote("Checking " + base + "'s timing…"); const fl = await timeLinesByPauses(base, everyoneRuns().filter(x => x.r === base), B.audio.anchors, await mix(), bs.length); fl.forEach(m => B.audio.markers.push(Object.assign({ id: Prep.uid(), by: base }, m))); }
       // anyone else: cut each of their lines from their read and open room for it before the next word of the narration
       for (const p of people.filter(n => n !== base)) {
         const sd = st.sends[p], files = []; busyNote("Splicing " + p + "'s lines…");
         for (const t of sd.tracks) files.push(await copy(sd, t));
         const tis = sd.tracks.map(t => addTrack(t.actor || p, t, []));
         while (B.audio.tracks.length < tracks.length) B.audio.tracks.push({ clips: [] });
-        const their = (sd.anchors || []).slice().sort((a, b) => a[0] - b[0]), timeOf = w => { let x = null; for (const q of their) { if (q[1] >= w) { x = q[0]; break; } } return x; };
+        const their = (sd.anchors || []).slice().sort((a, b) => a[0] - b[0]);
+        { const rr = async (t, d) => { let acc = null; for (const f of files) { const x = await LRAudio.renderRange(ld, [{ file: f, off: 0, dur: sd.length, at: 0 }], t, d); if (!acc) acc = x; else for (let i = 0; i < x.length && i < acc.length; i++) acc[i] += x[i]; } return acc || new Float32Array(0); };
+          const fl = await timeLinesByPauses(p, everyoneRuns().filter(x => x.r === p), their, rr, sd.length); sd.markers = (sd.markers || []).concat(fl.map(m => Object.assign({}, m, { note: m.note.replace(/^.*?'s line/, "Line") }))); }
+        const timeOf = w => { let x = null; for (const q of their) { if (q[1] >= w) { x = q[0]; break; } } return x; };
         // ✂ line-end marks (C) are the reader's own cut points: a line ends at its mark, not when their next line starts.
         // If follow-along missed a line, the marks between lines place it in order, when there's one mark per gap.
         const cuts = (sd.markers || []).filter(m => m.cut).map(m => m.t).sort((x, y) => x - y), pRuns = everyoneRuns().filter(x => x.r === p);

@@ -6,6 +6,7 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22j", roles: ["editor", "team"], title: "Lines follow-along missed still land", body: "Bring in finds lines follow-along missed or caught late by the pause before each one, places everyone else's lines around them, and flags each for a listen." },
     { id: "2026-11-22i", roles: ["editor"], title: "Lines end at the reader's ✂ mark", body: "When a reader marks their line ends (C), Bring in cuts each line there instead of running on to their next line; and their lines still land even where follow-along missed them." },
     { id: "2026-11-22h", roles: ["all"], title: "FX Guide", body: "A printable guide to effects in the help desk (? ▸ 🎚 FX guide): your saved voices, a pitch ladder for a cast, and gentle recipes for echoes, ghosts and gods." },
     { id: "2026-11-22g", roles: ["all"], title: "Update armed says so", body: "In Effects, the button reads ✓ Updated while what's armed matches the settings, and ↻ Update armed again as soon as you change one." },
