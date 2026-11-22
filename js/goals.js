@@ -149,6 +149,11 @@
         <div class="gl-tile"><label>Per week</label><b>${money(goal / 52)}</b></div>
         <div class="gl-tile"><label>Workdays this year</label><b>${C.totalWD}</b><span class="muted">${C.remainingWD} left</span></div>
       </div>
+      ${st.who === "__both" && window.LL && LL.S && LL.S.cfg ? (c => `<div class="gl-tiles gl-more">
+        <div class="gl-tile"><label>Finished hours this year</label><input class="in" type="number" min="0" data-gcfg="goals.fh" value="${esc(c.goals.fh)}"></div>
+        <div class="gl-tile"><label>Carried in: FH already paid in ${esc(c.baseline.year)}</label><input class="in" type="number" step="0.01" min="0" data-gcfg="baseline.fh" value="${esc(c.baseline.fh)}"></div>
+        <div class="gl-tile"><label>Carried in: revenue already received</label><input class="in" type="number" min="0" data-gcfg="baseline.revenue" value="${esc(c.baseline.revenue)}"></div>
+        <div class="gl-tile"><span class="muted small">Shared by both of you, with the planner. The year's reckoning is at the bottom of this page.</span></div></div>`)(LL.S.cfg) : ""}
       <div class="gl-grid2">
         <section class="card"><h3>Where you're at</h3>
           ${row("Today", td, tdSx)}${row("This week", wk, standing(wk.soFar, wk.expect, wk.target))}${row("This month", mo, standing(mo.soFar, mo.expect, mo.target))}${row("This year", yr, standing(yr.soFar, yr.expect, yr.target))}
@@ -187,6 +192,10 @@
     $$("[data-span]", main).forEach(b => b.onclick = () => { st.span = +b.dataset.span; saveUi(); view(main); });
     $$("[data-heat]", main).forEach(b => b.onclick = () => { st.heat = b.dataset.heat; saveUi(); view(main); });
     $$("[data-mode]", main).forEach(b => b.onclick = () => { Store.settings.goalMode = b.dataset.mode; Store.saveSettings(); view(main); });
+    $$("[data-gcfg]", main).forEach(el => el.onchange = async () => {
+      const [grp, k] = el.dataset.gcfg.split("."), v = Math.max(0, +el.value || 0), doc = (LL.S.cfgDoc || {});
+      await LL.saveCfg({ [grp]: Object.assign({}, LL.S.cfg[grp] || {}, doc[grp] || {}, { [k]: v }) }); view(main);
+    });
     $("#gl-catch", main).onchange = e => { st.catchDays = Math.max(1, +e.target.value || 30); saveUi(); view(main); };
     $("#gl-goal", main).onchange = async e => {
       const v = Math.max(0, +e.target.value || 0);

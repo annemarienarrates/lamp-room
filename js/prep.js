@@ -506,8 +506,10 @@
     const perNarrator = cast.map(c => {
       const n = settings.narrators.find(x => x.name === c.name) || settings.narrators[0] || { pace: 4000 };
       const w = words * (Number(c.share) || 0) / 100;
-      const boothHours = n.pace ? w / n.pace : 0;
-      return { name: c.name, words: w, boothHours, days: boothHours / hpd };
+      // measured pace and each person's hours a day when the caller has them (LRPace), else the typed settings
+      const pace = settings.paceOf ? settings.paceOf(c.name) : n.pace, h = settings.hoursOf ? settings.hoursOf(c.name) : hpd;
+      const boothHours = pace ? w / pace : 0;
+      return { name: c.name, words: w, boothHours, pace, days: boothHours / (h || hpd) };
     });
     const days = Math.max(0, ...perNarrator.map(p => p.days)); // narrators record their parts in parallel
     return { words, fh, gross, mine: gross * share / 100, perNarrator, days };

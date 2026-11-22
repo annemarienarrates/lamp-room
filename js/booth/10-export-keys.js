@@ -81,8 +81,8 @@
   // daily goals: each one celebrated once a day, the first time it's reached (goals already met when you open the Booth stay quiet)
   const pick = a => a[Math.floor(Math.random() * a.length)];
   function goalsNow() {
-    const S = Store.settings, nar = (S.narrators || []).find(n => n.name === B.readingAs) || (S.narrators || [])[0] || { pace: 4000 }, hrs = S.boothHoursPerDay || 6;
-    return { words: Math.round((nar.pace || 4000) * hrs), booth: hrs * 3600, earn: +S.goalEarn || 0, pace: nar.pace || 4000 };
+    const S = Store.settings, pace = LRPace.paceOf(B.readingAs, B.book), hrs = LRPace.hoursPerDay(B.readingAs);   // measured pace, planner hours
+    return { words: Math.round(pace * hrs), booth: hrs * 3600, earn: +S.goalEarn || 0, pace };
   }
   function checkGoals(prime) {
     if (!B || !window.LRCele) return;

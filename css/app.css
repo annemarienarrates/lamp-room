@@ -817,3 +817,5 @@ body.booth-on #presence { top: 8px; }
 
 /* Update armed: shows when the armed effect already matches the panel */
 .stu-btn.fx-uptodate { color: var(--ok, #3c8d5a); border-color: currentColor; }
+
+.pace-line { flex: 1 1 100%; margin-top: 2px; }

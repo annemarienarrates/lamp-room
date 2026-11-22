@@ -42,6 +42,7 @@
     Store.watch();
     LRBackup.start();
     LRPresence.start();
+    LRPace.refresh();
     try { LRPeople.reconcile(); } catch (e) {}
     drawWho();
     $("#whochip").onclick = whoMenu;
@@ -50,6 +51,8 @@
       if (route.name !== "booth") render();
       toast("Now working as " + e.detail.to + ". Their look, hotkeys and goals are in place.");
     });
+    // measured pace arrives a moment after start-up (and after each save): redraw what shows it
+    document.addEventListener("lr-pace", () => { if (["library", "book", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim, input:focus")) render(); });
     document.addEventListener("lr-external", e => {
       const d = e.detail || []; if (d.includes("settings")) applyTheme();
       if (d.includes("pickups") && route.name !== "booth") { const n = Store.books.reduce((a, b) => a + Store.pickupReqs(b).filter(q => q.to === Store.me() && q.status === "open" && !Store.pickupReply(b, q)).length, 0); if (n && n !== start.pk) toast("🔁 " + n + " pickup" + (n === 1 ? "" : "s") + " waiting for you. See Heads up."); start.pk = n; }
@@ -221,9 +224,11 @@
     chapCache.set(key, m); return m;
   }
   const linesOf = st => { const me = Store.me(), o = st.who.filter(n => n !== me); return st.who.includes(me) ? (o.length ? "Your & " + o.join(" & ") + "'s lines" : "Your lines") : st.who.join(" & ") + "'s lines"; };
+  // estimates use measured pace (this book's series, else overall, else typed) and each person's planner hours a day
+  function estSettings(book) { return Object.assign({}, Store.settings, { wpfh: LRPace.wpfh(), paceOf: n => LRPace.paceOf(Store.castName(book, n), book), hoursOf: n => LRPace.hoursPerDay(Store.castName(book, n)) }); }
   function bookStats(book) {
     const S = Store.settings, inc = book.chapters.filter(c => c.included);
-    const total = inc.reduce((a, c) => a + c.words, 0), wpfh = S.wpfh || 9300;
+    const total = inc.reduce((a, c) => a + c.words, 0), wpfh = LRPace.wpfh();
     const editor = roleIn(book) === "editor";
     const rwAll = book.parts && !editor ? readerWords(book) : null, names = rwAll ? Object.keys(rwAll).filter(n => n !== "?") : [];
     // part of a bigger cast: count only the lines read here (solo and duet books are unchanged: every reader is ours)
@@ -234,8 +239,9 @@
     const byStatus = {}; STATUSES.forEach(([k]) => byStatus[k] = 0);
     inc.forEach(c => byStatus[c.status] = (byStatus[c.status] || 0) + cw(c));
     const toRecord = byStatus.todo;
-    const est = Prep.estimate(words, castFromParts(book, only(readerWords(book))), S);
-    const left = Prep.estimate(toRecord, castFromParts(book, only(readerWords(book, c => c.status === "todo"))), S);
+    const ES = estSettings(book);
+    const est = Prep.estimate(words, castFromParts(book, only(readerWords(book))), ES);
+    const left = Prep.estimate(toRecord, castFromParts(book, only(readerWords(book, c => c.status === "todo"))), ES);
     const delivered = inc.length && inc.every(c => c.status === "delivered");
     let track = null;
     if (book.due && !delivered) {
@@ -335,7 +341,7 @@
     // ---- today ----
     const meName = Store.me ? Store.me() : "", me = LL.keyOf(meName) || "anne", other = me === "anne" ? "jack" : "anne", S = Store.settings;
     const nar = (S.narrators || []).find(n => n.name === meName) || (S.narrators || [])[0] || { pace: 4000 };
-    const hrsGoal = S.boothHoursPerDay || 6, wordsGoal = Math.round((nar.pace || 4000) * hrsGoal);
+    const hrsGoal = LRPace.hoursPerDay(meName), wordsGoal = Math.round(LRPace.paceOf(meName) * hrsGoal);
     const plan = p => { const na = LL.nextAlloc(p); if (!na) return null; const g = {}; for (const a of na.l) { const k = a.tid + "|" + a.sid; g[k] = g[k] || { tid: a.tid, sid: a.sid, type: a.type, h: 0 }; g[k].h += a.h; } return { d: na.d, tasks: Object.values(g) }; };
     const verb = (s, p) => s.type === "record" ? "Record" : s.type === "ext" ? "Partner records" : LL.STAGE_LABEL[s.type] || s.type;
     const target = (task, p) => {
@@ -345,7 +351,7 @@
       if (s.type === "record") {
         if (book) { const ci = book.chapters.findIndex(c => c.included && !((c.prog || {})[LL.nameOf(p)] || {}).done && Prep.wordsByReader(c, book)[LL.nameOf(p)] > 0);
           href = "#/booth/" + book.id + (ci >= 0 ? "/" + ci : ""); act = "Into the Booth ▸";
-          sub = (ci >= 0 ? esc(book.chapters[ci].title) + " · " : "") + "~" + LL.hrs(task.h) + " · ~" + num(task.h * LL.wphOf(p)) + " words"; }
+          sub = (ci >= 0 ? esc(book.chapters[ci].title) + " · " : "") + "~" + LL.hrs(task.h) + " · ~" + num(task.h * LRPace.paceOf(LL.nameOf(p), book)) + " words"; }
         else { href = "#/import?title=" + t.id; act = "Add the manuscript ▸"; sub = "~" + LL.hrs(task.h) + " in the booth · the manuscript isn't in the Lamp Room yet"; }
       } else if (book) { href = "#/book/" + book.id; act = "Open ▸"; sub = "~" + LL.hrs(task.h); }
       else { act = "Open the card ▸"; sub = "~" + LL.hrs(task.h); }
@@ -457,10 +463,10 @@
       </div>
       <div class="tiles">
         <div class="tile"><span>${st.part ? esc(linesOf(st)) : st.editor ? "Words · whole book" : "Words"}</span><b>${num(st.words)}</b><em>${st.part ? "of " + num(st.whole.words) + " in the book · " : ""}${st.chapters} chapters</em></div>
-        <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>${st.part ? "whole book " + fh(st.whole.fh) : "at " + num(S.wpfh) + " words / FH"}</em></div>
+        <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>${st.part ? "whole book " + fh(st.whole.fh) : "at " + num(LRPace.wpfh()) + " words / FH"}</em></div>
         ${st.editor ? `<div class="tile"><span>Your pay · editing</span><b>${money(st.edPay)}</b><em>$${num(st.edRate)} / FH × ${fh(st.whole.fh)} FH of the whole book</em></div>` : T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
         <div class="tile"><span>${st.part ? "Left to record · your part" : "Left to record"}</span><b>${num(st.toRecord)}</b><em>${st.left.perNarrator.map(p => esc(p.name) + " " + hrs(p.boothHours)).join(" · ")} in booth</em></div>
-        <div class="tile"><span>Booth days left</span><b>${st.left.days.toFixed(1)}</b><em>at ${S.boothHoursPerDay} booth hrs / day</em></div>
+        <div class="tile"><span>Booth days left</span><b>${st.left.days.toFixed(1)}</b><em title="${esc(LRPace.describe(Store.me(), book))}">at ${num(LRPace.paceOf(Store.me(), book))} words / hr${LRPace.of(Store.me(), book).from === "series" ? " on this series" : ""}, ${LRPace.hoursPerDay(Store.me())} hrs / day</em></div>
         ${tr ? `<div class="tile"><span>Due ${esc(prettyDate(book.due))}</span><b>${tr.days} workdays</b><em>${num(tr.perDay)} words / day needed · recording done ${esc(prettyDate(tr.finish))}</em></div>` : `<div class="tile"><span>Due</span><b>—</b><em>set a due date below</em></div>`}
       </div>
       ${T ? `<div class="ll book-plan">${LL.cardHTML(T)}</div>` : `<div class="card row" style="align-items:center"><div><b>Not on the schedule yet.</b> <span class="muted">Link it to a title so the planner can schedule it, track its money and learn from your booth time.</span></div><div class="spacer"></div><button class="btn primary" id="linkbk">📅 Put on the schedule</button></div>`}
@@ -504,7 +510,7 @@
           <td class="muted">${i + 1}</td>
           <td><input class="title" data-title value="${esc(c.title)}"></td>
           <td class="num">${num(c.words)}</td>
-          <td class="num muted">${fh(c.words / S.wpfh)}</td>
+          <td class="num muted">${fh(c.words / LRPace.wpfh())}</td>
           ${book.parts ? `<td><select class="status" data-pov title="Whose narration this chapter is"><option value="">—</option>${S.narrators.map(n => `<option ${c.pov === n.name ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></td>` : ""}
           <td><select class="status st-${c.status}" data-status>${statusOpts(c.status)}</select></td>
           <td style="white-space:nowrap"><a class="btn small quiet" href="#/booth/${esc(book.id)}/${i}" title="Record this chapter">🎙</a><button class="btn small quiet" data-open title="Read the text, add notes, split">Text</button>${i < book.chapters.length - 1 ? `<button class="btn small quiet" data-merge title="Merge with the next chapter">⤓ Merge</button>` : ""}</td>
@@ -752,7 +758,7 @@
     const r = Prep.detect(B, imp.method);
     imp.chapters = Prep.buildChapters(B, r.starts);
     const inc = imp.chapters.filter(c => c.included), words = inc.reduce((a, c) => a + c.words, 0);
-    const e = Prep.estimate(words, {}, Store.settings);
+    const e = Prep.estimate(words, {}, estSettings(null));
     main().innerHTML = `<h1>New book</h1>
       <div class="card"><div class="row">
         <label style="flex:2">Title<input id="it" value="${esc(imp.title || "")}"></label>
@@ -768,7 +774,7 @@
       <div class="tiles"><div class="tile"><span>Chapters</span><b>${inc.length}</b><em>${imp.method === "auto" ? "found by: " + esc(Prep.METHOD_LABELS[r.method.split("+")[0]] || "nothing — one chunk") : ""}</em></div>
         <div class="tile"><span>Words</span><b>${num(words)}</b><em>front matter excluded</em></div>
         <div class="tile"><span>Finished hours</span><b>${fh(e.fh)}</b></div>
-        <div class="tile"><span>Booth time</span><b>${hrs(e.perNarrator[0].boothHours)}</b><em>${esc(e.perNarrator[0].name || "")} at ${num((Store.settings.narrators[0] || {}).pace)} w/h</em></div></div>
+        <div class="tile"><span>Booth time</span><b>${hrs(e.perNarrator[0].boothHours)}</b><em>${esc(e.perNarrator[0].name || "")} at ${num(e.perNarrator[0].pace)} w/h</em></div></div>
       ${impParts()}
       <div class="preview-list">${imp.chapters.map(c => `<div class="${c.included ? "" : "ex"}"><span>${esc(c.title)}${c.included ? "" : " (not counted)"}</span><span>${num(c.words)}</span></div>`).join("")}</div>
       <p class="small muted">Wrong splits? Pick a different rule above, or fix individual chapters after — merge, split and rename all work in the book view.</p>
@@ -850,7 +856,7 @@
   function viewCalc() {
     const S = Store.settings;
     const c = viewCalc.s = viewCalc.s || { words: 90000, rate: { type: "pfh", amount: 250 }, myShare: 100, cast: [{ name: (S.narrators[0] || {}).name, share: 100 }], due: "" };
-    const e = Prep.estimate(c.words, c, S), days = c.due ? Prep.workdaysUntil(c.due) : null;
+    const e = Prep.estimate(c.words, c, estSettings(null)), days = c.due ? Prep.workdaysUntil(c.due) : null;
     main().innerHTML = `<h1>Tools</h1><h2>Word &amp; time calculator</h2>
       <div class="card"><div class="row">
         <label>Words<input type="number" id="cw" value="${c.words}" style="width:130px"></label>
@@ -863,8 +869,8 @@
       <details style="margin-top:12px"><summary class="small">Count words in pasted text</summary><textarea id="ct" placeholder="Paste text — the word count above updates"></textarea></details>
       <div class="tiles">
         <div class="tile"><span>Finished hours</span><b>${fh(e.fh)}</b><em>${hrs(e.fh)} of audio</em></div>
-        <div class="tile"><span>Booth time</span><b>${hrs(e.perNarrator[0].boothHours)}</b><em>at ${num((S.narrators.find(n => n.name === c.cast[0].name) || {}).pace)} words / hr</em></div>
-        <div class="tile"><span>Booth days</span><b>${e.days.toFixed(1)}</b><em>${S.boothHoursPerDay} hrs / day · done ${esc(prettyDate(Prep.addWorkdays(e.days)))}</em></div>
+        <div class="tile"><span>Booth time</span><b>${hrs(e.perNarrator[0].boothHours)}</b><em>at ${num(e.perNarrator[0].pace)} words / hr</em></div>
+        <div class="tile"><span>Booth days</span><b>${e.days.toFixed(1)}</b><em>${LRPace.hoursPerDay(c.cast[0].name)} hrs / day · done ${esc(prettyDate(Prep.addWorkdays(e.days)))}</em></div>
         <div class="tile"><span>Pay</span><b>${money(e.mine)}</b><em>${e.gross !== e.mine ? "of " + money(e.gross) : ""}</em></div>
         ${days != null ? `<div class="tile"><span>Workdays to due</span><b>${days}</b><em>${num(days ? c.words / days : c.words)} words / day needed</em></div>` : ""}
       </div></div>`;
@@ -1130,12 +1136,13 @@
           <label class="wide" title="Other spellings, separated by commas">Also known as<input data-pp="${i}" data-k="aka" value="${esc((p.aka || []).join(", "))}" placeholder="other spellings"></label>
           <label>Booth pace<input type="number" data-pp="${i}" data-k="pace" value="${esc(p.pace || "")}" placeholder="—" style="width:96px"></label>
           <label class="check" title="Works in this Library: shows in Who's working here and the planner"><input type="checkbox" data-pp="${i}" data-k="team" ${p.team ? "checked" : ""}> Works here</label>
-          <button class="btn small quiet" data-delp="${i}" title="Remove ${esc(p.name)}" ${p.team && (S.people || []).filter(x => x.team).length < 2 ? "disabled" : ""}>✕</button></div>`).join("")}
+          <button class="btn small quiet" data-delp="${i}" title="Remove ${esc(p.name)}" ${p.team && (S.people || []).filter(x => x.team).length < 2 ? "disabled" : ""}>✕</button>
+          ${p.team && LRPace.ready ? (o => `<div class="small muted pace-line">Measured: ${o && o.pace && o.hours ? `<b>${num(o.pace)}</b> words / booth hour overall (last 60 days, ${o.hours} h)` : "not enough booth time yet"}${LRPace.bySeries(p.name).filter(x => x.hours >= 1).map(x => ` · ${esc(x.name)} <b>${num(x.pace)}</b> (${x.hours} h)`).join("")}</div>`)(LRPace.overall(p.name)) : ""}</div>`).join("")}
         <div class="row" style="margin-top:8px"><button class="btn small" id="addp">+ Person</button></div>
         ${(u => u.length ? `<div class="small" style="margin-top:12px"><span class="muted">In your books but not in People yet:</span> ${u.map((x, i) => `<span class="chip-add">${esc(x.name)} <span class="muted">(${esc(x.from)})</span> <button class="lnk" data-addu="${i}">Add</button></span>`).join(" ")}</div>` : "")(LRPeople.unknown())}</div>
       <div class="card"><h3>Estimates</h3><div class="row">
-        <label>Words per finished hour<input type="number" id="wp" value="${S.wpfh}" style="width:120px"></label>
-        <label>Booth hours per workday<input type="number" step="0.5" id="bh" value="${S.boothHoursPerDay}" style="width:100px"></label>
+        <label title="Shared with the planner: one setting. Once books are finished in the Lamp Room, it's measured from them.">Words per finished hour<input type="number" id="wp" value="${(window.LL && LL.S && LL.S.cfg && LL.S.cfg.wordsPerFH) || S.wpfh}" style="width:120px"><span class="small muted">now using ${num(LRPace.wpfh())}: ${esc(LRPace.wpfhFrom())}</span></label>
+        <div class="small muted" style="align-self:center">Hours a day: ${(S.narrators || []).map(n => esc(n.name) + " " + LRPace.hoursPerDay(n.name)).join(" · ")}, from <a href="#/settings?tab=money">Planning &amp; money</a>.</div>
         <label title="Just this computer">Editing pay, $ per finished hour<input type="number" step="0.01" id="edr" value="${S.editorRate != null && S.editorRate !== "" ? S.editorRate : 50}" style="width:110px"></label>
       </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays. In a full-cast book, the book page and dashboard count only the lines read by the narrators on this computer (the whole book is shown beside them). Editing pay is for the editor of a shared book: it's figured on the whole book's finished hours.</p></div>
       <div class="card"><h3>Export file names</h3><div class="row">
@@ -1215,8 +1222,7 @@
     $("#addp").onclick = () => { LRPeople.add({ name: "New person" }); save(); viewSettings(); };
     const unk = LRPeople.unknown();
     $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
-    $("#wp").onchange = e => { S.wpfh = Number(e.target.value) || 9300; save(); };
-    $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
+    $("#wp").onchange = async e => { const v = Number(e.target.value) || 9300; S.wpfh = v; save(); if (window.LL && LL.saveCfg) await LL.saveCfg({ wordsPerFH: v }); viewSettings(); };
     $("#edr").onchange = e => { S.editorRate = e.target.value === "" ? 50 : Number(e.target.value); save(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };

@@ -6,6 +6,9 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22m", roles: ["team"], title: "Goals live on the Goals page", body: "Yearly FH goal, the 2025 baseline and FH already paid this year are set on the Goals page (Both of us); the planner points there." },
+    { id: "2026-11-22l", roles: ["team"], title: "One setting each", body: "Words per finished hour is measured from your finished books (Settings ▸ Money shows what's in use); hours a day is set once per person in People. The booth, Dashboard and planner all read the same two." },
+    { id: "2026-11-22k", roles: ["team"], title: "Pace is measured, per series", body: "Estimates use your real booth pace: a series' own once it has an hour of reading (Sunfire runs slower), else your pace over the last 60 days, else what's typed in People. Each book says which it's using." },
     { id: "2026-11-22j", roles: ["editor", "team"], title: "Lines follow-along missed still land", body: "Bring in finds lines follow-along missed or caught late by the pause before each one, places everyone else's lines around them, and flags each for a listen." },
     { id: "2026-11-22i", roles: ["editor"], title: "Lines end at the reader's ✂ mark", body: "When a reader marks their line ends (C), Bring in cuts each line there instead of running on to their next line; and their lines still land even where follow-along missed them." },
     { id: "2026-11-22h", roles: ["all"], title: "FX Guide", body: "A printable guide to effects in the help desk (? ▸ 🎚 FX guide): your saved voices, a pitch ladder for a cast, and gentle recipes for echoes, ghosts and gods." },

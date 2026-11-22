@@ -98,10 +98,14 @@ function buildIndex(){
 }
 const tById=id=>S.titles.find(t=>t.id===id);
 const hardDue=t=>!!(t&&t.kind!=='author'&&!t.ownProject&&t.due);
-function liveWph(p){const since=addDays(TODAY,-30);let w=0,h=0;for(const f of S.fh)if(f.person===p&&f.date>=since&&f.date<=TODAY){w+=+f.words||0;h+=+f.boothHours||0;}return h>=3&&w>0?Math.round(w/h):null;}
-function wphOf(p){return liveWph(p)||+S.cfg.people[p]?.wph||4000;}
+// Pace is measured (LRPace): this title's series once there's an hour of real reading, else the person's overall
+// pace, else the pace typed in People. The planner's own pace field is the last fallback, before any booth time.
+function liveWph(p){if(window.LRPace&&LRPace.ready){const o=LRPace.overall(nameOf(p));return o&&o.hours>=3&&o.pace?o.pace:null;}const since=addDays(TODAY,-30);let w=0,h=0;for(const f of S.fh)if(f.person===p&&f.date>=since&&f.date<=TODAY){w+=+f.words||0;h+=+f.boothHours||0;}return h>=3&&w>0?Math.round(w/h):null;}
+function bookOfTitle(t){return t&&window.Store?Store.books.find(b=>b.titleId===t.id)||null:null;}
+function wphOf(p,t){if(window.LRPace&&LRPace.ready){const r=LRPace.of(nameOf(p),bookOfTitle(t));if(r.from!=='default')return r.pace;}return liveWph(p)||+S.cfg.people[p]?.wph||4000;}
+function wordsPerFH(){return window.LRPace&&LRPace.ready?LRPace.wpfh():S.cfg.wordsPerFH;}
 function partWords(t){return (t.stages||[]).filter(s=>s.type==='record'||s.type==='ext').reduce((a,s)=>a+(+s.words||0),0);}
-function titleFH(t){return +t.actualFH||+t.estFH||(partWords(t)/S.cfg.wordsPerFH)||0;}
+function titleFH(t){return +t.actualFH||+t.estFH||(partWords(t)/wordsPerFH())||0;}
 function editorCost(t){const ed=(t.stages||[]).find(s=>s.type==='edit'&&s.owner==='outsourced');if(!ed)return 0;return +ed.cost>0?+ed.cost:(+S.cfg.editorRate||50)*titleFH(t);}
 function payMode(t){return t.partnerPayMode||(t.category==='B'?'pct':'perword');}
 function partnerPay(mode,v,gross,words){v=+v||0;return mode==='flat'?v:mode==='pct'?gross*v/100:words*v;}
@@ -119,7 +123,7 @@ function loggedStage(t,s){return IDX.stageHours[t.id+'|'+s.id]||0;}
 function estHours(t,s){
   const P=S.cfg.people[s.owner]||S.cfg.people.anne, fh=titleFH(t);
   switch(s.type){
-    case 'record':return (+s.words||0)/wphOf(s.owner);
+    case 'record':return (+s.words||0)/wphOf(s.owner,t);
     case 'edit':return fh*(+P.editPerFH||1.5);
     case 'deliver':return +P.adminPerTitle||1;
     case 'pickups':return Math.max(1,fh*(+P.pickupsPerFH||.15));
@@ -135,7 +139,7 @@ function remainingHours(t,s){
   let rem;
   if(s.type==='record'){
     const wd=IDX.fhWords[t.id+'|'+s.owner]||0;
-    const wph=wphOf(s.owner);
+    const wph=wphOf(s.owner,t);
     rem=wd>0?Math.max(0,(+s.words||0)-wd)/wph:est-logged;
   } else rem=est-logged;
   if(rem<=0.01)rem=Math.max(est*.15,.5);
@@ -922,7 +926,7 @@ function reportCSV(y){
 
 /* ============ THE KEY ============ */
 function viewGuide(){
-  const c=S.cfg,A=c.people.anne,J=c.people.jack,wpf=c.wordsPerFH;
+  const c=S.cfg,A=c.people.anne,J=c.people.jack,wpf=wordsPerFH();
   const n=x=>Number(x).toLocaleString('en-US');
   const r1=x=>Math.round(x*10)/10;
   const exWords=62000,exBooth=r1(exWords/A.wph),exDays=r1(exBooth/A.hours);
@@ -1047,7 +1051,7 @@ function viewSettings(){
   const y=+TODAY.slice(0,4);const hol=holidays(y);
   const person=p=>{const P=c.people[p];return `<div class="panel"><h3>${PNAME[p]}</h3>
    <div class="grid3"><label class="f">Hours a day<input class="in" data-cfg="people.${p}.hours" type="number" step="0.5" value="${P.hours}"></label>
-   <label class="f">Booth pace (words/hr)<input class="in" data-cfg="people.${p}.wph" type="number" value="${P.wph}"><span style="font-size:12px">${liveWph(p)?`Booth, last 30 days: <b>${liveWph(p).toLocaleString()}</b> (used for forecasts)`:'Used until the Booth has 3+ hours in the last 30 days'}</span></label>
+   <div class="f">Booth pace<span style="font-size:12px">${window.LRPace&&LRPace.ready?esc(LRPace.describe(nameOf(p))):'Measured from the Booth once it has loaded.'} Each title uses its own series' pace once there's an hour of reading on it. The typed pace is in Settings ▸ Me ▸ People.</span></div>
    <label class="f">Edit hours per FH<input class="in" data-cfg="people.${p}.editPerFH" type="number" step="0.05" value="${P.editPerFH}"></label>
    <label class="f">Pickup hours per FH<input class="in" data-cfg="people.${p}.pickupsPerFH" type="number" step="0.05" value="${P.pickupsPerFH}"></label>
    <label class="f">Deliver &amp; invoice hours<input class="in" data-cfg="people.${p}.adminPerTitle" type="number" step="0.25" value="${P.adminPerTitle}"></label>
@@ -1067,12 +1071,7 @@ function viewSettings(){
    <label class="f">Check clears (workdays after invoice; each client learns its own after 2 checks)<input class="in" data-cfg="clearDays" type="number" value="${c.clearDays}"></label>
    <label class="f">Pickup list arrives (workdays after invoice)<input class="in" data-cfg="pickupDelay" type="number" value="${c.pickupDelay}"></label>
    <label class="f">Book editor turnaround (workdays)<input class="in" data-cfg="editorDays" type="number" value="${c.editorDays}"></label></div></div>
-  <div class="panel"><h3>Goals</h3><div class="grid2">
-   <label class="f">Finished hours this year<input class="in" data-cfg="goals.fh" type="number" value="${c.goals.fh}"></label>
-   <label class="f">Revenue this year $<input class="in" data-cfg="goals.revenue" type="number" value="${c.goals.revenue}"></label>
-   <label class="f">Carried in: FH already paid in ${c.baseline.year}<input class="in" data-cfg="baseline.fh" type="number" step="0.01" value="${c.baseline.fh}"></label>
-   <label class="f">Carried in: revenue already received $<input class="in" data-cfg="baseline.revenue" type="number" value="${c.baseline.revenue}"></label></div>
-   <p class="muted" style="font-size:13px;margin:6px 0 0">The carried-in figures come from your 2026 block schedule (checks through October).</p></div>
+  <div class="panel"><h3>Goals</h3><p class="muted" style="font-size:13px;margin:0">The year's goals (${(+c.goals.fh||0).toLocaleString()} finished hours, $${(+c.goals.revenue||0).toLocaleString()}) and the carried-in figures are set on the <a href="#/goals">Goals page</a>, under Both of us.</p></div>
   <div class="panel"><h3>Holidays, ${y}</h3><div style="font-size:15px">${Object.entries(hol).map(([d,n])=>`<label class="row" style="gap:6px"><input type="checkbox" data-hol="${esc(n)}" ${c.skipHolidays.includes(n)?'':'checked'}> ${esc(n)} <span class="muted">${fmt(d)}</span></label>`).join('')}</div>
   <p class="muted" style="font-size:13px;margin:6px 0 0">Unchecked holidays count as workdays. Add your own days off in the Work Log.</p></div></div></div>`;
 }
@@ -1211,7 +1210,7 @@ document.addEventListener('change',async ev=>{
 function payHint(){
   const el=document.getElementById('money-sum');if(!el)return;
   const cat=val('f-cat');
-  const words=(+val('f-wa')||0)+(+val('f-wj')||0)+((cat==='B'||cat==='C')?(+val('f-pw')||0):0);const fh=+val('f-fh')||words/S.cfg.wordsPerFH;
+  const words=(+val('f-wa')||0)+(+val('f-wj')||0)+((cat==='B'||cat==='C')?(+val('f-pw')||0):0);const fh=+val('f-fh')||words/wordsPerFH();
   const gross=val('f-rm')==='per2k'?(+val('f-rate')||0)*words/2000:(+val('f-rate')||0)*fh;
   const sw=+val('f-sw')||0;
   const editor=val('f-ed')==='outsourced'?((+val('f-ec')>0)?+val('f-ec'):(+S.cfg.editorRate||50)*fh):0;
@@ -1336,6 +1335,7 @@ async function init() {
     booted = true;
     document.addEventListener("lr-external", e => { syncS(); const d = e.detail || []; if (d.some(x => x.startsWith("book:"))) loadBoothFh().then(rerender); else rerender(); });
     document.addEventListener("lr-saved", () => { clearTimeout(init._t); init._t = setTimeout(() => loadBoothFh().then(() => compute()), 4000); });
+    document.addEventListener("lr-pace", () => { compute(); rerender(); });
   }
   compute();
   loadBoothFh().then(() => { compute(); LLV.onChange && LLV.onChange(); });

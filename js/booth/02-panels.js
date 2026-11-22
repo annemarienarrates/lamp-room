@@ -479,6 +479,7 @@
     const set = (S.narrators.find(n => n.name === B.readingAs) || {}).pace;
     let pace = null, paceSrc = "Words per booth hour";
     if (cs >= 600) { pace = cw / (cs / 3600); paceSrc += " · from your completed chapters in this book"; }
+    else if (window.LRPace) { const r = LRPace.of(B.readingAs, B.book); pace = r.pace; paceSrc += r.from === "series" ? " · your pace on " + r.name : r.from === "overall" ? " · your last 60 days" : r.from === "typed" ? " · from People until there's booth time" : ""; }
     else if (b30 >= 3 * 3600) { pace = w30 / (b30 / 3600); paceSrc += " · last 30 days"; }
     else if (set) { pace = set; paceSrc += " · from Settings until you've completed a chapter"; }
     let milestone = null;
