@@ -169,7 +169,7 @@
     const bt = (a, label, o) => { o = o || {}; return `<button class="stu-btn ${o.cls || ""}" data-b="${a}" title="${esc(o.tip || "")}" ${o.dis ? "disabled" : ""}>${label}</button>`; };
     el.innerHTML = `
       <div class="bd-grp">${bt("menu", ICON.menu + " Menu ▾", { dis: rec })}</div>
-      <div class="bd-grp">${bt("edit", "✎ " + (B.edit ? "Editing text" : "Text editor"), { cls: B.edit ? "on" : "", tip: "Edit the manuscript text", dis: rec })}</div>
+      <div class="bd-grp">${Store.isLead(B.book) ? bt("edit", "✎ " + (B.edit ? "Editing text" : "Text editor"), { cls: B.edit ? "on" : "", tip: "Edit the manuscript text", dis: rec }) : bt("edit", "✎ Ask " + esc(Store.leadOf(B.book)), { tip: Store.leadOf(B.book) + " leads this book and changes its text: tell them what to fix", dis: rec })}</div>
       <div class="bd-grp">${bt("cut", "✂ Cut", { dis: !sel, tip: "Cut the selection (⌘X)" })}${bt("copy", "⧉ Copy", { dis: !sel, tip: "Copy the selection (⌘C)" })}${bt("paste", "📋 Paste", { dis: rec || !B.clip, tip: "Paste at the playhead, pushing the rest along (⌘V)" })}${bt("pasteOver", "Paste over", { dis: rec || !B.clip, tip: "Paste over, replacing what's there (⌘⇧V)" })}${bt("del", "Delete", { dis: !sel, tip: "Delete the selection and close the gap (" + kl("del") + ")" })}${B.selTake && !rec ? bt("delTake", "🗑 Delete take", { tip: "Delete the selected take (" + kl("del") + ")" }) : ""}</div>
       <div class="bd-grp">${bt("track", ICON.rows + " Track " + (B.track + 1) + "/" + nt, { dis: rec, tip: "Next track (T)" })}${bt("addTrack", "+ Track", { dis: rec || nt >= MAX_TRACKS, tip: "Add a track to every chapter (Shift+T)" })}</div>
       <div class="bd-grp bd-textzoom">${bt("tsm", "A−", { tip: "Smaller text (" + kl("textSmaller") + ", or ⌘ + scroll over the text)" })}<span class="bd-zl">${Math.round(zoom() * 100)}%</span>${bt("tbg", "A+", { tip: "Larger text (" + kl("textBigger") + ")" })}</div>
@@ -232,7 +232,7 @@
     const b = e.target.closest("[data-b]"); if (!b || b.disabled || b.tagName === "SELECT") return;
     const a = b.dataset.b; b.blur();
     if (a === "menu") return navMenu(b);
-    if (a === "edit") { B.edit = !B.edit; render(); return; }
+    if (a === "edit") { if (!B.edit && !Store.isLead(B.book)) { window.LRAskLead && LRAskLead(B.book, Store.leadOf(B.book), B.ci); return; } B.edit = !B.edit; render(); return; }
     if (a === "tsm" || a === "tbg") return textZoom(a === "tbg" ? 0.1 : -0.1);
     if (a === "delTake") return B.selTake && deleteTake(B.selTake.ti, B.selTake.ci);
     if (a === "zin" || a === "zout") return setZoom(a === "zin" ? 1.5 : 1 / 1.5);
@@ -2222,7 +2222,9 @@
     hidePartPop();
     const pop = document.createElement("div"); pop.className = "part-pop"; pop.id = "part-pop";
     const words = B.toks.slice(from, to + 1).map(t => t.w), txt = words.length > 6 ? words.slice(0, 3).join(" ") + " … " + words.slice(-2).join(" ") : words.join(" ");
-    pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    const leadHere = Store.isLead(B.book), leadName = Store.leadOf(B.book);
+    if (leadHere) pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    else pop.innerHTML = `<div class="pp-q">Wrong reader for <i>“${esc(txt)}”</i>?</div><div class="fx-chips"><button class="stu-btn" data-asklead>Ask ${esc(leadName)} to fix it</button></div>`;
     const run = theirRuns().find(x => from >= x.from && to <= x.to);
     if (run && amLead()) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px"><button class="stu-btn" data-ask="1">🔁 Ask ${esc(nm(run.r))} for a pickup of this line</button></div>`);
     const nm = words.map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’-]+$/gu, "").replace(/['’]s$/, "")).join(" ").trim();
@@ -2231,7 +2233,7 @@
     pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
     pop.style.top = Math.max(8, rect.top - pop.offsetHeight - 8) + "px";
     pop.onmousedown = e => e.preventDefault();
-    pop.onclick = e => { const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+    pop.onclick = e => { if (e.target.closest("[data-asklead]")) { hidePartPop(); window.getSelection().removeAllRanges(); window.LRAskLead && LRAskLead(B.book, leadName, B.ci, "“" + txt + "” should be read by "); return; } const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
   }
   function hidePartPop() { const p = $("#part-pop"); if (p) p.remove(); }
   function setReader(from, to, who) {

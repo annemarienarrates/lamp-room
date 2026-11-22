@@ -41,6 +41,8 @@
     LL.views.openBook = id => { const b = Store.books.find(b => b.titleId === id); location.hash = b ? "#/book/" + b.id : "#/import?title=" + id; };
     Store.watch();
     LRBackup.start();
+    LRPresence.start();
+    try { LRPeople.reconcile(); } catch (e) {}
     drawWho();
     $("#whochip").onclick = whoMenu;
     document.addEventListener("lr-me", e => {
@@ -545,7 +547,51 @@
       if (m) m.onclick = () => { if (!confirm(`Merge “${c.title}” with “${book.chapters[i + 1].title}”?`)) return; book.chapters.splice(i, 2, Prep.mergeChapters(c, book.chapters[i + 1])); save(true); };
     });
     $("#bulk").onchange = e => { const v = e.target.value; if (!v) return; const was = bookStats(book).delivered; book.chapters.filter(c => c.included).forEach(c => c.status = v); save(true); if (v === "delivered" && !was) cheer("bookDone"); };
+    leadUI(book, save);
   }
+  // ---- the book's Lead: a banner with notes from the others; for everyone else, the book's own controls are locked ----
+  function leadUI(book, save) {
+    const lead = Store.leadOf(book), me = Store.me(), mine = Store.isLead(book), asks = LRPeople.openAsks(book);
+    if (!lead) return;
+    const bar = document.createElement("div"); bar.className = "card lead-bar" + (mine ? "" : " not-lead");
+    const when = t => { try { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch (e) { return ""; } };
+    const askRow = a => `<div class="ask-row" data-ask="${esc(a.id)}"><div><b>${esc(a.who)}</b> <span class="muted small">· ${esc(when(a.at))}${a.chTitle ? " · " + esc(a.chTitle) : ""}</span><div>${esc(a.text)}</div></div>
+      <div class="ask-act">${a.ch ? `<button class="btn small quiet" data-askgo="${esc(a.ch)}">Go to chapter</button>` : ""}${mine ? `<button class="btn small" data-askdone="${esc(a.id)}" title="Mark it dealt with">✓ Done</button>` : ""}</div></div>`;
+    if (mine) {
+      const team = (Store.settings.narrators || []).map(n => n.name).filter(n => !Store.samePerson(n, me));
+      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>You lead this book.</b> <span class="muted">Only you change its text, chapters, who reads what and credits; everyone keeps their own recordings and progress.</span></div><div class="spacer"></div>
+        ${!book.shared && team.length ? `<label class="small">Hand the Lead to<select id="handon"><option value="">—</option>${team.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>` : book.shared ? `<span class="small muted">In a shared project the Lead is the folder's owner.</span>` : ""}</div>
+        ${asks.length ? `<div class="section-label" style="margin-top:12px">Asked of you · ${asks.length}</div>${asks.map(askRow).join("")}` : ""}`;
+    } else {
+      const myAsks = asks.filter(a => Store.samePerson(a.who, me));
+      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>${esc(lead)} leads this book.</b> <span class="muted">The text, chapters, who reads what, credits and cast names are ${esc(lead)}'s to change. Your recordings, takes and progress are yours.</span></div><div class="spacer"></div>
+        <button class="btn" id="askLead">Ask ${esc(lead)} to fix something</button></div>
+        ${myAsks.length ? `<div class="section-label" style="margin-top:12px">Waiting with ${esc(lead)} · ${myAsks.length}</div>${myAsks.map(askRow).join("")}` : ""}`;
+      // lock the book's own controls; the Booth links, the reader, the planner card, the cover and the shared card stay
+      const keep = el => el.closest("#sharedc, .ll, .book-cover, .lead-bar") || (book.shared && el.closest("#cscripts")) || el.matches("[data-open]");
+      $$("input, select, textarea, button", main()).forEach(el => { if (keep(el)) return; el.disabled = true; el.title = "Ask " + lead + " to change this"; });
+    }
+    const tiles = $(".tiles", main()); tiles.parentNode.insertBefore(bar, tiles);
+    $$("[data-askgo]", bar).forEach(b => b.onclick = () => { const i = book.chapters.findIndex(c => c.id === b.dataset.askgo); if (i >= 0) location.hash = "#/booth/" + book.id + "/" + i; });
+    $$("[data-askdone]", bar).forEach(b => b.onclick = () => { LRPeople.clearAsk(book, b.dataset.askdone); save(true); toast("Marked done."); });
+    const ho = $("#handon", bar); if (ho) ho.onchange = () => { const n = ho.value; if (!n) return;
+      if (!confirm("Hand the Lead of “" + book.title + "” to " + n + "? After this only " + n + " can change its text, chapters, parts and credits.")) { ho.value = ""; return; }
+      book.lead = n; save(true); toast(n + " leads “" + book.title + "” now."); };
+    const al = $("#askLead", bar); if (al) al.onclick = () => askLeadDialog(book, lead);
+  }
+  function askLeadDialog(book, lead, ci, text) {
+    const ov = document.createElement("div"); ov.className = "overlay"; document.body.appendChild(ov);
+    ov.innerHTML = `<div class="card reader" style="max-width:560px"><h2>Ask ${esc(lead)} to fix something</h2>
+      <p class="small muted">It shows on ${esc(lead)}'s page for this book. Say what's wrong and where, e.g. “line 3 is Jack's, not mine”.</p>
+      <label style="display:flex">Chapter<select id="akch"><option value="">Not about one chapter</option>${book.chapters.map((c, i) => c.included ? `<option value="${i}" ${i === ci ? "selected" : ""}>${esc(c.title)}</option>` : "").join("")}</select></label>
+      <label style="display:flex;margin-top:10px">What needs fixing<textarea id="aktx" rows="4">${esc(text || "")}</textarea></label>
+      <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" id="akgo">Send to ${esc(lead)}</button></div></div>`;
+    $("[data-x]", ov).onclick = () => ov.remove();
+    { const ta = $("#aktx", ov); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    $("#akgo", ov).onclick = () => { const t = $("#aktx", ov).value.trim(); if (!t) { $("#aktx", ov).focus(); return; }
+      const v = $("#akch", ov).value; LRPeople.ask(book, t, v === "" ? null : +v); Store.saveBook(book); ov.remove(); toast("Sent to " + lead + ". It's on their page for this book."); if (route.name === "book") viewBook(); };
+  }
+  window.LRAskLead = askLeadDialog;
   function partsTable(book) {
     const S = Store.settings, found = Prep.partsInBook(book);
     if (!found.n) found.n = { passages: 0, words: 0 };
@@ -555,7 +601,7 @@
       <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
       ${keys.map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
         <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k], book)}</select>${CAST.includes(book.parts[k]) ? ` <input class="cast-real" data-castname="${book.parts[k]}" value="${esc((book.castNames || {})[book.parts[k]] || "")}" placeholder="their name" list="castpeople" title="Who ${book.parts[k]} is: shown to you and the editor in the Booth" style="width:150px">` : ""}</td></tr>`).join("")}
-      </tbody></table><datalist id="castpeople">${(book.sharedPeople || []).filter(x => x.role === "outside").map(x => `<option value="${esc(x.name)}">`).join("")}</datalist>
+      </tbody></table><datalist id="castpeople">${[...new Set((book.sharedPeople || []).filter(x => x.role === "outside").map(x => x.name).concat((Store.settings.people || []).filter(p => !p.team).map(p => p.full || p.name)))].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
       <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(Store.castName(book, k)) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
   }
   function setStatus(book, c, v) {
@@ -580,6 +626,7 @@
     ov.onclick = e => { if (e.target === ov) close(); };
     $("[data-x]", ov).onclick = close;
     $("[data-notes]", ov).onchange = e => { c.notes = e.target.value; Store.saveBook(book); };
+    if (!Store.isLead(book)) { const L = Store.leadOf(book); $("[data-notes]", ov).disabled = true; $("[data-notes]", ov).title = "Ask " + L + " to change this"; $$("[data-cut]", ov).forEach(b => b.remove()); }
     $$("[data-nav]", ov).forEach(b => b.onclick = () => { ov.remove(); document.removeEventListener("keydown", onKey); openReader(book, i + Number(b.dataset.nav)); });
     $$("[data-cut]", ov).forEach(b => b.onclick = () => {
       const k = +b.dataset.cut, first = Prep.paraText(c.paras[k]);
@@ -841,7 +888,8 @@
     return `<details class="card" id="sharedc" ${sharedOpenUI[book.id] ? "open" : ""}><summary>Shared project <span class="small muted" id="shstat">· checking…</span></summary>
       <p class="small muted" style="margin-top:10px">${owner ? "You own this book's shared folder: changes to the text, parts and credits go there when you save." : "Shared by " + esc(book.sharedOwner || "the owner") + ". Their text updates come to you when you open the book."}</p>
       <div class="section-label">Who's on it</div>
-      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${x.name && Store.samePerson(x.name, book.sharedOwner || me) && x.role !== "editor" ? `<label class="check" title="Only the book's owner can edit alongside reading: you record and send your part, then each chapter opens to you as its editor"><input type="checkbox" ${owner ? "" : "disabled"} data-shedit="${i}" ${x.edits ? "checked" : ""}> Also edits</label>` : ""}${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
+      <datalist id="allpeople">${(Store.settings.people || []).map(p => `<option value="${esc(p.full || p.name)}">`).join("")}</datalist>
+      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}" list="allpeople"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${x.name && Store.samePerson(x.name, book.sharedOwner || me) && x.role !== "editor" ? `<label class="check" title="Only the book's owner can edit alongside reading: you record and send your part, then each chapter opens to you as its editor"><input type="checkbox" ${owner ? "" : "disabled"} data-shedit="${i}" ${x.edits ? "checked" : ""}> Also edits</label>` : ""}${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
       <p class="small muted">Someone reading without the Lamp Room? Set them to <b>Outside (sends a file)</b>: chapters don't wait on them, and the editor (or the lead) drops their recording into the Booth's 🤝 Collaborate tab.</p>
       ${owner ? `<button class="btn small" id="shadd">+ Person</button>${narr.filter(n => !people.some(x => x.name === n)).length ? ` <button class="btn small quiet" id="shfill">Add everyone reading parts</button>` : ""}` : ""}
       <div class="row" style="margin-top:10px"><button class="btn small" id="shconn">Connect this computer to the folder…</button><div class="spacer"></div>${owner ? `<button class="btn small" id="shpush">Update the shared copy now</button>` : ""}</div></details>`;
@@ -882,15 +930,25 @@
     let miss = null;
     if (csOpen[book.id] && list.length) { const cache = new Map(); miss = LRCues.unplaced(book, c => cache.get(c) || (cache.set(c, Prep.tokens(c)), cache.get(c))); }
     const missOf = id => miss ? miss.filter(m => m.sid === id).length : 0;
+    // Read by: worked out from the highlighting when the card is open; the Lead can name it and sees the disagreements
+    let rd = null; if (csOpen[book.id] && list.length) { const cache = new Map(); rd = LRCues.readers(book, c => cache.get(c) || (cache.set(c, Prep.tokens(c)), cache.get(c))); }
+    const lead = Store.isLead(book), names = [...new Set([...(Store.settings.people || []).map(p => p.name), ...Object.keys(book.castNames || {}).map(k => book.castNames[k]), ...Object.values(book.parts || {}).filter(v => v && !/^Cast \d+$/.test(v))])];
+    const readBySel = x => { const r = rd && rd[x.id], cur = x.readBy || "";
+      return `<label class="small" title="${r && r.guessed && r.guess ? "Guessed from the highlighting: " + esc(r.guess) : "Who reads this script's lines"}">Read by<select data-csby="${x.id}" ${lead ? "" : "disabled"}><option value="">${r && r.guess ? "Highlighting says " + esc(r.guess) : "—"}</option>${names.map(n => `<option ${Store.samePerson(n, cur) && cur ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`; };
+    const offAll = rd ? list.flatMap(x => (rd[x.id] ? rd[x.id].off : []).map(o => Object.assign({ readBy: rd[x.id].readBy }, o))) : [];
     return `<details class="card" id="cscripts" ${csOpen[book.id] ? "open" : ""}><summary>Character scripts ${list.length ? `<span class="small muted">· ${list.map(x => esc(x.char)).join(", ")}</span>` : '<span class="small muted">· optional</span>'}</summary>
       <p class="small muted" style="margin-top:10px">${book.shared ? "In a shared book, scripts the owner adds go to everyone; ones you add stay with you. " : ""}Add an actor script (.docx: a chapter heading, then each line's NAME, its (tone) and the words). In the Booth, each line gets a tag saying who speaks it and how, and a cue window follows your reading, with the line you're answering. Click a name to open its Character guide. Nothing shows in books without one.</p>
-      ${list.map(x => `<div class="cast-row"><b style="flex:1">${esc(x.char)}</b><span class="small muted">${LRCues.tidyLines(x.lines).length} lines${miss ? ` · ${LRCues.tidyLines(x.lines).length - missOf(x.id)} placed` : ""} · ${esc(x.file || "")}</span><button class="btn small" data-csre="${x.id}" title="A newer version of this script">Replace</button><button class="btn small ghost" data-csdel="${x.id}" title="Remove">✕</button></div>`).join("")}
+      ${list.map(x => `<div class="cast-row"><b style="flex:1">${esc(x.char)}</b>${rd ? readBySel(x) : ""}<span class="small muted">${LRCues.tidyLines(x.lines).length} lines${miss ? ` · ${LRCues.tidyLines(x.lines).length - missOf(x.id)} placed` : ""} · ${esc(x.file || "")}</span><button class="btn small" data-csre="${x.id}" title="A newer version of this script">Replace</button><button class="btn small ghost" data-csdel="${x.id}" title="Remove">✕</button></div>`).join("")}
       <div class="row" style="margin-top:8px"><button class="btn" id="csadd">+ Add a character script</button></div>
+      ${lead && offAll.length ? `<details style="margin-top:10px" open><summary class="small"><b>${offAll.length} line${offAll.length === 1 ? "" : "s"} where the script and the highlighting disagree</b></summary>
+        <p class="small muted" style="margin:6px 0">Fix the highlight in the Booth (select the words, pick the reader), or change the script's Read by.</p>
+        <div class="small" style="max-height:260px;overflow:auto">${offAll.map(o => `<div class="ask-row"><div><b>${esc(o.char)}</b> <span class="muted">· ${esc(o.c.title)} · script: ${esc(o.readBy)} · highlighted: ${esc(o.hl)}</span><div>${esc(o.text.length > 140 ? o.text.slice(0, 140) + "…" : o.text)}</div></div><div class="ask-act"><a class="btn small quiet" href="#/booth/${esc(book.id)}/${book.chapters.indexOf(o.c)}">Go</a></div></div>`).join("")}</div></details>` : ""}
       ${miss && miss.length ? `<details style="margin-top:10px"><summary class="small">${miss.length} line${miss.length === 1 ? "" : "s"} couldn't be placed</summary><div class="small" style="max-height:240px;overflow:auto">${miss.map(m => `<div style="margin:4px 0"><b>${esc(m.char)}</b> · ${esc(m.ch || "?")} <span class="muted">(${esc(m.why)})</span><br>“${esc(m.text.slice(0, 160))}”</div>`).join("")}</div><p class="small muted">Usually the manuscript changed after the script was made. These lines just don't get a cue.</p></details>` : ""}
     </details>`;
   }
   function bindCharScripts(book, save) {
     const el = $("#cscripts"); if (!el) return;
+    $$("[data-csby]", el).forEach(sel => sel.onchange = () => { const x = (book.cues.scripts || []).find(z => z.id === sel.dataset.csby); if (!x) return; if (sel.value) x.readBy = sel.value; else delete x.readBy; save(true); });
     el.ontoggle = () => { const was = !!csOpen[book.id]; csOpen[book.id] = el.open; if (el.open && !was && LRCues.has(book)) viewBook(); };
     const pick = () => new Promise(res => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".docx"; inp.onchange = () => res(inp.files[0]); inp.click(); });
     const load = async (replaceId) => {
@@ -955,7 +1013,7 @@
       let info = {}; try { info = (await LRBackup.open(name)).info || {}; } catch (e) { toast("Couldn't open that backup: " + e.message); return; }
       const rows = (info.books || []).slice().sort((a, b) => (a.title || "").localeCompare(b.title || "")).map((b, i) => {
         const live = Store.books.find(x => x.folder === b.folder || (b.id && x.id === b.id));
-        const ok = LRBackup.canRestore(live || { parts: { n: b.lead } });
+        const ok = LRBackup.canRestore(live || { lead: b.lead });
         const lead = LRBackup.leadOf(live || {}) || b.lead;
         return `<tr><td><b>${esc(b.title)}</b><div class="small muted">${b.chapters} chapter${b.chapters === 1 ? "" : "s"}${live ? "" : " · not in the Library now"}${lead ? " · Lead: " + esc(lead) : ""}</div></td>
           <td style="text-align:right">${ok ? `<button class="btn small" data-rb="${i}">Restore this book…</button>` : `<span class="small muted">Only ${esc(lead)} can restore it</span>`}</td></tr>`; }).join("");
@@ -996,7 +1054,7 @@
   // Settings in four tabs, with a search across all of them. Cards are sorted by their title, so new cards only
   // need a line here; an unknown card lands in "Me". The open tab is remembered on this computer.
   const SET_TABS = [["me", "Me"], ["computer", "This computer"], ["money", "Books & money"], ["look", "Look"]];
-  const SET_CARD_TAB = { "Who's working here": "me", "Narrators": "me", "Reading & proofing": "me",
+  const SET_CARD_TAB = { "Who's working here": "me", "People": "me", "Reading & proofing": "me",
     "This computer": "computer", "Library folder": "computer", "Recordings on this computer": "computer", "Backups": "computer", "Problem log": "computer",
     "Estimates": "money", "Clients & credits": "money", "Planning & money": "money", "Export file names": "money", "Look & feel": "look" };
   function settingsTabs() {
@@ -1056,9 +1114,17 @@
         <label>Listening<select id="pfk">${[["careful", "Careful (better with names, a bit slower)"], ["fast", "Fast"]].map(([v, l]) => `<option value="${v}" ${(S.proofModel || "careful") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <button class="btn small quiet" id="pfl">Download it now</button></div>
         <p class="small muted" style="margin:6px 0 0">Live always listens fast, so it keeps up. Names and made-up words it doesn't know: press <b>Always ignore</b> on the flag and it won't flag that word again in the book.</p></div>
-      <div class="card"><h3>Narrators</h3><p class="small muted">Booth pace = manuscript words you get through per hour in the booth. The Booth module will keep these current once you're recording here.</p>
-        ${S.narrators.map((n, i) => `<div class="cast-row"><label>Name<input data-n="${i}" data-k="name" value="${esc(n.name)}"></label><label title="How your name appears in audiobook credits">Name in credits<input data-n="${i}" data-k="credit" value="${esc(n.credit || "")}" placeholder="${esc(n.name)}"></label><label>Booth pace (words / hr)<input type="number" data-n="${i}" data-k="pace" value="${n.pace}" style="width:120px"></label>${S.narrators.length > 1 ? `<button class="btn small quiet" data-deln="${i}">✕</button>` : ""}</div>`).join("")}
-        <button class="btn small" id="addn">+ Narrator</button></div>
+      <div class="card"><h3>People</h3><p class="small muted">One record for each person: you, Jack, cast and editors. The app finds someone by any of their spellings, so “Anne”, “Anne Marie” and a full credit name are one person. <b>Works here</b> puts them in Who's working here and the planner. Booth pace is words per booth hour, used until the Booth has measured it.</p>
+        ${(S.people || []).map((p, i) => `<div class="person-row ${p.team ? "team" : ""}">
+          <label>Name<input data-pp="${i}" data-k="name" value="${esc(p.name)}"></label>
+          <label>Full name<input data-pp="${i}" data-k="full" value="${esc(p.full || "")}" placeholder="${esc(p.name)}"></label>
+          <label title="How they appear in audiobook credits">Credit name<input data-pp="${i}" data-k="credit" value="${esc(p.credit || "")}" placeholder="${esc(p.full || p.name)}"></label>
+          <label class="wide" title="Other spellings, separated by commas">Also known as<input data-pp="${i}" data-k="aka" value="${esc((p.aka || []).join(", "))}" placeholder="other spellings"></label>
+          <label>Booth pace<input type="number" data-pp="${i}" data-k="pace" value="${esc(p.pace || "")}" placeholder="—" style="width:96px"></label>
+          <label class="check" title="Works in this Library: shows in Who's working here and the planner"><input type="checkbox" data-pp="${i}" data-k="team" ${p.team ? "checked" : ""}> Works here</label>
+          <button class="btn small quiet" data-delp="${i}" title="Remove ${esc(p.name)}" ${p.team && (S.people || []).filter(x => x.team).length < 2 ? "disabled" : ""}>✕</button></div>`).join("")}
+        <div class="row" style="margin-top:8px"><button class="btn small" id="addp">+ Person</button></div>
+        ${(u => u.length ? `<div class="small" style="margin-top:12px"><span class="muted">In your books but not in People yet:</span> ${u.map((x, i) => `<span class="chip-add">${esc(x.name)} <span class="muted">(${esc(x.from)})</span> <button class="lnk" data-addu="${i}">Add</button></span>`).join(" ")}</div>` : "")(LRPeople.unknown())}</div>
       <div class="card"><h3>Estimates</h3><div class="row">
         <label>Words per finished hour<input type="number" id="wp" value="${S.wpfh}" style="width:120px"></label>
         <label>Booth hours per workday<input type="number" step="0.5" id="bh" value="${S.boothHoursPerDay}" style="width:100px"></label>
@@ -1127,11 +1193,20 @@
     $("#tryc").onclick = () => { const t = 9 + Math.floor(Math.random() * 12), [n, c] = LRCele.TIERS[t]; LRCele.celebrate({ title: n, color: c, live: true, level: 2, flash: true, noConfetti: true, hold: 1600 }); LRCele.lightning(2, c); LRCele.shootingStars(2, c); };
     $("#en").onchange = e => { S.encouragement = e.target.checked; save(); };
     $("#try").onclick = () => cheer("chapterDone");
-    $$("[data-n]").forEach(el => el.onchange = () => { const n = S.narrators[+el.dataset.n]; const old = n.name; n[el.dataset.k] = el.dataset.k === "pace" ? Number(el.value) : el.value.trim();
-      if (el.dataset.k === "name") Store.books.forEach(b => (b.cast || []).forEach(c => { if (c.name === old) { c.name = n.name; Store.saveBook(b); } }));
-      save(); });
-    $$("[data-deln]").forEach(b => b.onclick = () => { S.narrators.splice(+b.dataset.deln, 1); save(); viewSettings(); });
-    $("#addn").onclick = () => { S.narrators.push({ name: "Narrator " + (S.narrators.length + 1), pace: 3000 }); save(); viewSettings(); };
+    // People: a rename keeps the old spelling under Also known as, so books that use it still find the person
+    $$("[data-pp]").forEach(el => el.onchange = () => {
+      const p = S.people[+el.dataset.pp], k = el.dataset.k, old = p.name;
+      if (k === "team") p.team = el.checked;
+      else if (k === "aka") p.aka = el.value.split(",").map(x => x.trim()).filter(Boolean);
+      else if (k === "pace") p.pace = el.value === "" ? "" : Number(el.value);
+      else p[k] = el.value.trim();
+      if (k === "name" && old && p.name && old !== p.name) { LRPeople.addAka(p, old); Store.books.forEach(b => (b.cast || []).forEach(c => { if (c.name === old) { c.name = p.name; Store.saveBook(b); } })); if (Store.me() === old) Store.setMe(p.name); }
+      LRPeople.mirror(); save(); if (k === "name" || k === "team") viewSettings();
+    });
+    $$("[data-delp]").forEach(b => b.onclick = () => { const p = S.people[+b.dataset.delp]; if (!confirm("Remove " + p.name + " from People? Books that name them keep the name.")) return; S.people.splice(+b.dataset.delp, 1); LRPeople.mirror(); save(); viewSettings(); });
+    $("#addp").onclick = () => { LRPeople.add({ name: "New person" }); save(); viewSettings(); };
+    const unk = LRPeople.unknown();
+    $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
     $("#wp").onchange = e => { S.wpfh = Number(e.target.value) || 9300; save(); };
     $("#bh").onchange = e => { S.boothHoursPerDay = Number(e.target.value) || 6; save(); };
     $("#edr").onchange = e => { S.editorRate = e.target.value === "" ? 50 : Number(e.target.value); save(); };

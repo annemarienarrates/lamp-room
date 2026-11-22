@@ -154,7 +154,7 @@
       ] },
     { id: "sharing", icon: "⇄", title: "Sharing & settings", lead: "What's yours, what's shared, and how to share one booth.",
       items: [
-        ["Shared by both", "Books, titles, the schedule, the log, the ledger, narrators and paces, export names."],
+        ["Shared by both", "Books (each changed only by its Lead: others Ask the Lead), titles, the schedule, the log, the ledger, People, export names."],
         ["Yours alone", "Theme, reading font, celebrations, combo, confetti, earnings goal, hotkeys, text size, track height, zoom, pre-roll, pacing, proofing, ignored words and your character guide. Kept per person on each computer."],
         ["This computer", "Settings ▸ This computer: Mac or Windows keyboard (it guesses). On Windows, Ctrl and Alt replace ⌘ and ⌥ everywhere, and Help offers the Windows guides."],
         ["Quick starts", "Help ▸ the PDF buttons include a short start guide for an editor and one for co-narrators (Mac and Windows editions). Send them along with the shared folder."],

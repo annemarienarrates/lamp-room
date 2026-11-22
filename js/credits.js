@@ -20,7 +20,7 @@
     if ((book.credits || {}).narrators) return book.credits.narrators.split(/\s*[,;]\s*|\s+and\s+/).filter(Boolean);
     const S = Store.settings, names = [...new Set(Object.values(book.parts || {}).filter(Boolean))];
     if (!names.length && S.narrators && S.narrators[0]) names.push(S.narrators[0].name);
-    return names.map(n => ((S.narrators || []).find(x => x.name === n) || {}).credit || n);
+    return names.map(n => window.LRPeople && LRPeople.find(n) ? LRPeople.creditOf(n) : ((S.narrators || []).find(x => x.name === n) || {}).credit || n);
   }
   function values(book) {
     const c = clientOf(book) || {}, cr = book.credits || {}, due = book.due ? +String(book.due).slice(0, 4) : null;

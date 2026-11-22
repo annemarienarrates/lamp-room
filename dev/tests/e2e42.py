@@ -40,12 +40,12 @@ async def main():
     L2 = await pg.evaluate("LRBackup.list()")
     if not any(x["beforeRestore"] for x in L2): ERR.append("no safety backup before restore")
     # Lead only
-    await pg.evaluate("Store.books[0].sharedPeople=[{name:'Jack',role:'lead'},{name:'Anne',role:'narrator'}]")
+    await pg.evaluate("Store.books[0]._lead0=Store.books[0].lead; Store.books[0].lead='Jack'")
     print("Anne can restore when Jack leads:", await pg.evaluate("LRBackup.canRestore(Store.books[0])"))
     msg = await pg.evaluate("LRBackup.restoreBook(%r, Store.books[0].folder, []).then(()=>'went through').catch(e=>e.message)" % name)
     print("blocked:", msg)
     if "Only Jack" not in msg: ERR.append("non-Lead restore not blocked")
-    await pg.evaluate("delete Store.books[0].sharedPeople")
+    await pg.evaluate("Store.books[0].lead=Store.books[0]._lead0; delete Store.books[0]._lead0")
     # planner
     print("titles before:", await pg.evaluate("Store.ll.titles.map(t=>t.name)"))
     await pg.evaluate("LRBackup.restorePlanner(%r)" % name)

@@ -794,3 +794,23 @@ html.fx-calm[data-theme="signal"] .ms .w.cur, html.fx-calm[data-theme="signal"] 
 .news-head h3 { margin: 0; }
 .news-card ul { margin: 8px 0 0; padding-left: 18px; }
 .news-card li { margin: 4px 0; line-height: 1.5; }
+
+/* People */
+.person-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.person-row label { flex: 1 1 130px; }
+.person-row label.wide { flex: 2 1 200px; }
+.person-row label.check { flex: 0 0 auto; padding-bottom: 6px; }
+.person-row.team > label:first-child input { font-weight: 600; }
+.chip-add { display: inline-block; margin: 3px 6px 3px 0; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
+
+/* the book's Lead */
+.lead-bar { border-left: 3px solid var(--accent); }
+.lead-bar.not-lead { border-left-color: var(--current); }
+.ask-row { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+.ask-act { display: flex; gap: 6px; flex: none; }
+
+/* someone else has this book open */
+#presence { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 30; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: .85rem; box-shadow: var(--shadow, 0 4px 18px #0002); pointer-events: none; max-width: 80vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.booth-on #presence { top: 8px; }
+/* controls you can't change here (the book's Lead changes them) */
+#main input:disabled, #main select:disabled, #main textarea:disabled, #main button:disabled { opacity: .55; cursor: not-allowed; }

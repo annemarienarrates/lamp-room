@@ -136,6 +136,36 @@
     return res;
   }
 
+  // every line that did find a home: { sid, char, c (chapter), a, b (word range), text }
+  function placedLines(book, tokensOf) {
+    const res = [];
+    for (const sc of (book.cues && book.cues.scripts) || []) {
+      const from = new Map();
+      for (const l of tidyLines(sc.lines)) {
+        const sibs = sameKey(book, key(l.ch)); if (!sibs.length) continue;
+        let pick = null;
+        sibs.forEach((c, i) => { const p = place(tokensOf(c), l.text, from.get(c) || 0); if (p && (!pick || p.sc > pick.p.sc + 1e-9 || (Math.abs(p.sc - pick.p.sc) < 1e-9 && i === (l.occ || 0)))) pick = { c, p }; });
+        if (pick) { from.set(pick.c, pick.p.b + 1); res.push({ sid: sc.id, char: sc.char, c: pick.c, a: pick.p.a, b: pick.p.b, text: l.text }); }
+      }
+    }
+    return res;
+  }
+  // Read by: who the book's highlighting gives each script's lines to. A script's reader is the one named on it
+  // (sc.readBy), or else whoever the highlighting gives most of its lines. A disagreement is a line highlighted for
+  // someone else, for the Lead to settle (fix the highlight, or the script's Read by).
+  function readers(book, tokensOf) {
+    const who = (c, a, b) => { const t = tokensOf(c), n = {}; for (let i = a; i <= b && i < t.length; i++) { const r = Prep.readerOf(t[i].part, c, book); if (r) { const k = Store.castName(book, r); n[k] = (n[k] || 0) + 1; } } return Object.keys(n).sort((x, y) => n[y] - n[x])[0] || ""; };
+    const lines = placedLines(book, tokensOf).map(l => Object.assign(l, { hl: who(l.c, l.a, l.b) })), out = {};
+    for (const sc of (book.cues && book.cues.scripts) || []) {
+      const mine = lines.filter(l => l.sid === sc.id && l.hl), count = {};
+      mine.forEach(l => count[l.hl] = (count[l.hl] || 0) + 1);
+      const guess = Object.keys(count).sort((x, y) => count[y] - count[x])[0] || "";
+      const readBy = sc.readBy || guess;
+      out[sc.id] = { readBy, guessed: !sc.readBy, guess, lines: mine.length, off: readBy ? mine.filter(l => !Store.samePerson(l.hl, readBy)) : [] };
+    }
+    return out;
+  }
+
   const has = book => !!(book && book.cues && (book.cues.scripts || []).length);
-  window.LRCues = { parse, place, forChapter, unplaced, has, key, tidyLines };
+  window.LRCues = { parse, place, forChapter, unplaced, placedLines, readers, has, key, tidyLines };
 })();

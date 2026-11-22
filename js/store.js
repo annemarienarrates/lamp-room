@@ -55,6 +55,7 @@
 
   // "Anne" is "Anne Marie" on a people list (a first name matches a full name), but "Anne Marie" isn't "Anne Smith"
   function samePerson(a, b) {
+    if (window.LRPeople) { const r = LRPeople.same(a, b); if (r !== null) return r; }   // both in People: their records decide
     const n = x => String(x || "").toLowerCase().replace(/\s+/g, " ").trim(); a = n(a); b = n(b);
     if (!a || !b) return false; if (a === b) return true;
     const A = a.split(" "), B = b.split(" ");
@@ -141,6 +142,7 @@
           if (copiesP.length > 1 || pk.n !== base) this.conflicts.push({ folder, file: "people/" + base, used: pk.n, others: copiesP.slice(1).map(x => x.n) });
           const p = JSON.parse(pt), who = p.person || base.replace(/\.json$/, "");
           if (p.trackSet) { b.trackSet = b.trackSet || {}; b.trackSet[who] = p.trackSet; }
+          if (p.asks && p.asks.length) { b.asks = b.asks || {}; b.asks[who] = p.asks; }
           for (const c of b.chapters || []) { const x = (p.chapters || {})[c.id]; if (!x) continue;
             if (x.prog) { c.prog = c.prog || {}; c.prog[who] = x.prog; }
             if (x.audio) { c.audio = c.audio || {}; c.audio[who] = x.audio; } }
@@ -155,6 +157,8 @@
       delete shared.folder;
       for (const n in (shared.trackSet || {})) P(n).trackSet = shared.trackSet[n];
       delete shared.trackSet;
+      for (const n in (shared.asks || {})) if ((shared.asks[n] || []).length) P(n).asks = shared.asks[n];   // notes to the Lead: in the asker's own file
+      delete shared.asks;
       for (const c of shared.chapters || []) {
         for (const n in (c.prog || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).prog = c.prog[n];
         for (const n in (c.audio || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).audio = c.audio[n];
@@ -568,10 +572,17 @@
       const d = await s.getDirectoryHandle(safeFolder(person), { create: true });
       return { dir: d, name: ym + ".json" };
     },
+    // Google Drive can leave a month's sessions in "2026-11 (1).json" when two writes collide. Read every copy and
+    // merge them by session (the newest file's version of a session wins), so no booth time goes missing.
+    async readSessionMonth(dir, ym) {
+      const copies = await this.newestOf(dir, ym, ".json"), byId = new Map();
+      for (const c of copies.slice().reverse()) { try { const l = JSON.parse(await c.f.text()); if (Array.isArray(l)) for (const x of l) byId.set(x.id || JSON.stringify(x), x); } catch (e) {} }
+      return copies.length ? [...byId.values()] : null;
+    },
     async saveSession(person, sess) {
       const ym = sess.date.slice(0, 7);
       const { dir, name } = await this.sessionFile(person, ym, true);
-      const list = (await readJson(dir, name)) || [];
+      const list = (await this.readSessionMonth(dir, ym)) || [];
       const i = list.findIndex(x => x.id === sess.id);
       if (i >= 0) list[i] = sess; else list.push(sess);
       await writeFile(dir, name, JSON.stringify(list, null, 1));
@@ -585,7 +596,7 @@
       for (let k = 0; k < (months || 2); k++) {
         const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
         const ym = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-        try { const { dir, name } = await this.sessionFile(person, ym); const l = await readJson(dir, name); if (l) out.push(...l); } catch (e) {}
+        try { const { dir } = await this.sessionFile(person, ym); const l = await this.readSessionMonth(dir, ym); if (l) out.push(...l); } catch (e) {}
       }
       this._sessCache = { key, list: out, at: Date.now() };
       return out;

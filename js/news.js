@@ -6,6 +6,11 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22d", roles: ["team", "narrator", "cast"], title: "All your booth time counts again", body: "When Google Drive split a month's booth sessions into a “(1)” copy, the app only read one of them. It reads and backs up every copy now." },
+    { id: "2026-11-22c", roles: ["team"], title: "Read by on character scripts", body: "Each script on a book page says who reads its lines. The Lead sees any lines where the script and the highlighting disagree, with a Go button." },
+    { id: "2026-11-22b", roles: ["team"], title: "Who's here", body: "A quiet line at the top when someone else has the same book open, and where." },
+    { id: "2026-11-22a", roles: ["all"], title: "Every book has a Lead", body: "Only the Lead changes a book's text, chapters, who reads what and credits. Everyone else: Ask the Lead to fix something, on the book page or the Booth's ✎ button." },
+    { id: "2026-11-22", roles: ["team"], title: "People", body: "Settings ▸ Me ▸ People: one record per person, with full name, credit name and other spellings. Cast boxes suggest names from it." },
     { id: "2026-11-21d", roles: ["all"], title: "Settings in four tabs", body: "Me, This computer, Books & money and Look, with a search box that looks through all of them." },
     { id: "2026-11-21c", roles: ["all"], title: "A tidier Tools drawer", body: "The Booth's Tools list shows only what this book uses; the rest wait under ＋ More. It opens on the tab you last used in each book." },
     { id: "2026-11-21b", roles: ["team", "narrator", "cast"], title: "Smoother while recording", body: "Word counts no longer re-read the whole book every few seconds, so the page has more room to keep up with you." },

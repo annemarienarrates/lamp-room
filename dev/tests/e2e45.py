@@ -12,7 +12,7 @@ async def main():
     pg = await ctx.new_page(); errs=[]; pg.on("pageerror", lambda e: errs.append(str(e))); ERR=[]
     await pg.goto(U+"#/"); await pg.wait_for_selector("#newsCard", timeout=10000)
     anne = await pg.evaluate(TITLES); print("Anne (team):", anne)
-    if "Read my note works on this computer." not in anne or "Smoother while recording." not in anne: ERR.append("team items missing")
+    if "People." not in anne or "Every book has a Lead." not in anne: ERR.append("team items missing")
     await pg.screenshot(path=SHOTS+"/news-anne.png")
     await pg.click("[data-news-ok]")
     if await pg.evaluate("!!document.getElementById('newsCard')"): ERR.append("Got it didn't clear")
@@ -24,7 +24,7 @@ async def main():
     await pg.goto(U+"#/"); await pg.wait_for_timeout(800)
     print("Edie roles:", await pg.evaluate("[...LRNews.roles()]"))
     edie = await pg.evaluate(TITLES); print("Edie (editor):", edie)
-    if any(t in edie for t in ["Read my note works on this computer.","Smoother while recording."]): ERR.append("editor saw team/recording items")
-    if "Daily backups." not in edie: ERR.append("editor missed an all-roles item")
+    if any(t in edie for t in ["People.","Who's here.","Read by on character scripts."]): ERR.append("editor saw team-only items")
+    if "Every book has a Lead." not in edie: ERR.append("editor missed an all-roles item")
     print("ERR:", ERR); print("ERRORS:", errs); await br.close()
 asyncio.run(main()); srv.terminate()

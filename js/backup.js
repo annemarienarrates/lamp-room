@@ -18,16 +18,14 @@
 
   // Whoever leads a book may restore it: the "Lead narrator" on its share list, else the share owner,
   // else whoever reads the narration. A book with none of these can be restored by anyone in the Library.
-  function leadOf(book) {
-    const p = (book.sharedPeople || []).find(x => x.role === "lead");
-    return (p && p.name) || book.sharedOwner || (book.parts || {}).n || "";
-  }
+  function leadOf(book) { return Store.leadOf ? Store.leadOf(book) : ""; }
   function canRestore(book) { const lead = leadOf(book); return !lead || Store.samePerson(lead, Store.me()); }
 
   // ---- making one ----
   async function addFolder(zip, d, path, deep) {
     for await (const [n, h] of d.entries()) {
-      if (h.kind === "file" && n.endsWith(".json") && !/ \(\d+\)\.json$/.test(n)) zip.file(path + n, await (await h.getFile()).text());
+      // Drive's "(1)" copies go in too: for sessions they can be the only copy of a month
+      if (h.kind === "file" && n.endsWith(".json")) zip.file(path + n, await (await h.getFile()).text());
       else if (h.kind === "directory" && deep) await addFolder(zip, h, path + n + "/", deep);
     }
   }

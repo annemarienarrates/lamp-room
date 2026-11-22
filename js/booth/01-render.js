@@ -42,7 +42,7 @@
     const bt = (a, label, o) => { o = o || {}; return `<button class="stu-btn ${o.cls || ""}" data-b="${a}" title="${esc(o.tip || "")}" ${o.dis ? "disabled" : ""}>${label}</button>`; };
     el.innerHTML = `
       <div class="bd-grp">${bt("menu", ICON.menu + " Menu ▾", { dis: rec })}</div>
-      <div class="bd-grp">${bt("edit", "✎ " + (B.edit ? "Editing text" : "Text editor"), { cls: B.edit ? "on" : "", tip: "Edit the manuscript text", dis: rec })}</div>
+      <div class="bd-grp">${Store.isLead(B.book) ? bt("edit", "✎ " + (B.edit ? "Editing text" : "Text editor"), { cls: B.edit ? "on" : "", tip: "Edit the manuscript text", dis: rec }) : bt("edit", "✎ Ask " + esc(Store.leadOf(B.book)), { tip: Store.leadOf(B.book) + " leads this book and changes its text: tell them what to fix", dis: rec })}</div>
       <div class="bd-grp">${bt("cut", "✂ Cut", { dis: !sel, tip: "Cut the selection (⌘X)" })}${bt("copy", "⧉ Copy", { dis: !sel, tip: "Copy the selection (⌘C)" })}${bt("paste", "📋 Paste", { dis: rec || !B.clip, tip: "Paste at the playhead, pushing the rest along (⌘V)" })}${bt("pasteOver", "Paste over", { dis: rec || !B.clip, tip: "Paste over, replacing what's there (⌘⇧V)" })}${bt("del", "Delete", { dis: !sel, tip: "Delete the selection and close the gap (" + kl("del") + ")" })}${B.selTake && !rec ? bt("delTake", "🗑 Delete take", { tip: "Delete the selected take (" + kl("del") + ")" }) : ""}</div>
       <div class="bd-grp">${bt("track", ICON.rows + " Track " + (B.track + 1) + "/" + nt, { dis: rec, tip: "Next track (T)" })}${bt("addTrack", "+ Track", { dis: rec || nt >= MAX_TRACKS, tip: "Add a track to every chapter (Shift+T)" })}</div>
       <div class="bd-grp bd-textzoom">${bt("tsm", "A−", { tip: "Smaller text (" + kl("textSmaller") + ", or ⌘ + scroll over the text)" })}<span class="bd-zl">${Math.round(zoom() * 100)}%</span>${bt("tbg", "A+", { tip: "Larger text (" + kl("textBigger") + ")" })}</div>
@@ -105,7 +105,7 @@
     const b = e.target.closest("[data-b]"); if (!b || b.disabled || b.tagName === "SELECT") return;
     const a = b.dataset.b; b.blur();
     if (a === "menu") return navMenu(b);
-    if (a === "edit") { B.edit = !B.edit; render(); return; }
+    if (a === "edit") { if (!B.edit && !Store.isLead(B.book)) { window.LRAskLead && LRAskLead(B.book, Store.leadOf(B.book), B.ci); return; } B.edit = !B.edit; render(); return; }
     if (a === "tsm" || a === "tbg") return textZoom(a === "tbg" ? 0.1 : -0.1);
     if (a === "delTake") return B.selTake && deleteTake(B.selTake.ti, B.selTake.ci);
     if (a === "zin" || a === "zout") return setZoom(a === "zin" ? 1.5 : 1 / 1.5);
