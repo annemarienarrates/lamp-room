@@ -118,7 +118,8 @@
     B.track = Math.min(B.track, B.audio.tracks.length - 1);
     bookCounts();
     B.peaks = {};
-    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot); if (B.audio.markers.length !== n) Store.saveBook(B.book); }   // flags already dealt with don't linger
+    // flags already dealt with don't linger; slots and ✂ line-end marks (C) stay: they're where the cutter splits your lines
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
     render();
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
@@ -380,6 +381,13 @@
   function tabMemory() { try { return JSON.parse(localStorage.getItem("lr-tooltab@" + (Store.me() || "")) || "{}"); } catch (e) { return {}; } }
   function lastTab() { const t = tabMemory()[B.book.id]; return TOOL_TABS.some(([k]) => k === t) ? t : null; }
   function rememberTab(t) { const m = tabMemory(); if (m[B.book.id] === t) return; m[B.book.id] = t; try { localStorage.setItem("lr-tooltab@" + (Store.me() || ""), JSON.stringify(m)); } catch (e) {} }
+  // the armed settings match the panel's (so "Update armed" has nothing left to do)
+  // just the Arm button of one effect, while a slider moves (the panel isn't redrawn mid-drag)
+  function armBtn(k) {
+    const b = $('[data-p="arm:' + k + '"]'), on = ((trackSet()[fxTi()] || {}).armed || []).find(e => e.k === k); if (!b || !on) return;
+    const same = sameFx(on.p, B.fxp[k]); b.textContent = same ? "✓ Updated" : "↻ Update armed"; b.classList.toggle("fx-uptodate", same);
+  }
+  function sameFx(a, b) { a = a || {}; b = b || {}; return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(k => String(a[k]) === String(b[k])); }
   function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -498,7 +506,7 @@
   }
   function sideInput(e) {
     const t = e.target;
-    if (t.dataset.pv) { const [k, f] = t.dataset.pv.split("."); B.fxp[k][f] = +t.value; const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); saveFxp(); return; }
+    if (t.dataset.pv) { const [k, f] = t.dataset.pv.split("."); B.fxp[k][f] = +t.value; const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); saveFxp(); armBtn(k); return; }
     if (t.dataset.ch && t.type === "range") { const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); }
   }
   const fmtV = (v, step) => (+v).toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0);
@@ -523,7 +531,7 @@
       return `<div class="fx-card ${on ? "armed" : ""}"><button class="fx-name" data-p="open:${k}"><span>${o ? "▾" : "▸"}</span><b>${K.name}</b><small>${on ? "● armed · " + esc(K.sum(on.p)) : esc(K.note)}</small></button>
         ${o ? `<div class="fx-body">${Object.keys(K.presets).length ? `<div class="fx-chips">${Object.keys(K.presets).map(n => `<button class="stu-btn" data-p="preset:${k}:${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}${ctl}
           <div class="fx-chips"><button class="stu-btn" data-p="preview:${k}" ${busy}>${B.preview && B.preview.k === k ? "■ Stop preview" : "▶ Preview"}</button><button class="stu-btn stu-rec" data-p="apply:${k}" ${busy}>Apply</button>
-          <button class="stu-btn" data-p="arm:${k}" ${B.rec ? "disabled" : ""}>${on ? "↻ Update armed" : "⏻ Arm for new takes"}</button>${on ? `<button class="stu-btn" data-p="disarm:${k}">Disarm</button>` : ""}</div></div>` : ""}</div>`;
+          <button class="stu-btn ${on && sameFx(on.p, p) ? "fx-uptodate" : ""}" data-p="arm:${k}" ${B.rec ? "disabled" : ""} title="${on && sameFx(on.p, p) ? "What's armed matches these settings" : on ? "These settings differ from what's armed: press to arm them" : "Every new take on this track gets this when you press Stop"}">${on ? (sameFx(on.p, p) ? "✓ Updated" : "↻ Update armed") : "⏻ Arm for new takes"}</button>${on ? `<button class="stu-btn" data-p="disarm:${k}">Disarm</button>` : ""}</div></div>` : ""}</div>`;
     }).join("");
     const ps = Store.settings.fxPresets || {};
     h += `<div class="bd-sec"><b>Voice presets</b><div class="stu-note">Save this track's armed effects and track sound as a named voice, then put it on any track or book.</div>
@@ -1350,7 +1358,9 @@
         await w.close();
         tracks.push({ file, name: st.name || "Track " + (ti + 1), actor, samples: Math.round(L * LRAudio.RATE), fx: { armed: st.armed || [], chain: LRFx.chainOf(st), vol: st.vol || 0 } });
       }
-      const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], complete: true };
+      // markers go along (flubs, named markers, ✂ line ends, warnings): the editor splices by them. Slots don't: she fills those.
+      const markers = (B.audio.markers || []).filter(m => !m.slot).map(m => ({ t: m.t, w: m.w, note: m.note || "", ctx: m.ctx || "", cut: !!m.cut, done: !!m.done, auto: !!m.auto }));
+      const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], markers, complete: true };
       const fh = await out.getFileHandle("send.json", { create: true }), wr = await fh.createWritable(); await wr.write(JSON.stringify(send, null, 1)); await wr.close();
       B.chap.sent = Object.assign({}, B.chap.sent, { [me]: send.sentAt }); Store.saveBook(B.book, true);
       notice("📤 " + B.chap.title + " sent to the shared folder (" + tracks.length + " track" + (tracks.length === 1 ? "" : "s") + "). It's locked here now.");
@@ -1377,7 +1387,9 @@
       const bs = st.sends[base]; busyNote("Bringing in " + base + "'s send…");
       for (const t of bs.tracks) { const f = await copy(bs, t); addTrack(t.actor || base, t, [{ file: f, off: 0, dur: bs.length, at: 0 }]); }
       anchors = (bs.anchors || []).map(p => p.slice());
-      B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = []; B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
+      // everyone's markers come in, tagged with whose they were; the base send's keep their times
+      const theirMark = (m, who, t) => Object.assign({}, m, { id: Prep.uid(), t, by: who, note: who + " · " + (m.note || "flub") });
+      B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = (bs.markers || []).map(m => theirMark(m, base, m.t)); B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
       // anyone else: cut each of their lines from their read and open room for it before the next word of the narration
       for (const p of people.filter(n => n !== base)) {
         const sd = st.sends[p], files = []; busyNote("Splicing " + p + "'s lines…");
@@ -1394,8 +1406,10 @@
           const at = await LRAudio.quietPoint(await mix(), Math.max(0, at0 - 0.05), 0.4, 0.6).catch(() => at0);
           T().insertGap(B.audio, at, dur + 0.3);
           T().overwrite(B.audio, tis[best], [{ file: files[best], off: t0, dur, at: 0, line: { r: p, from: run.from } }], at + 0.15);
+          for (const m of (sd.markers || [])) if (m.t >= t0 - 0.05 && m.t <= t1 + 0.05) B.audio.markers.push(theirMark(m, p, at + 0.15 + Math.max(0, m.t - t0)));   // their markers ride with their line
         }
       }
+      B.audio.markers.sort((a, b) => a.t - b.t);
       edited(); loadPeaks();
       notice("📦 Brought in " + people.length + " send" + (people.length === 1 ? "" : "s") + ": " + B.audio.tracks.length + " tracks, grouped by actor. ⊟ collapses them.");
     } catch (e) { toast("Couldn't bring them in: " + e.message); }

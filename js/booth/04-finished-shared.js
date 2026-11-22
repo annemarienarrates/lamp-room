@@ -232,7 +232,9 @@
         await w.close();
         tracks.push({ file, name: st.name || "Track " + (ti + 1), actor, samples: Math.round(L * LRAudio.RATE), fx: { armed: st.armed || [], chain: LRFx.chainOf(st), vol: st.vol || 0 } });
       }
-      const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], complete: true };
+      // markers go along (flubs, named markers, ✂ line ends, warnings): the editor splices by them. Slots don't: she fills those.
+      const markers = (B.audio.markers || []).filter(m => !m.slot).map(m => ({ t: m.t, w: m.w, note: m.note || "", ctx: m.ctx || "", cut: !!m.cut, done: !!m.done, auto: !!m.auto }));
+      const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], markers, complete: true };
       const fh = await out.getFileHandle("send.json", { create: true }), wr = await fh.createWritable(); await wr.write(JSON.stringify(send, null, 1)); await wr.close();
       B.chap.sent = Object.assign({}, B.chap.sent, { [me]: send.sentAt }); Store.saveBook(B.book, true);
       notice("📤 " + B.chap.title + " sent to the shared folder (" + tracks.length + " track" + (tracks.length === 1 ? "" : "s") + "). It's locked here now.");
@@ -259,7 +261,9 @@
       const bs = st.sends[base]; busyNote("Bringing in " + base + "'s send…");
       for (const t of bs.tracks) { const f = await copy(bs, t); addTrack(t.actor || base, t, [{ file: f, off: 0, dur: bs.length, at: 0 }]); }
       anchors = (bs.anchors || []).map(p => p.slice());
-      B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = []; B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
+      // everyone's markers come in, tagged with whose they were; the base send's keep their times
+      const theirMark = (m, who, t) => Object.assign({}, m, { id: Prep.uid(), t, by: who, note: who + " · " + (m.note || "flub") });
+      B.audio.tracks = tracks; B.audio.anchors = anchors; B.audio.markers = (bs.markers || []).map(m => theirMark(m, base, m.t)); B.book.trackSet = B.book.trackSet || {}; B.book.trackSet[B.readingAs] = ts;
       // anyone else: cut each of their lines from their read and open room for it before the next word of the narration
       for (const p of people.filter(n => n !== base)) {
         const sd = st.sends[p], files = []; busyNote("Splicing " + p + "'s lines…");
@@ -276,8 +280,10 @@
           const at = await LRAudio.quietPoint(await mix(), Math.max(0, at0 - 0.05), 0.4, 0.6).catch(() => at0);
           T().insertGap(B.audio, at, dur + 0.3);
           T().overwrite(B.audio, tis[best], [{ file: files[best], off: t0, dur, at: 0, line: { r: p, from: run.from } }], at + 0.15);
+          for (const m of (sd.markers || [])) if (m.t >= t0 - 0.05 && m.t <= t1 + 0.05) B.audio.markers.push(theirMark(m, p, at + 0.15 + Math.max(0, m.t - t0)));   // their markers ride with their line
         }
       }
+      B.audio.markers.sort((a, b) => a.t - b.t);
       edited(); loadPeaks();
       notice("📦 Brought in " + people.length + " send" + (people.length === 1 ? "" : "s") + ": " + B.audio.tracks.length + " tracks, grouped by actor. ⊟ collapses them.");
     } catch (e) { toast("Couldn't bring them in: " + e.message); }

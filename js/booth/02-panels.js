@@ -15,6 +15,13 @@
   function tabMemory() { try { return JSON.parse(localStorage.getItem("lr-tooltab@" + (Store.me() || "")) || "{}"); } catch (e) { return {}; } }
   function lastTab() { const t = tabMemory()[B.book.id]; return TOOL_TABS.some(([k]) => k === t) ? t : null; }
   function rememberTab(t) { const m = tabMemory(); if (m[B.book.id] === t) return; m[B.book.id] = t; try { localStorage.setItem("lr-tooltab@" + (Store.me() || ""), JSON.stringify(m)); } catch (e) {} }
+  // the armed settings match the panel's (so "Update armed" has nothing left to do)
+  // just the Arm button of one effect, while a slider moves (the panel isn't redrawn mid-drag)
+  function armBtn(k) {
+    const b = $('[data-p="arm:' + k + '"]'), on = ((trackSet()[fxTi()] || {}).armed || []).find(e => e.k === k); if (!b || !on) return;
+    const same = sameFx(on.p, B.fxp[k]); b.textContent = same ? "✓ Updated" : "↻ Update armed"; b.classList.toggle("fx-uptodate", same);
+  }
+  function sameFx(a, b) { a = a || {}; b = b || {}; return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(k => String(a[k]) === String(b[k])); }
   function renderSide() { if (B && !B.rec) setTimeout(() => B && applyProofMarks(), 0);
     const el = $("#bd-side"); if (!el) return;
     const which = B.side || null;
@@ -133,7 +140,7 @@
   }
   function sideInput(e) {
     const t = e.target;
-    if (t.dataset.pv) { const [k, f] = t.dataset.pv.split("."); B.fxp[k][f] = +t.value; const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); saveFxp(); return; }
+    if (t.dataset.pv) { const [k, f] = t.dataset.pv.split("."); B.fxp[k][f] = +t.value; const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); saveFxp(); armBtn(k); return; }
     if (t.dataset.ch && t.type === "range") { const o = t.parentNode.querySelector(".fxv"); if (o) o.textContent = fmtV(+t.value, +t.step) + (t.dataset.u || ""); }
   }
   const fmtV = (v, step) => (+v).toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0);
@@ -158,7 +165,7 @@
       return `<div class="fx-card ${on ? "armed" : ""}"><button class="fx-name" data-p="open:${k}"><span>${o ? "▾" : "▸"}</span><b>${K.name}</b><small>${on ? "● armed · " + esc(K.sum(on.p)) : esc(K.note)}</small></button>
         ${o ? `<div class="fx-body">${Object.keys(K.presets).length ? `<div class="fx-chips">${Object.keys(K.presets).map(n => `<button class="stu-btn" data-p="preset:${k}:${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}${ctl}
           <div class="fx-chips"><button class="stu-btn" data-p="preview:${k}" ${busy}>${B.preview && B.preview.k === k ? "■ Stop preview" : "▶ Preview"}</button><button class="stu-btn stu-rec" data-p="apply:${k}" ${busy}>Apply</button>
-          <button class="stu-btn" data-p="arm:${k}" ${B.rec ? "disabled" : ""}>${on ? "↻ Update armed" : "⏻ Arm for new takes"}</button>${on ? `<button class="stu-btn" data-p="disarm:${k}">Disarm</button>` : ""}</div></div>` : ""}</div>`;
+          <button class="stu-btn ${on && sameFx(on.p, p) ? "fx-uptodate" : ""}" data-p="arm:${k}" ${B.rec ? "disabled" : ""} title="${on && sameFx(on.p, p) ? "What's armed matches these settings" : on ? "These settings differ from what's armed: press to arm them" : "Every new take on this track gets this when you press Stop"}">${on ? (sameFx(on.p, p) ? "✓ Updated" : "↻ Update armed") : "⏻ Arm for new takes"}</button>${on ? `<button class="stu-btn" data-p="disarm:${k}">Disarm</button>` : ""}</div></div>` : ""}</div>`;
     }).join("");
     const ps = Store.settings.fxPresets || {};
     h += `<div class="bd-sec"><b>Voice presets</b><div class="stu-note">Save this track's armed effects and track sound as a named voice, then put it on any track or book.</div>

@@ -120,7 +120,8 @@
     B.track = Math.min(B.track, B.audio.tracks.length - 1);
     bookCounts();
     B.peaks = {};
-    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot); if (B.audio.markers.length !== n) Store.saveBook(B.book); }   // flags already dealt with don't linger
+    // flags already dealt with don't linger; slots and ✂ line-end marks (C) stay: they're where the cutter splits your lines
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
     render();
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);

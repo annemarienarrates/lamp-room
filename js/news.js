@@ -6,6 +6,9 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22g", roles: ["all"], title: "Update armed says so", body: "In Effects, the button reads ✓ Updated while what's armed matches the settings, and ↻ Update armed again as soon as you change one." },
+    { id: "2026-11-22f", roles: ["editor"], title: "Markers come with the sends", body: "Each reader's flubs, named markers and ✂ line ends arrive in your timeline when you bring in the sends, labelled with whose they were." },
+    { id: "2026-11-22e", roles: ["team", "narrator", "cast"], title: "Your markers stay put", body: "✂ line-end markers (C) no longer vanish when you leave a chapter, and every marker now goes to the editor with your send." },
     { id: "2026-11-22d", roles: ["team", "narrator", "cast"], title: "All your booth time counts again", body: "When Google Drive split a month's booth sessions into a “(1)” copy, the app only read one of them. It reads and backs up every copy now." },
     { id: "2026-11-22c", roles: ["team"], title: "Read by on character scripts", body: "Each script on a book page says who reads its lines. The Lead sees any lines where the script and the highlighting disagree, with a Go button." },
     { id: "2026-11-22b", roles: ["team"], title: "Who's here", body: "A quiet line at the top when someone else has the same book open, and where." },
