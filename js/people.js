@@ -93,9 +93,31 @@
   Object.assign(Store, { leadOf, isLead });
 
   // ---- notes to the Lead: kept in the asker's own people file (book.asks[person]); the Lead clears them in book.json ----
+  // In a shared project the editor and cast keep their own Lamp Rooms, so their notes also go into the book's shared
+  // folder (Asks/<Name>.json), and the Lead's "done" goes back the same way (Asks/_done.json). Read on the book page.
+  const remote = {};                                   // book id → { asks: { who: [..] }, done: [ids], at }
+  const safeN = s => String(s || "Someone").replace(/[\\/:*?"<>|]/g, "_");
+  async function asksDir(book, create) { if (!book.shared) return null; const h = await Store.sharedHandle(book); if (!h) return null; try { return await h.getDirectoryHandle("Asks", { create: !!create }); } catch (e) { return null; } }
+  async function putJson(d, name, v) { const w = await (await d.getFileHandle(name, { create: true })).createWritable(); await w.write(JSON.stringify(v)); await w.close(); }
+  async function pullShared(book) {
+    const d = await asksDir(book, false), r = { asks: {}, done: [], at: Date.now() }; if (!d) { remote[book.id] = r; return r; }
+    for await (const [n, fh] of d.entries()) {
+      if (fh.kind !== "file" || !n.endsWith(".json")) continue;
+      try { const v = JSON.parse(await (await fh.getFile()).text()); if (n === "_done.json") r.done = Array.isArray(v) ? v : []; else if (Array.isArray(v)) r.asks[n.replace(/\.json$/, "")] = v; } catch (e) {}
+    }
+    remote[book.id] = r; return r;
+  }
+  // after asking: true once the Lead can see it (same Library, or the shared folder took it)
+  async function deliver(book) {
+    if (!book.shared || Store.samePerson(book.sharedOwner, Store.me())) return true;
+    const d = await asksDir(book, true); if (!d) return false;
+    try { await putJson(d, safeN(Store.me()) + ".json", (book.asks || {})[Store.me()] || []); await pullShared(book); return true; } catch (e) { return false; }
+  }
+  async function pushDone(book) { const d = await asksDir(book, true); if (d) try { await putJson(d, "_done.json", book.asksDone || []); } catch (e) {} }
+  function sig(book) { return JSON.stringify(remote[book.id] || null); }
   function openAsks(book) {
-    const done = new Set(book.asksDone || []), out = [];
-    for (const who in (book.asks || {})) for (const a of book.asks[who] || []) if (!done.has(a.id)) out.push(Object.assign({ who }, a));
+    const r = remote[book.id] || { asks: {}, done: [] }, done = new Set([...(book.asksDone || []), ...r.done]), out = [], seen = new Set();
+    for (const src of [book.asks || {}, r.asks]) for (const who in src) for (const a of src[who] || []) if (!done.has(a.id) && !seen.has(a.id)) { seen.add(a.id); out.push(Object.assign({ who }, a)); }
     return out.sort((a, b) => (a.at || "").localeCompare(b.at || ""));
   }
   function ask(book, text, ch) {
@@ -104,8 +126,8 @@
     book.asks = book.asks || {}; (book.asks[me] = book.asks[me] || []).push(a);
     return a;
   }
-  function clearAsk(book, id) { book.asksDone = (book.asksDone || []).concat([id]); }
-  Object.assign(window.LRPeople, { openAsks, ask, clearAsk });
+  function clearAsk(book, id) { book.asksDone = (book.asksDone || []).concat([id]); if (book.shared) pushDone(book).then(() => pullShared(book)); }
+  Object.assign(window.LRPeople, { openAsks, ask, clearAsk, deliver, pullShared, sharedSig: sig, remoteAt: book => (remote[book.id] || {}).at || 0 });
 })();
 
 // The first save by a book's Lead writes their name into it, so the Lead stays put even if the parts change later.

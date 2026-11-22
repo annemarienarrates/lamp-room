@@ -553,6 +553,11 @@
   function leadUI(book, save) {
     const lead = Store.leadOf(book), me = Store.me(), mine = Store.isLead(book), asks = LRPeople.openAsks(book);
     if (!lead) return;
+    if (book.shared && Date.now() - LRPeople.remoteAt(book) > 15000) { const before = LRPeople.sharedSig(book);
+      LRPeople.pullShared(book).then(async r => {
+        // notes written while the shared folder was off: send them now
+        if (!mine && ((book.asks || {})[me] || []).length && JSON.stringify(r.asks[String(me).replace(/[\\/:*?"<>|]/g, "_")] || []) !== JSON.stringify(book.asks[me])) { await LRPeople.deliver(book); await LRPeople.pullShared(book); }
+        if (LRPeople.sharedSig(book) !== before && route.name === "book" && route.id === book.id) viewBook(); }).catch(() => {}); }
     const bar = document.createElement("div"); bar.className = "card lead-bar" + (mine ? "" : " not-lead");
     const when = t => { try { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch (e) { return ""; } };
     const askRow = a => `<div class="ask-row" data-ask="${esc(a.id)}"><div><b>${esc(a.who)}</b> <span class="muted small">· ${esc(when(a.at))}${a.chTitle ? " · " + esc(a.chTitle) : ""}</span><div>${esc(a.text)}</div></div>
@@ -588,8 +593,11 @@
       <div class="row" style="margin-top:12px"><div class="spacer"></div><button class="btn quiet" data-x>Cancel</button><button class="btn primary" id="akgo">Send to ${esc(lead)}</button></div></div>`;
     $("[data-x]", ov).onclick = () => ov.remove();
     { const ta = $("#aktx", ov); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-    $("#akgo", ov).onclick = () => { const t = $("#aktx", ov).value.trim(); if (!t) { $("#aktx", ov).focus(); return; }
-      const v = $("#akch", ov).value; LRPeople.ask(book, t, v === "" ? null : +v); Store.saveBook(book); ov.remove(); toast("Sent to " + lead + ". It's on their page for this book."); if (route.name === "book") viewBook(); };
+    $("#akgo", ov).onclick = async () => { const t = $("#aktx", ov).value.trim(); if (!t) { $("#aktx", ov).focus(); return; }
+      const v = $("#akch", ov).value; LRPeople.ask(book, t, v === "" ? null : +v); Store.saveBook(book);
+      const ok = await LRPeople.deliver(book); ov.remove();
+      toast(ok ? "Sent to " + lead + ". It's on their page for this book." : "Saved, but the shared folder isn't connected, so " + lead + " can't see it yet. Connect it (the book's Shared card), then open the book page again.");
+      if (route.name === "book") viewBook(); };
   }
   window.LRAskLead = askLeadDialog;
   function partsTable(book) {
