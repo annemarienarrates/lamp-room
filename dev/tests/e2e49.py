@@ -47,7 +47,7 @@ async def main():
     # Jack sends his read, with a flub inside his first line
     await pg.evaluate("localStorage.setItem('lr-me','Jack')"); await pg.goto(U+"#/library"); await pg.wait_for_timeout(300)
     await pg.goto(U+f"#/booth/{bid}/0"); await pg.wait_for_selector("#booth-dock"); await pg.wait_for_timeout(1200)
-    await pg.evaluate("(()=>{Booth.state.audio.markers.push({id:'jf',t:0.7,w:Booth._test.myRuns()[0].from+1,ctx:'',note:'',done:false}); Store.saveBook(Booth.state.book);})()")
+    await pg.evaluate("(()=>{Booth.state.audio.markers.push({id:'jf',t:0.6,w:Booth._test.myRuns()[0].from+1,ctx:'',note:'',done:false}); Booth.state.audio.markers.push({id:'jc',t:0.75,w:Booth._test.myRuns()[0].to,ctx:'',note:'✂ line ends',cut:true,done:true}); Store.saveBook(Booth.state.book);})()")
     await pg.evaluate("Booth._test.sendToShared(true)"); await pg.wait_for_timeout(500); await pg.wait_for_function("!Booth.state.busy", timeout=60000)
     # the editor brings both in
     await pg.evaluate("localStorage.setItem('lr-me','Eddie')"); await pg.goto(U+"#/library"); await pg.wait_for_timeout(300)
@@ -58,6 +58,9 @@ async def main():
     tl = await pg.evaluate(C); print("editor timeline:", tl)
     jm = await pg.evaluate("(()=>{const m=Booth.state.audio.markers.find(x=>x.by==='Jack'); if(!m) return null; const c=Booth.state.audio.tracks.flatMap(t=>t.clips).filter(c=>c.line&&c.line.r==='Jack'); return c.some(c=>m.t>=c.at-0.01&&m.t<=c.at+c.dur+0.01);})()")
     print("Jack's flub sits inside his spliced line:", jm)
+    d0 = await pg.evaluate("(()=>{const c=Booth.state.audio.tracks.flatMap(t=>t.clips).filter(c=>c.line&&c.line.r==='Jack').sort((a,b)=>a.at-b.at)[0]; return c ? Math.round(c.dur*100)/100 : null})()")
+    print("Jack's first line, cut at his ✂ mark: lasts", d0, "s (it began at 0.35 s; the mark is at 0.75 s)")
+    if d0 is None or abs(d0 - 0.37) > 0.03: ERR.append("line end ignored the ✂ mark")
     if not any(x.startswith("Anne · ✂ line ends") for x in ed) or not any(x.startswith("Anne · Splice here") for x in ed): ERR.append("Anne's markers missing in the editor's timeline")
     if not jm: ERR.append("Jack's marker didn't ride with his line")
     print("ERR:", ERR); print("ERRORS:", errs); await b.close()

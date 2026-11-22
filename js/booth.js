@@ -1397,9 +1397,21 @@
         const tis = sd.tracks.map(t => addTrack(t.actor || p, t, []));
         while (B.audio.tracks.length < tracks.length) B.audio.tracks.push({ clips: [] });
         const their = (sd.anchors || []).slice().sort((a, b) => a[0] - b[0]), timeOf = w => { let x = null; for (const q of their) { if (q[1] >= w) { x = q[0]; break; } } return x; };
-        for (const run of everyoneRuns().filter(x => x.r === p)) {
-          const a = timeOf(run.from), nx = their.find(q => q[1] > run.to); if (a == null) continue;
-          const t0 = Math.max(0, a - 0.15), t1 = Math.min(sd.length, (nx ? nx[0] : a + 3) - 0.05), dur = Math.max(0.2, t1 - t0);
+        // ✂ line-end marks (C) are the reader's own cut points: a line ends at its mark, not when their next line starts.
+        // If follow-along missed a line, the marks between lines place it in order, when there's one mark per gap.
+        const cuts = (sd.markers || []).filter(m => m.cut).map(m => m.t).sort((x, y) => x - y), pRuns = everyoneRuns().filter(x => x.r === p);
+        const bounds = cuts.length === pRuns.length - 1 || cuts.length === pRuns.length ? [0].concat(cuts.slice(0, pRuns.length - 1), [sd.length]) : null;
+        for (const [ri, run] of pRuns.entries()) {
+          const a = timeOf(run.from), nx = their.find(q => q[1] > run.to);
+          let t0, t1;
+          if (a == null) { if (!bounds) continue; t0 = bounds[ri] + 0.05; t1 = bounds[ri + 1] - 0.03; }
+          else {
+            t0 = Math.max(0, a - 0.15); t1 = Math.min(sd.length, (nx ? nx[0] : a + 3) - 0.05);
+            const hi = cuts.find(c => c > a + 0.2), lo = cuts.filter(c => c <= a).pop();
+            if (hi != null && (hi < t1 + 0.05 || !nx)) t1 = hi - 0.03;
+            if (lo != null) t0 = Math.max(t0, lo + 0.05);
+          }
+          const dur = Math.max(0.2, t1 - t0);
           // which of their tracks has this line
           let best = 0, most = -1; for (let k = 0; k < sd.tracks.length; k++) { const x = await LRAudio.renderRange(ld, [{ file: files[k], off: 0, dur: sd.length, at: 0 }], t0, dur); let e = 0; for (let i = 0; i < x.length; i += 16) e += x[i] * x[i]; if (e > most) { most = e; best = k; } }
           const ba = (B.audio.anchors || []).find(q => q[1] > run.to), at0 = ba ? ba[0] : len();

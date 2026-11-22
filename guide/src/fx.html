@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>The Lamp Room — FX Guide</title>
+<link rel="stylesheet" href="print.css">
+<style>
+  @page { size: Letter; margin: 0; }
+  .page { width: 8.5in; height: 11in; padding: .65in .7in .55in; position: relative; page-break-after: always; break-after: page; overflow: hidden; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .cover { display: flex; flex-direction: column; justify-content: space-between; }
+  .mark { font: 600 9pt var(--sans); letter-spacing: .32em; text-transform: uppercase; color: var(--brass); }
+  .cover h1 { font-size: 50pt; line-height: .98; letter-spacing: -.02em; margin-top: .9in; }
+  .cover h1 i { color: var(--brass-hi); font-weight: 400; }
+  .cover .sub { font: italic 400 14pt var(--serif); color: var(--muted); margin-top: 18px; max-width: 5.6in; }
+  .lamp { width: 84px; height: 84px; border: 1px solid var(--brass); border-radius: 50%; display: grid; place-items: center; font-size: 36pt; box-shadow: 0 0 60px -10px #c8893a88, inset 0 0 30px -10px #c8893a66; }
+  .foot { font-size: 9pt; color: var(--muted); display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; }
+  .runhead { position: absolute; top: .32in; left: .7in; right: .7in; display: flex; justify-content: space-between; font: 600 7.5pt var(--sans); letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+  .runhead b { color: var(--brass); font-weight: 600; }
+  h2 { font-size: 21pt; margin-bottom: 2px; } .lead { font: italic 400 11pt var(--serif); color: var(--muted); margin: 0 0 4px; }
+  .tip { border-left: 2px solid var(--brass); padding: 6px 12px; margin: 8px 0 0; font-size: 9.5pt; color: #d6cfc1; background: #ffffff06; border-radius: 0 6px 6px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; break-inside: avoid; font-size: 9.4pt; line-height: 1.38; }
+  .card h3 { font: 600 8pt var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--brass); margin-bottom: 6px; }
+  .rules { margin: 0; padding: 0; list-style: none; }
+  .rules li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; margin: 0 0 9px; font-size: 10pt; }
+  .rules li b.n { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--brass); color: var(--brass-hi); display: grid; place-items: center; font: 500 10pt var(--serif); }
+  table { width: 100%; border-collapse: collapse; font-size: 9.4pt; }
+  th { text-align: left; font: 600 7.5pt var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--line2); }
+  td { padding: 3.5px 6px; border-bottom: 1px dotted var(--line); vertical-align: top; }
+  td.v { font: 600 9pt var(--mono); color: var(--brass-hi); white-space: nowrap; }
+  .recipe { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px 8px; break-inside: avoid; }
+  .recipe h3 { font-size: 12.5pt; margin: 0 0 1px; }
+  .recipe .use { font: italic 400 9.5pt var(--serif); color: var(--muted); margin: 0 0 5px; }
+  .recipe ol { margin: 0; padding-left: 18px; font-size: 9pt; line-height: 1.35; } .recipe li { margin: 1px 0; }
+  .recipe li b { color: var(--ink); } .recipe .set { font: 600 8.6pt var(--mono); color: var(--brass-hi); }
+  .recipe .why { font-size: 8.5pt; line-height: 1.35; color: var(--muted); margin-top: 4px; }
+  .sec { font: 600 8pt var(--sans); letter-spacing: .22em; text-transform: uppercase; color: var(--brass); margin: 12px 0 6px; }
+  .grid2.r { gap: 9px 12px; }
+  .meter { display: grid; grid-template-columns: 1.1in 1fr; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 9pt; margin-bottom: 8px; }
+  .meter div { padding: 4px 8px; border-bottom: 1px solid var(--line); } .meter div:nth-last-child(-n+2) { border-bottom: 0; }
+  .meter .k { background: var(--panel2); font-weight: 600; }
+  .band { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .band span { padding: 5px 6px; border-right: 1px solid var(--line); } .band span:last-child { border-right: 0; }
+  .ok { background: #8fae7a22; } .mid { background: #d9a04a22; } .hot { background: #c0472f26; }
+</style></head>
+<body class="grain">
+
+<!-- cover: the ground rules -->
+<div class="page cover">
+  <div>
+    <div class="lamp">🪔</div>
+    <div class="mark" style="margin-top:22px">The Lamp Room · Booth</div>
+    <h1>FX Guide.<br><i>Light on the ears.</i></h1>
+    <p class="sub">Effects for audiobook voices: your saved presets, gentle recipes for echoes, spirits and gods, and how far to push before a listener notices the effect instead of the story.</p>
+    <div class="sec" style="margin-top:26px">Six rules</div>
+    <ul class="rules">
+      <li><b class="n">1</b><div><b>The voice stays the star.</b> A listener should hear a character, not a plug-in. Keep reverb and echo mixes under about <b class="t">25%</b>; most of these recipes sit at 12–20%.</div></li>
+      <li><b class="n">2</b><div><b>Small moves read as acting.</b> ±50 cents sounds like a different person. ±1–2 semitones, a different body. Past ±3, a creature, and only for short lines: hours of it tire the ear.</div></li>
+      <li><b class="n">3</b><div><b>Same setting, every chapter.</b> Put a character's effects on their own track and <b>Arm</b> them, or save them as a <b>voice preset</b>. Then the voice can't drift between sessions.</div></li>
+      <li><b class="n">4</b><div><b>Order matters.</b> Armed effects run in the order shown (<i>Armed: A → B</i>). Pitch first, then doubler or chorus, then echo, then reverb last. Re-arming an effect moves it to the end.</div></li>
+      <li><b class="n">5</b><div><b>Tails fade before the next line.</b> A reverb or echo still ringing under narration muddies it and lifts the room tone. Shorter decay, fewer repeats.</div></li>
+      <li><b class="n">6</b><div><b>Listen twice.</b> Once on headphones, once on a phone speaker. If you notice the effect before the words, back the mix off by a third.</div></li>
+    </ul>
+  </div>
+  <div class="foot"><span>The Lamp Room · FX Guide</span><span>Foundry edition</span></div>
+</div>
+
+<!-- how to use, and your voices -->
+<div class="page">
+  <div class="runhead"><span>The Lamp Room · <b>FX Guide</b></span><span>1</span></div>
+  <div style="margin-top:.25in">
+    <h2>Using effects</h2><p class="lead">In the Booth: Tools ▸ <b>Effects</b>. Effects work on the track you're on.</p><div class="rule"></div>
+    <div class="grid2">
+      <div class="card"><h3>On audio already recorded</h3>Open an effect, pick a preset chip or move the sliders, <b>▶ Preview</b>, then <b>Apply</b>. It changes the selection, or the take you've clicked. Undo brings the original back.</div>
+      <div class="card"><h3>On every new take</h3><b>⏻ Arm for new takes</b> keeps the effect on the track: each take recorded there gets it when you press Stop, in every chapter. Change a setting and press <b>↻ Update armed</b>; it reads <b>✓ Updated</b> once it matches.</div>
+      <div class="card"><h3>Voice presets</h3><b>＋ Save as preset</b> saves the track's armed effects <i>and</i> its track sound (EQ, compression) under a name. Click the name on any track, in any book, to put that voice there.</div>
+      <div class="card"><h3>Track sound</h3>The track's chain: low cut, EQ, de-ess, compressor, and a limiter at <b>−3.2 dB</b>. Leave the limiter on whenever an effect is armed: it catches the peaks pitch and doubling can add.</div>
+    </div>
+
+    <div class="sec" style="margin-top:14px">Your saved voices</div>
+    <table>
+      <tr><th style="width:1.5in">Voice</th><th style="width:1.35in">Setting</th><th>Where it fits</th></tr>
+      <tr><td><b>High-Lilt</b></td><td class="v">Pitch +50 ¢</td><td>Half a semitone up. A lighter, younger or brighter character without sounding processed. Your Mid-High tracks use the same.</td></tr>
+      <tr><td><b>Low Lilt</b></td><td class="v">Pitch −50 ¢</td><td>Half a semitone down: a little more weight and age. <i>The same setting as Magic Voice</i>; keep whichever name you reach for. Your Mid-Low tracks use it too.</td></tr>
+      <tr><td><b>Magic Voice</b></td><td class="v">Pitch −50 ¢</td><td>As Low Lilt. On its own it's subtle; for a spell being spoken, add the <i>Inner voice</i> recipe overleaf for a few lines.</td></tr>
+      <tr><td><b>Very Deep</b></td><td class="v">Pitch −5 st</td><td>A large, heavy body. Strong for a creature or a giant; for a character with long scenes, try −3 st, or −2 st plus a light doubler (the Dark god recipe without its reverb), so the ear doesn't tire.</td></tr>
+    </table>
+
+    <div class="sec" style="margin-top:12px">A pitch ladder for a cast</div>
+    <p style="margin:0 0 6px;font-size:9.4pt">Spacing characters about 50 cents apart keeps them distinct and natural; closer than about 30 cents, two sound like one person on a phone speaker. Your tracks already sit on it:</p>
+    <table>
+      <tr><th style="width:1.5in">Step</th><th style="width:1.35in">Setting</th><th>In your books now</th></tr>
+      <tr><td>High</td><td class="v">+50 ¢</td><td>Anne: High and Mid-High (Monster Girls), Mid-High (Sunfire); High-Lilt</td></tr>
+      <tr><td>Your own voice</td><td class="v">0</td><td>Narration and leads</td></tr>
+      <tr><td>Low</td><td class="v">−50 ¢</td><td>Anne: Mid-Low (Sunfire). Jack: Desmond. Low Lilt and Magic Voice</td></tr>
+      <tr><td>Lower</td><td class="v">−70 to −90 ¢</td><td>Jack: Jarred (−1 st +32 ¢ = −68 ¢), Cid (−1 st +11 ¢ = −89 ¢)</td></tr>
+      <tr><td>Much lower</td><td class="v">−1.5 st</td><td>Anne: Low (−1 st −50 ¢, Monster Girls)</td></tr>
+      <tr><td>Creature</td><td class="v">−5 st</td><td>Anne: Very Low (Monster Girls); Very Deep. Short lines</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- recipes -->
+<div class="page">
+  <div class="runhead"><span>The Lamp Room · <b>FX Guide</b></span><span>2</span></div>
+  <div style="margin-top:.25in">
+    <h2>Recipes</h2><p class="lead">Arm them in the order listed, on the character's own track. Every number is a starting point: listen, then go lighter rather than heavier.</p><div class="rule"></div>
+
+    <div class="sec">Echoes, spirits and spooky</div>
+    <div class="grid2 r">
+      <div class="recipe"><h3>Inner voice</h3><p class="use">Telepathy, thoughts heard aloud, a spell's words</p>
+        <ol><li><b>Echo</b> <span class="set">time 180 ms · repeats 15% · mix 18%</span></li><li><b>Reverb</b> <span class="set">decay 0.8 s · damp 55 · pre 10 ms · mix 12%</span></li></ol>
+        <p class="why">One soft repeat says "inside the head" without smearing the words. The built-in Inner voice preset (mix 40%) is for a single line.</p></div>
+      <div class="recipe"><h3>Ghost</h3><p class="use">A spirit, a voice from the other side</p>
+        <ol><li><b>Voice doubler</b> <span class="set">mix 25% · spread 70 · delay 30 ms · layer +5 st</span></li><li><b>Reverb</b> <span class="set">decay 2.0 s · damp 50 · pre 20 ms · mix 18%</span></li></ol>
+        <p class="why">A faint higher shadow plus a bit of hall. The built-in Ghostly (mix 65%) is a sound effect; this is a voice.</p></div>
+      <div class="recipe"><h3>Dark place</h3><p class="use">Caves, crypts, a voice down a corridor</p>
+        <ol><li><b>Echo</b> <span class="set">time 320 ms · repeats 22% · mix 16%</span></li><li><b>Reverb</b> <span class="set">decay 2.6 s · damp 20 · pre 28 ms · mix 18%</span></li></ol>
+        <p class="why">The Cave preset with the mix cut from 42% to 18%: the space without the wash.</p></div>
+      <div class="recipe"><h3>Prophecy</h3><p class="use">An oracle, an ancient voice, words from a well</p>
+        <ol><li><b>Pitch</b> <span class="set">−50 ¢</span> (Low Lilt)</li><li><b>Echo</b> <span class="set">time 450 ms · repeats 20% · mix 15%</span></li><li><b>Reverb</b> <span class="set">decay 1.6 s · damp 45 · pre 25 ms · mix 14%</span></li></ol>
+        <p class="why">A long, quiet repeat sounds older than a loud one.</p></div>
+    </div>
+
+    <div class="sec" style="margin-top:10px">Gods and the vast</div>
+    <div class="grid2 r">
+      <div class="recipe"><h3>Voice of a god</h3><p class="use">Benevolent, enormous, calm</p>
+        <ol><li><b>Pitch</b> <span class="set">−1 st</span></li><li><b>Voice doubler</b> <span class="set">mix 25% · spread 40 · delay 18 ms · layer −12 st</span></li><li><b>Reverb</b> <span class="set">decay 3.0 s · damp 40 · pre 35 ms · mix 18%</span></li></ol>
+        <p class="why">The octave-down layer gives size; keeping it at a quarter keeps your diction on top. Pre-delay lets each word land before the space answers.</p></div>
+      <div class="recipe"><h3>Dark god</h3><p class="use">A demon lord, something old and hungry</p>
+        <ol><li><b>Pitch</b> <span class="set">−3 st</span></li><li><b>Voice doubler</b> <span class="set">mix 30% · spread 50 · delay 16 ms · layer −12 st</span></li><li><b>Reverb</b> <span class="set">decay 2.3 s · damp 40 · pre 24 ms · mix 16%</span></li></ol>
+        <p class="why">Heavier than the god, still readable. Keep the built-in Demon (−8 st) for a single snarl.</p></div>
+      <div class="recipe"><h3>Goddess</h3><p class="use">Ethereal, luminous, a voice like light</p>
+        <ol><li><b>Pitch</b> <span class="set">+50 ¢</span> (High-Lilt)</li><li><b>Chorus</b> <span class="set">depth 25 · speed 1.2× · mix 25%</span></li><li><b>Reverb</b> <span class="set">decay 2.5 s · damp 35 · pre 30 ms · mix 18%</span></li></ol>
+        <p class="why">A gentle shimmer, not a wobble: the built-in Shimmer at about half its mix.</p></div>
+      <div class="recipe"><h3>Legion</h3><p class="use">Many voices as one, a hive, a choir of the dead</p>
+        <ol><li><b>Chorus</b> <span class="set">depth 50 · speed 1.6× · mix 35%</span></li><li><b>Voice doubler</b> <span class="set">mix 30% · spread 80 · delay 24 ms · layer −12 st</span></li></ol>
+        <p class="why">Busy by nature: a line or two at a time, then back to a cleaner voice.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- limits and fixes -->
+<div class="page">
+  <div class="runhead"><span>The Lamp Room · <b>FX Guide</b></span><span>3</span></div>
+  <div style="margin-top:.25in">
+    <h2>How light is light</h2><p class="lead">Green for long scenes, amber for a chapter's worth, red for a moment.</p><div class="rule"></div>
+    <div class="meter"><div class="k">Pitch</div><div class="band"><span class="ok">±50 ¢</span><span class="ok">±1–2 st</span><span class="mid">±3–5 st</span><span class="hot">beyond ±5</span></div>
+      <div class="k">Reverb mix</div><div class="band"><span class="ok">10–15%</span><span class="ok">15–22%</span><span class="mid">22–30%</span><span class="hot">over 30%</span></div>
+      <div class="k">Reverb decay</div><div class="band"><span class="ok">0.3–1 s</span><span class="ok">1–2.5 s</span><span class="mid">2.5–4 s</span><span class="hot">over 4 s</span></div>
+      <div class="k">Echo repeats</div><div class="band"><span class="ok">0–15%</span><span class="ok">15–25%</span><span class="mid">25–40%</span><span class="hot">over 40%</span></div>
+      <div class="k">Doubler mix</div><div class="band"><span class="ok">15–25%</span><span class="ok">25–35%</span><span class="mid">35–50%</span><span class="hot">over 50%</span></div>
+      <div class="k">Chorus mix</div><div class="band"><span class="ok">15–25%</span><span class="ok">25–35%</span><span class="mid">35–50%</span><span class="hot">over 50%</span></div></div>
+
+    <div class="sec" style="margin-top:12px">For a line or a scene</div>
+    <table>
+      <tr><th style="width:1.7in">Moment</th><th style="width:2.45in">Setting</th><th>Note</th></tr>
+      <tr><td>A phone call</td><td class="v">Place: Telephone · mix 100%</td><td>Narrow by design. Keep to the call itself.</td></tr>
+      <tr><td>Radio or comms</td><td class="v">Place: Walkie-talkie · mix 85%</td><td>Old radio is warmer, for a broadcast.</td></tr>
+      <tr><td>Through a wall</td><td class="v">Place: Muffled · mix 70%</td><td>Overheard voices; drop the volume a touch too.</td></tr>
+      <tr><td>A machine or AI</td><td class="v">Robot: buzz 40 Hz · mix 25%</td><td>The Android preset at under half: a hint of metal, every word clear.</td></tr>
+      <tr><td>A small room</td><td class="v">Reverb: Room · mix 15%</td><td>For a scene set somewhere close, on every voice in it.</td></tr>
+      <tr><td>A great hall</td><td class="v">Reverb: Hall · mix 18%</td><td>Throne rooms, temples. Same on everyone in the scene.</td></tr>
+    </table>
+
+    <div class="sec" style="margin-top:12px">When it sounds wrong</div>
+    <div class="grid2" style="gap:9px 12px">
+      <div class="card"><h3>Metallic or phasey</h3>Too much pitch, or doubler and chorus together. Take the pitch a step smaller, or drop one of the two.</div>
+      <div class="card"><h3>Words smear</h3>Reverb decay too long or mix too high. Shorten the decay first; then add pre-delay (20–35 ms) so the start of each word stays dry.</div>
+      <div class="card"><h3>The echo distracts</h3>Fewer repeats before less mix. One quiet repeat reads as a place; three read as a gimmick.</div>
+      <div class="card"><h3>Peaks clip</h3>Pitch and doublers add level. Keep the track's limiter on (−3.2 dB), or lower the track a dB or two.</div>
+      <div class="card"><h3>Sounds like a different book</h3>Effects too heavy against plain narration. Halve every mix, then bring back only what you miss.</div>
+      <div class="card"><h3>A voice drifted</h3>It was applied by hand in one chapter and armed differently in another. Save it as a voice preset and use that everywhere.</div>
+    </div>
+  </div>
+</div>
+</body></html>

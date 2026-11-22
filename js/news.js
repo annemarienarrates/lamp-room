@@ -6,6 +6,8 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22i", roles: ["editor"], title: "Lines end at the reader's ✂ mark", body: "When a reader marks their line ends (C), Bring in cuts each line there instead of running on to their next line; and their lines still land even where follow-along missed them." },
+    { id: "2026-11-22h", roles: ["all"], title: "FX Guide", body: "A printable guide to effects in the help desk (? ▸ 🎚 FX guide): your saved voices, a pitch ladder for a cast, and gentle recipes for echoes, ghosts and gods." },
     { id: "2026-11-22g", roles: ["all"], title: "Update armed says so", body: "In Effects, the button reads ✓ Updated while what's armed matches the settings, and ↻ Update armed again as soon as you change one." },
     { id: "2026-11-22f", roles: ["editor"], title: "Markers come with the sends", body: "Each reader's flubs, named markers and ✂ line ends arrive in your timeline when you bring in the sends, labelled with whose they were." },
     { id: "2026-11-22e", roles: ["team", "narrator", "cast"], title: "Your markers stay put", body: "✂ line-end markers (C) no longer vanish when you leave a chapter, and every marker now goes to the editor with your send." },

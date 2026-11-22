@@ -18,6 +18,8 @@ async def main():
     await pg.pdf(path=ROOT+"/guide/Lamp Room Guide (PC).pdf", format="Letter", print_background=True, prefer_css_page_size=True)
     await pg.goto("http://localhost:8781/guide/src/keyboard.html?pc"); await pg.wait_for_timeout(1500)
     await pg.pdf(path=ROOT+"/guide/Lamp Room Keyboard (PC).pdf", print_background=True, prefer_css_page_size=True)
+    await pg.goto("http://localhost:8781/guide/src/fx.html"); await pg.wait_for_timeout(1200)
+    await pg.pdf(path=ROOT+"/guide/Lamp Room FX Guide.pdf", format="Letter", print_background=True, prefer_css_page_size=True)
     for who, name in [("editor", "Editor Quick Start"), ("conarr", "Co-narrator Quick Start")]:
       for pc in ["", "&pc"]:
         await pg.goto(f"http://localhost:8781/guide/src/start.html?who={who}{pc}"); await pg.wait_for_timeout(1000)
