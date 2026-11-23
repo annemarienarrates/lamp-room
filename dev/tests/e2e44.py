@@ -16,7 +16,7 @@ async def main():
     me = await pg.evaluate(vis); print("Me:", me)
     if "Who's working here" not in me or "Backups" in me: ERR.append("Me tab wrong")
     await pg.click("[data-stab=computer]"); comp = await pg.evaluate(vis); print("This computer:", comp)
-    if set(comp) != {"This computer","Problem log","Recordings on this computer","Backups","Library folder"}: ERR.append("computer tab wrong")
+    if set(comp) != {"This computer","Auphonic","Problem log","Recordings on this computer","Backups","Library folder"}: ERR.append("computer tab wrong")
     await pg.click("[data-stab=money]"); print("Books & money:", await pg.evaluate(vis))
     await pg.click("[data-stab=look]"); print("Look:", await pg.evaluate(vis))
     await pg.fill("#setq","confetti"); hits = await pg.evaluate(vis); print("search confetti:", hits, await pg.evaluate("document.querySelector('#main > .card:not(.hidden) h3').dataset.where"))

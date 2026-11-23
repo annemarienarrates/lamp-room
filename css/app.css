@@ -307,7 +307,7 @@ body.booth-recording .trk-head.sel { border-color: var(--rec); box-shadow: 0 0 1
 .th-sub { font: 500 10.5px system-ui; color: var(--tick-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bd-wave canvas { height: auto; }
 .bd-selchip { font: 600 12px ui-monospace, Menlo, monospace; color: var(--accent); padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.xfmt { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.xfmt { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
 .xopt { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); }
 .xopt b { display: block; font: 600 13px system-ui; } .xopt span { font-size: 12px; color: var(--muted); }
 .xopt.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
@@ -819,3 +819,6 @@ body.booth-on #presence { top: 8px; }
 .stu-btn.fx-uptodate { color: var(--ok, #3c8d5a); border-color: currentColor; }
 
 .pace-line { flex: 1 1 100%; margin-top: 2px; }
+/* Auphonic in the export dialog */
+.aup-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; } .aup-row span { font-size: 13px; color: var(--muted); }
+.aup-tracks { margin: 6px 0 0 22px; display: grid; gap: 6px; }

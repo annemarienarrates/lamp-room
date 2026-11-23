@@ -1092,7 +1092,7 @@
   // need a line here; an unknown card lands in "Me". The open tab is remembered on this computer.
   const SET_TABS = [["me", "Me"], ["computer", "This computer"], ["money", "Books & money"], ["look", "Look"]];
   const SET_CARD_TAB = { "Who's working here": "me", "People": "me", "Reading & proofing": "me",
-    "This computer": "computer", "Library folder": "computer", "Recordings on this computer": "computer", "Backups": "computer", "Problem log": "computer",
+    "This computer": "computer", "Auphonic": "computer", "Library folder": "computer", "Recordings on this computer": "computer", "Backups": "computer", "Problem log": "computer",
     "Estimates": "money", "Clients & credits": "money", "Planning & money": "money", "Export file names": "money", "Look & feel": "look" };
   function settingsTabs() {
     const root = main(), cards = $$(":scope > .card", root);
@@ -1185,6 +1185,10 @@
         <details style="margin-top:8px"><summary class="small">Show the latest</summary><div id="plList" class="small" style="max-height:260px;overflow:auto;margin-top:6px"></div></details></div>
       <div class="card"><h3>Who's working here</h3><div class="row"><label>Working as<select id="meSel">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label></div>
         <p class="small muted">Same as the 👤 name in the top bar. Sharing one computer? Switch before you record. Each person keeps their own theme, celebrations, hotkeys, text size and track sizes on each computer; titles, books, the schedule and the ledger are shared.</p></div>
+      <div class="card" id="aupcard"><h3>Auphonic</h3><p class="small muted">Master chapters from the Booth's Export (🎚 Master with Auphonic). Your API key is in your Auphonic account settings (API Key); paste it here. It stays in this browser on this computer: never in the Library, the shared folder or anyone else's Lamp Room.</p>
+        <div class="row" style="align-items:center"><label style="flex:1">API key<input type="password" id="aupkey" autocomplete="off" value="${LRAuphonic.key() ? "••••••••••••" : ""}" placeholder="Paste your Auphonic API key"></label><button class="btn small" id="aupsave">Save &amp; check</button>${LRAuphonic.key() ? `<button class="btn small quiet" id="aupclear">Remove</button>` : ""}</div>
+        <div class="small" id="aupstat">${LRAuphonic.key() ? "Key saved on this computer." : ""}</div>
+        ${(j => j.length ? `<div class="section-label" style="margin-top:10px">At Auphonic now</div>${j.map(x => `<div class="small">${esc(x.title || x.name)} · <b>${esc(x.state || "")}</b> <button class="lnk" data-aupx="${esc(x.uuid)}">remove from list</button></div>`).join("")}` : "")(LRAuphonic.jobs())}</div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
         <div class="row"><label>Whose takes<select id="tkWho">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label><button class="btn small" id="tkOut">Copy their takes to a folder…</button><button class="btn small" id="tkIn">Bring takes in from a folder…</button><span class="small muted" id="tkRes"></span></div></div>
       <div class="card"><h3>Backups</h3><p class="small muted">Once a day this computer saves a copy of your books, everyone's progress, the planner and booth sessions into the Library's <b>Backups</b> folder (recordings stay in the Studio folder). Each of you keeps your last ${LRBackup.KEEP} days. Restoring a book is for its Lead; a fresh backup is made first, so a restore can be undone.</p>
@@ -1245,6 +1249,11 @@
     $("#addp").onclick = () => { LRPeople.add({ name: "New person" }); save(); viewSettings(); };
     const unk = LRPeople.unknown();
     $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
+    { const k = $("#aupkey"), sv = $("#aupsave"), cl = $("#aupclear"), stt = $("#aupstat");
+      if (sv) sv.onclick = async () => { const v = k.value.trim(); if (v && !/^•+$/.test(v)) LRAuphonic.setKey(v); if (!LRAuphonic.key()) { stt.textContent = "Paste your key first."; return; }
+        stt.textContent = "Checking with Auphonic…"; try { const u = await LRAuphonic.user(); const ps = await LRAuphonic.presets(); stt.innerHTML = "✓ Connected as <b>" + esc(u.username || u.email || "you") + "</b>" + (u.credits != null ? " · " + esc(String(u.credits)) + " h of credits" : "") + " · " + ps.length + " presets: " + esc(ps.map(p => p.name).join(", ")); k.value = "••••••••••••"; } catch (e) { stt.textContent = e.message; } };
+      if (cl) cl.onclick = () => { LRAuphonic.setKey(""); viewSettings(); };
+      $$("[data-aupx]").forEach(b => b.onclick = () => { LRAuphonic.remove(b.dataset.aupx); viewSettings(); }); }
     $("#cpw").onchange = e => { const v = Number(e.target.value); S.castPerWord = v >= 0 ? v : 0.05; save(); };
     $("#wp").onchange = async e => { const v = Number(e.target.value) || 9300; S.wpfh = v; save(); if (window.LL && LL.saveCfg) await LL.saveCfg({ wordsPerFH: v }); viewSettings(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);
