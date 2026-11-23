@@ -94,7 +94,16 @@ function buildIndex(){
     const pk=e.person+'|'+l.date;personDay[pk]=(personDay[pk]||0)+h;}}
   for(const f of S.fh){const k=f.titleId+'|'+f.person;fhWords[k]=(fhWords[k]||0)+(+f.words||0);fhBooth[k]=(fhBooth[k]||0)+(+f.boothHours||0);
     const dk=f.person+'|'+f.date;fhDay[dk]=(fhDay[dk]||0)+(+f.boothHours||0);}
-  IDX={stageHours,personDay,fhWords,fhBooth,fhDay};
+  /* Booth time counts by itself: on a day the Booth clocked time on a title, that's recording time, whether or not
+     anyone logged it. If recording was logged too, the larger counts, never both. */
+  const recLogged={},boothX={};
+  for(const l of S.logs)for(const e of (l.entries||[])){const t=tById(e.titleId);const st=t&&(t.stages||[]).find(x=>x.id===e.stageId);
+    if(st&&(st.type==='record'||st.type==='ext')){const k=l.date+'|'+e.person+'|'+e.titleId;recLogged[k]=(recLogged[k]||0)+(+e.hours||0);}}
+  for(const f of S.fh){if(!f.auto||!f.titleId)continue;const t=tById(f.titleId);if(!t)continue;
+    const x=Math.max(0,(+f.boothHours||0)-(recLogged[f.date+'|'+f.person+'|'+f.titleId]||0));if(x<0.01)continue;
+    const pk=f.person+'|'+f.date;personDay[pk]=(personDay[pk]||0)+x;(boothX[pk]=boothX[pk]||[]).push({titleId:f.titleId,hours:x,words:+f.words||0});
+    const st=(t.stages||[]).find(s=>s.type==='record'&&s.owner===f.person);if(st){const k=t.id+'|'+st.id;stageHours[k]=(stageHours[k]||0)+x;}}
+  IDX={stageHours,personDay,fhWords,fhBooth,fhDay,boothX};
 }
 const tById=id=>S.titles.find(t=>t.id===id);
 const hardDue=t=>!!(t&&t.kind!=='author'&&!t.ownProject&&t.due);
@@ -147,6 +156,8 @@ function remainingHours(t,s){
 }
 function isStarted(t){return (t.stages||[]).some(s=>s.done||loggedStage(t,s)>0||(s.type==='record'&&(IDX.fhWords[t.id+'|'+s.owner]||0)>0));}
 function hoursOn(p,s){return IDX.personDay?.[p+'|'+s]||0;}
+function boothOn(p,d){return IDX.boothX?.[p+'|'+d]||[];}
+function boothChip(p,b){const t=tById(b.titleId);return `<span class="chip booth" title="From the Booth's clock${b.words?' · '+b.words.toLocaleString()+' words':''}"><span class="swatch" style="background:${titleColor(t)}"></span>🎙 ${esc(shortOf(t))} ${STAGE_SHORT.record} · ${PNAME[p]?.[0]||''} ${hrs(b.hours)}</span>`;}
 
 /* ============ scheduler ============ */
 function subBD(s,n){let d=s,c=0;while(c<n){d=addDays(d,-1);if(isBizDay(d))c++;}return d;}
@@ -332,6 +343,7 @@ function todayHTML(){
     if(na&&na.d!==TODAY){note=off?`<div class="muted">Day off today${off.reason?': '+esc(off.reason):''}.</div>`:hol?`<div class="muted">${esc(hol)}. Lamp's out.</div>`:!isWorkday(p,TODAY)?`<div class="muted">Not a workday.</div>`:''}
     const spent={};S.logs.filter(l=>l.date===TODAY).forEach(l=>(l.entries||[]).forEach(e=>{if(e.person!==p||!(+e.hours))return;
       const t=tById(e.titleId);const st=t?.stages.find(x=>x.id===e.stageId);const k=t?`${shortOf(t)} ${st?STAGE_SHORT[st.type]:''}`.trim():(e.kind==='admin'?'admin':e.kind==='other'?'no project work':(e.note||'other'));spent[k]=(spent[k]||0)+(+e.hours);}));
+    for(const b of boothOn(p,TODAY)){const t=tById(b.titleId);const k=`${shortOf(t)} ${STAGE_SHORT.record||'Rec'}`.trim();spent[k]=(spent[k]||0)+b.hours;}
     const spentTxt=Object.entries(spent).map(([k,h])=>`${esc(k)} ${hrs(h)}`).join(' · ');
     const done=spentTxt?`<div class="spent"><span class="lbl">Today's work · ${hrs(hoursOn(p,TODAY))}</span>${spentTxt}</div>`:'';
     const grouped={};if(na)for(const a of na.l){const k=a.tid+'|'+a.sid;grouped[k]=(grouped[k]||0)+a.h;}
@@ -390,7 +402,7 @@ function quickLogHTML(){
   <textarea id="qlog" class="in" rows="3" style="width:100%" placeholder="Edited MGIS9 ch 4–9, two hours of pickups on SAB1, finished EoD2 edits…"></textarea>
   <div class="row" style="margin-top:6px"><button class="btn mic" id="micbtn" data-act="mic" title="Dictate" aria-label="Dictate" ${S.dict?'':'hidden'}>🎙</button>
   <input type="date" id="qdate" class="in" value="${TODAY}" aria-label="Date of this log">
-  <button class="btn" data-act="log-hand" style="margin-left:auto" title="Pick title, stage and hours yourself (today's booth time is filled in)">Log by hand</button><button class="btn primary" data-act="read-log">Read my note</button></div>
+  <button class="btn" data-act="log-hand" style="margin-left:auto" title="Pick title, stage and hours yourself (booth time counts by itself)">Log by hand</button><button class="btn primary" data-act="read-log">Read my note</button></div>
   <div class="muted" style="font-size:13px;margin-top:4px">Leave out hours and I'll split the day for you. Say "finished" and I'll check the stage off.</div></div>`;
 }
 function goalsHTML(){
@@ -763,16 +775,21 @@ function viewLog(){
   const q=logFilter.q.toLowerCase();
   const logs=S.logs.filter(l=>(!logFilter.p||l.person===logFilter.p||(l.entries||[]).some(e=>e.person===logFilter.p))&&(!q||JSON.stringify([l.raw,(l.entries||[]).map(e=>tById(e.titleId)?.name)]).toLowerCase().includes(q)))
     .sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||'').localeCompare(a.createdAt||''));
+  // booth time shows on its own: on the day's first log card, or as its own card on a day nobody logged
+  const seen=new Set(),cards=[];for(const l of logs){const k=l.date+'|'+l.person;cards.push(Object.assign({},l,{first:!seen.has(k)}));seen.add(k);}
+  if(!q||'booth'.includes(q))for(const k of Object.keys(IDX.boothX||{})){const [p,d]=k.split('|');if(seen.has(d+'|'+p)||(logFilter.p&&logFilter.p!==p))continue;cards.push({booth:true,date:d,person:p});}
+  cards.sort((a,b)=>b.date.localeCompare(a.date));
   return `<div class="grid2" style="grid-template-columns:1.2fr 1fr;align-items:start"><div>
   <h2>The Daybook</h2>
   <div class="row" style="margin-bottom:8px"><input class="in" id="log-q" placeholder="Search: a title, a word, a date" value="${esc(logFilter.q)}" style="flex:1">
   <select class="in" id="log-p"><option value="">Both of us</option>${PEOPLE.map(p=>`<option value="${p}" ${logFilter.p===p?'selected':''}>${PNAME[p]}</option>`).join('')}</select></div>
-  ${logs.map(l=>`<div class="logcard"><div class="row" style="justify-content:space-between"><b>${fmt(l.date)}, ${l.date.slice(0,4)} · ${PNAME[l.person]||''}</b><span><button class="lnk" data-act="log-edit" data-id="${l.id}">edit</button> · <button class="lnk" data-act="log-del" data-id="${l.id}">delete</button></span></div>
+  ${cards.map(c=>c.booth?`<div class="logcard booth-only"><div class="row" style="justify-content:space-between"><b>${fmt(c.date)}, ${c.date.slice(0,4)} · ${PNAME[c.person]||''}</b><span class="muted" style="font-size:13px">from the Booth</span></div>
+   <div class="ents">${boothOn(c.person,c.date).map(b=>boothChip(c.person,b)).join('')}</div></div>`:(l=>`<div class="logcard"><div class="row" style="justify-content:space-between"><b>${fmt(l.date)}, ${l.date.slice(0,4)} · ${PNAME[l.person]||''}</b><span><button class="lnk" data-act="log-edit" data-id="${l.id}">edit</button> · <button class="lnk" data-act="log-del" data-id="${l.id}">delete</button></span></div>
    <div class="raw">${esc(l.raw||'')}</div>
-   <div class="ents">${(l.entries||[]).map((e,i)=>entryChip(l,e,i)).join('')}</div></div>`).join('')||'<p class="muted">No entries yet.</p>'}
-  <p class="muted" style="font-size:13px">* hours estimated from the rest of the day.</p></div>
+   <div class="ents">${(l.entries||[]).map((e,i)=>entryChip(l,e,i)).join('')}${l.first?boothOn(l.person,l.date).map(b=>boothChip(l.person,b)).join(''):''}</div></div>`)(c)).join('')||'<p class="muted">No entries yet.</p>'}
+  <p class="muted" style="font-size:13px">* hours estimated from the rest of the day. 🎙 booth time, counted by itself (no need to log recording).</p></div>
   <div class="side">${quickLogHTML()}
-  <div class="panel"><h3>Booth time</h3><p style="margin:0 0 6px;font-size:14px" class="muted">Filed by the Booth as you record: booth hours and words read, by title and day. Recording entries in the log fill themselves in from it.</p>
+  <div class="panel"><h3>Booth time</h3><p style="margin:0 0 6px;font-size:14px" class="muted">Filed by the Booth as you record: booth hours and words read, by title and day. It counts as recording time by itself, so log only everything else; if you do log recording for the same book that day, the larger of the two counts.</p>
   <div style="font-size:14px">${fhSummary()}</div></div>
   <div class="panel"><h3>Days off</h3>${daysOffHTML()}</div></div></div>`;
 }
@@ -1349,11 +1366,9 @@ async function loadBoothFh() {
   syncS();
 }
 
-// "Log by hand": today's booth time is already filled in; add lines for the rest
+// "Log by hand": booth time counts by itself now, so this starts with a blank line for everything else
 function handLog(date) {
   const me = S.me || "anne", entries = [];
-  const booth = S.fh.filter(f => f.auto && f.date === date && f.person === me && f.titleId);
-  for (const f of booth) { const t = tById(f.titleId), s = t && (t.stages || []).find(x => x.type === "record" && x.owner === me); entries.push({ person: me, titleId: f.titleId, stageId: s ? s.id : null, kind: "work", hours: f.boothHours, finished: false, note: "Booth · " + (+f.words || 0).toLocaleString() + " words" }); }
   entries.push({ person: me, titleId: null, stageId: null, kind: "admin", hours: null, finished: false, note: "" });
   return { id: null, date, person: me, raw: "", entries, payments: [], billsPaid: [], royalties: [], daysOff: [] };
 }
@@ -1396,7 +1411,7 @@ window.LL = {
   init, show, compute, rerender, render, syncS, keyOf, nameOf, loadBoothFh, views: LLV,
   get S() { return S; }, PEOPLE, PNAME, STAGE_LABEL, CAT, INKS,
   tById, moneyOf, titleFH, partWords, checkDateOf, invoiceOf, ourCheck, netCheck, hardDue, targetOf, stageLabel, titleColor, shortOf,
-  nextAlloc, waitingFor, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount, billsOverdue, monthName,
+  nextAlloc, waitingFor, hoursOn, boothOn, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount, billsOverdue, monthName,
   titleForm, cardHTML, settingsHTML: viewSettings, logPreview, handLog, monthEvents, put, patch, del, setStageDone, fmt, fmtShort, hrs, money, TODAY: () => TODAY, addDays, addBD, nextInk, uid
 };
 
