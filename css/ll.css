@@ -154,3 +154,11 @@
 .ll .pstamp.late{border-color:var(--overdue);color:var(--overdue)}
 .ll .mk.ghost{opacity:.5;font-style:italic;font-size:12px}
 .ll .mk.ghost .late{color:var(--overdue);font-style:normal}
+/* What an hour really pays */
+.ll .rates-panel table.rates{margin-bottom:8px}
+.ll table.rates tr.proj td{font-style:italic;color:var(--muted)}
+.ll .kbar{display:inline-flex;width:110px;height:9px;border-radius:2px;overflow:hidden;background:var(--rule);vertical-align:middle;gap:1px}
+.ll .kbar i,.ll .kleg i{display:block;height:100%}
+.ll .kleg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px}
+.ll .kleg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.ll .k-record{background:#b8862f}.ll .k-edit{background:#4f7a8c}.ll .k-pickups{background:#8c5a7a}.ll .k-deliver{background:#7a8c4f}.ll .k-writing{background:#5a6a9c}.ll .k-other{background:#9a9088}.ll .k-prior{background:#c9bfae}

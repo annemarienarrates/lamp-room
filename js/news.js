@@ -6,6 +6,8 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-22o", roles: ["team"], title: "Casting sheet fills in the cast", body: "New book (or a book's Who reads what): 📋 Use a casting sheet… reads your Character / Actor CSV, works out which colour is whom from the dialogue tags, keeps you two as yourselves and gives hired actors a Cast slot with their real name. A full cast goes on the schedule as C, paid per word (Settings ▸ Money: cast pay)." },
+    { id: "2026-11-22n", roles: ["team"], title: "What an hour really pays", body: "Titles tab, under the catalog: each finished title's net ÷ every hour you both put in (booth time counted automatically, plus editing, pickups and admin from your logs), by client and arrangement, and where the hours went. Titles in progress show what they'll pay if the rest goes to estimate." },
     { id: "2026-11-22m", roles: ["team"], title: "Goals live on the Goals page", body: "Yearly FH goal, the 2025 baseline and FH already paid this year are set on the Goals page (Both of us); the planner points there." },
     { id: "2026-11-22l", roles: ["team"], title: "One setting each", body: "Words per finished hour is measured from your finished books (Settings ▸ Money shows what's in use); hours a day is set once per person in People. The booth, Dashboard and planner all read the same two." },
     { id: "2026-11-22k", roles: ["team"], title: "Pace is measured, per series", body: "Estimates use your real booth pace: a series' own once it has an hour of reading (Sunfire runs slower), else your pace over the last 60 days, else what's typed in People. Each book says which it's using." },

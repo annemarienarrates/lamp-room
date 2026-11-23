@@ -297,7 +297,7 @@ function compute(){rebuildOff();buildIndex();try{S.sim=plan();}catch(e){console.
 function render(){
   compute();
   if(!LLV.el||!document.body.contains(LLV.el)){LLV.onChange&&LLV.onChange();return;}
-  const body={almanac:viewAlmanac,titles:()=>viewTitles()+'<div style="margin-top:34px">'+viewPipeline()+'</div>',pipeline:viewPipeline,worklog:viewLog,ledger:viewLedger,guide:viewGuide,setup:viewSettings}[S.tab]();
+  const body={almanac:viewAlmanac,titles:()=>viewTitles()+'<div style="margin-top:28px">'+viewRates()+'</div><div style="margin-top:34px">'+viewPipeline()+'</div>',pipeline:viewPipeline,worklog:viewLog,ledger:viewLedger,guide:viewGuide,setup:viewSettings}[S.tab]();
   LLV.el.innerHTML=body;
   afterRender();LLV.decorate&&LLV.decorate(LLV.el);
 }
@@ -575,10 +575,59 @@ function viewTitles(){
   ${done.length?`<h3 style="margin-top:24px">Finished titles</h3><table class="led"><thead><tr><th>Title</th><th>Delivered</th><th class="r">FH</th><th class="r">Hours</th><th class="r">Real ratio</th><th class="r">Net</th><th class="r">Per hour</th><th>Check</th></tr></thead><tbody>
   ${done.map(t=>{const r=titleReal(t);return `<tr><td><span class="swatch" style="background:${titleColor(t)}"></span> ${esc(t.name)}</td><td>${fmtShort(t.invoiceDate)}</td><td class="r num">${titleFH(t).toFixed(2)}</td><td class="r num">${hrs(r.hours)}</td><td class="r num">${r.ratio?r.ratio.toFixed(1)+':1':'—'}</td><td class="r num">${money(r.net)}</td><td class="r num">${r.hourly?money2(r.hourly):'—'}</td><td style="white-space:nowrap">${t.kind!=='author'?(t.checkDate?'<span class="pstamp">In</span> ':`<button class="lnk" data-act="check-pop" data-id="${t.id}">💰 ${fmtShort(checkDateOf(t))}</button> `):''}<button class="lnk" data-act="edit-title" data-id="${t.id}">open</button> · <button class="lnk" data-act="reopen" data-id="${t.id}">reopen</button></td></tr>`;}).join('')}</tbody></table>`:''}`;
 }
-function titleReal(t){let a=0,j=0;for(const l of S.logs)for(const e of (l.entries||[]))if(e.titleId===t.id){if(e.person==='anne')a+=+e.hours||0;else j+=+e.hours||0;}
-  const pa=+t.priorHours?.anne||0,pj=+t.priorHours?.jack||0;a+=pa;j+=pj;
-  const hours=a+j;const fh=titleFH(t);const net=t.kind==='author'?0:(t.checkDate||moneyOf(t).gross>0?netCheck(t):0);
-  return {anne:a,jack:j,prior:pa+pj,hours,ratio:fh&&hours?hours/fh:0,hourly:hours?net/hours:0,net};}
+/* True hours on a title: recording is the larger of the booth's own clock and what was logged for it that day
+   (the two describe the same time, so they're never added); everything else comes from the logs. */
+const KIND_LABEL={record:'Recording',edit:'Editing',pickups:'Pickups',deliver:'Delivery & admin',writing:'Writing',other:'Other',prior:'Before tracking'};
+const AUTHOR_TYPES=new Set(['outline','draft','revise','aedit','format','publish','market']);
+function kindOfEntry(t,e){const st=t&&e.stageId?(t.stages||[]).find(x=>x.id===e.stageId):null;
+  if(st){if(st.type==='record'||st.type==='ext')return 'record';if(st.type==='edit'||st.type==='pickups'||st.type==='deliver')return st.type;if(AUTHOR_TYPES.has(st.type))return 'writing';}
+  if(e.kind==='admin')return 'deliver';if(/^booth\b/i.test(e.note||''))return 'record';return 'other';}
+function titleTime(t,inYear){
+  const by={anne:{},jack:{}},recDay={};const yr=d=>!inYear||(d||'').slice(0,4)===String(inYear);
+  const add=(p,k,h)=>{const P=by[p==='jack'?'jack':'anne'];P[k]=(P[k]||0)+h;};
+  for(const l of S.logs){if(!yr(l.date))continue;for(const e of (l.entries||[])){if(e.titleId!==t.id)continue;const h=+e.hours||0;if(!h)continue;const k=kindOfEntry(t,e);
+    if(k==='record'){const dk=l.date+'|'+(e.person==='jack'?'jack':'anne');recDay[dk]=recDay[dk]||{log:0,booth:0};recDay[dk].log+=h;}else add(e.person,k,h);}}
+  for(const f of S.fh){if(f.titleId!==t.id||!yr(f.date))continue;const dk=f.date+'|'+(f.person==='jack'?'jack':'anne');recDay[dk]=recDay[dk]||{log:0,booth:0};recDay[dk].booth+=(+f.boothHours||0);}
+  let fromBooth=0;for(const [dk,v] of Object.entries(recDay)){add(dk.split('|')[1],'record',Math.max(v.log,v.booth));if(v.booth>=v.log)fromBooth+=v.booth;}
+  if(!inYear){if(+t.priorHours?.anne)add('anne','prior',+t.priorHours.anne);if(+t.priorHours?.jack)add('jack','prior',+t.priorHours.jack);}
+  const sum=o=>Object.values(o).reduce((a,c)=>a+c,0);const kinds={};for(const P of [by.anne,by.jack])for(const [k,v] of Object.entries(P))kinds[k]=(kinds[k]||0)+v;
+  return {anne:sum(by.anne),jack:sum(by.jack),hours:sum(by.anne)+sum(by.jack),kinds,by,fromBooth};}
+function titleReal(t){const T=titleTime(t);
+  const pa=+t.priorHours?.anne||0,pj=+t.priorHours?.jack||0;
+  const hours=T.hours;const fh=titleFH(t);const net=t.kind==='author'?0:(t.checkDate||moneyOf(t).gross>0?netCheck(t):0);
+  return {anne:T.anne,jack:T.jack,prior:pa+pj,hours,kinds:T.kinds,fromBooth:T.fromBooth,ratio:fh&&hours?hours/fh:0,hourly:hours?net/hours:0,net};}
+/* What an hour really pays: finished titles' net ÷ their true hours, then grouped by client and arrangement.
+   Titles still in progress show what they'll pay per hour if the rest goes to estimate. */
+let rateYear='all';
+function titleLeft(t){return (t.stages||[]).filter(s=>(s.owner==='anne'||s.owner==='jack')&&s.type!=='ext').reduce((a,s)=>a+remainingHours(t,s),0);}
+function rateRows(){
+  const out=[];for(const t of S.titles){if(t.kind==='author'||t.status==='pipeline')continue;
+    const done=t.status==='done',yr=(t.invoiceDate||t.checkDate||'').slice(0,4);if(rateYear!=='all'&&(!done||yr!==rateYear))continue;
+    const r=titleReal(t);let hours=r.hours,proj=false;if(!done){hours=r.hours+titleLeft(t);proj=true;}
+    if(!(hours>0))continue;out.push({t,done,proj,net:r.net,hours,so:r.hours,kinds:r.kinds,rate:r.net/hours,fh:titleFH(t)});}
+  return out.sort((a,b)=>(b.done-a.done)||(b.rate-a.rate));}
+function viewRates(){
+  const rows=rateRows(),fin=rows.filter(r=>r.done);
+  const years=[...new Set(S.titles.filter(t=>t.status==='done').map(t=>(t.invoiceDate||t.checkDate||'').slice(0,4)).filter(Boolean))].sort().reverse();
+  const group=key=>{const g={};for(const r of fin){const k=key(r.t)||'—';const x=g[k]=g[k]||{net:0,hours:0,n:0};x.net+=r.net;x.hours+=r.hours;x.n++;}return Object.entries(g).map(([k,x])=>({k,...x,rate:x.hours?x.net/x.hours:0})).sort((a,b)=>b.rate-a.rate);};
+  const tot=fin.reduce((a,r)=>({net:a.net+r.net,hours:a.hours+r.hours}),{net:0,hours:0});
+  const kinds={};for(const r of fin)for(const [k,v] of Object.entries(r.kinds||{}))kinds[k]=(kinds[k]||0)+v;const kTot=Object.values(kinds).reduce((a,c)=>a+c,0);
+  let gen=0;for(const l of S.logs){if(rateYear!=='all'&&l.date.slice(0,4)!==rateYear)continue;for(const e of (l.entries||[]))if(!e.titleId&&e.kind==='admin')gen+=+e.hours||0;}
+  const gTable=(h,list)=>list.length?`<table class="led rates"><thead><tr><th>${h}</th><th class="r">Titles</th><th class="r">Hours</th><th class="r">Net</th><th class="r">Per hour</th></tr></thead><tbody>${list.map(x=>`<tr><td>${esc(x.k)}</td><td class="r num">${x.n}</td><td class="r num">${hrs(x.hours)}</td><td class="r num">${money(x.net)}</td><td class="r num"><b>${money2(x.rate)}</b></td></tr>`).join('')}</tbody></table>`:'';
+  const kindBar=r=>{const K=r.kinds||{},T=Object.values(K).reduce((a,c)=>a+c,0)||1;return `<span class="kbar" title="${Object.entries(K).map(([k,v])=>KIND_LABEL[k]+' '+hrs(v)).join(' · ')}">${Object.entries(K).map(([k,v])=>`<i class="k-${k}" style="width:${v/T*100}%"></i>`).join('')}</span>`;};
+  return `<div class="panel rates-panel" id="rates"><div class="row" style="justify-content:space-between"><h3 style="margin:0">What an hour really pays</h3>
+    <select class="in" data-act="rate-year" aria-label="Year">${['all',...years].map(y=>`<option value="${y}" ${y===rateYear?'selected':''}>${y==='all'?'All years':'Delivered in '+y}</option>`).join('')}</select></div>
+    <p class="muted" style="font-size:14px;margin:4px 0 10px">Net (after partner share, software and editor) ÷ every hour you both put in: booth time from the Lamp Room, plus editing, pickups and admin from your logs. Same day, same book: the larger of booth and log counts, never both.</p>
+    ${fin.length?`<div class="row" style="gap:28px;margin-bottom:10px"><div><div class="muted" style="font-size:13px">Finished titles</div><b style="font-size:22px" class="num">${money2(tot.hours?tot.net/tot.hours:0)}</b> <span class="muted">/ hr · ${hrs(tot.hours)} for ${money(tot.net)}</span></div>
+      ${gen?`<div><div class="muted" style="font-size:13px">With general admin (${hrs(gen)} not tied to a title)</div><b style="font-size:22px" class="num">${money2(tot.net/(tot.hours+gen))}</b> <span class="muted">/ hr</span></div>`:''}</div>
+      ${kTot?`<div style="margin-bottom:12px"><div class="muted" style="font-size:13px;margin-bottom:3px">Where the hours went</div><div class="kleg">${Object.entries(kinds).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span><i class="k-${k}"></i>${KIND_LABEL[k]} ${hrs(v)} <span class="muted">(${Math.round(v/kTot*100)}%)</span></span>`).join('')}</div></div>`:''}`
+      :`<p class="muted">No finished titles${rateYear==='all'?'':' delivered in '+rateYear} yet.</p>`}
+    ${rows.length?`<table class="led rates"><thead><tr><th>Title</th><th>Client</th><th class="r">FH</th><th class="r">Hours</th><th>Split</th><th class="r">Net</th><th class="r">Per hour</th><th class="r">Hours per FH</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr class="${r.proj?'proj':''}"><td><span class="swatch" style="background:${titleColor(r.t)}"></span> ${esc(r.t.name)}${r.proj?' <span class="muted" style="font-size:12px">in progress</span>':''}</td><td>${esc(r.t.client||'')}</td><td class="r num">${r.fh?r.fh.toFixed(2):'—'}</td>
+        <td class="r num" title="${r.proj?hrs(r.so)+' so far, the rest estimated':''}">${hrs(r.hours)}</td><td>${kindBar(r)}</td><td class="r num">${money(r.net)}</td><td class="r num"><b>${r.proj?'~':''}${money2(r.rate)}</b></td><td class="r num muted">${r.fh?(r.hours/r.fh).toFixed(1)+' h':'—'}</td></tr>`).join('')}</tbody></table>
+      ${rows.some(r=>r.proj)?'':'<!--'}<p class="muted" style="font-size:13px">In progress: hours so far plus what the planner expects is left, so the rate is what it'll pay if the rest goes to estimate.</p>${rows.some(r=>r.proj)?'':'-->'}`:''}
+    <div class="grid2" style="align-items:start;margin-top:10px">${gTable('Client',group(t=>t.client))}${gTable('Arrangement',group(t=>CAT[t.category]||t.category))}</div></div>`;
+}
 function cardHTML(t){
   const o=S.sim.out[t.id]||{};const m=moneyOf(t);const r=titleReal(t);
   const stamp=!hardDue(t)?(o.finish&&o.finish<'9999'?`<span class="stamp wait">${t.kind==='author'?'ready':'done'} ~${fmtShort(o.finish)}</span>`:''):o.late?`<span class="stamp over">Overdue · ${fmtShort(o.finish)}</span>`:o.amber?`<span class="stamp amb">Into the week · ${fmtShort(o.finish)}</span>`:`<span class="stamp ok">On aim · ${fmtShort(o.finish)}</span>`;
@@ -899,11 +948,11 @@ function reportCSV(y){
   const L=[];const row=a=>L.push(a.map(q).join(','));
   const inY=s=>s&&s.slice(0,4)===String(y);
   row([`${PNAME.jack} & ${PNAME.anne}'s Ledger & Lamp — ${y} report`,`generated ${TODAY}`]);L.push('');
-  row(['TITLES']);row(['Title','Client','Arrangement','Kind','Status','Due','Delivered','Check received','FH','Gross','Partner payout','Software','Editor','Net','Hours Anne','Hours Jack','Total hours','Real ratio (h/FH)','Effective hourly','Days late']);
+  row(['TITLES']);row(['Title','Client','Arrangement','Kind','Status','Due','Delivered','Check received','FH','Gross','Partner payout','Software','Editor','Net','Hours Anne','Hours Jack','Total hours','Real ratio (h/FH)','Effective hourly','Recording h','Editing h','Pickups h','Admin h','Other h','Days late']);
   let T={fh:0,gross:0,partner:0,software:0,editor:0,net:0,hours:0};
   for(const t of S.titles){const touched=inY(t.due)||inY(t.invoiceDate)||inY(t.checkDate)||S.logs.some(l=>inY(l.date)&&(l.entries||[]).some(e=>e.titleId===t.id));if(!touched)continue;
     const m=moneyOf(t),r=titleReal(t),fh=t.kind==='author'?0:titleFH(t);const late=t.due&&t.invoiceDate&&t.invoiceDate>t.due?Math.round((D(t.invoiceDate)-D(t.due))/864e5):'';
-    row([t.name,t.client||'',t.category||'',t.kind,t.status,t.due||'',t.invoiceDate||'',t.checkDate||'',fh.toFixed(2),m.gross.toFixed(2),m.partner.toFixed(2),m.software.toFixed(2),m.editor.toFixed(2),m.net.toFixed(2),r.anne.toFixed(2),r.jack.toFixed(2),r.hours.toFixed(2),r.ratio?r.ratio.toFixed(2):'',r.hourly?r.hourly.toFixed(2):'',late]);
+    row([t.name,t.client||'',t.category||'',t.kind,t.status,t.due||'',t.invoiceDate||'',t.checkDate||'',fh.toFixed(2),m.gross.toFixed(2),m.partner.toFixed(2),m.software.toFixed(2),m.editor.toFixed(2),m.net.toFixed(2),r.anne.toFixed(2),r.jack.toFixed(2),r.hours.toFixed(2),r.ratio?r.ratio.toFixed(2):'',r.hourly?r.hourly.toFixed(2):'',...['record','edit','pickups','deliver','other'].map(k=>(+(r.kinds||{})[k]||0).toFixed(2)),late]);
     if(inY(t.checkDate)){T.fh+=fh;T.gross+=m.gross;T.partner+=m.partner;T.software+=m.software;T.editor+=m.editor;T.net+=m.net;}T.hours+=r.hours;}
   L.push('');row(['WORK LOG']);row(['Date','Person','Title','Stage','Kind','Hours','Hours estimated','Finished','Note','Original note']);
   for(const l of S.logs.filter(l=>inY(l.date)).sort((a,b)=>a.date.localeCompare(b.date))){
@@ -942,7 +991,7 @@ function viewGuide(){
   ['k-tabs','The tabs',`
     <table class="led"><tr><th>Tab</th><th>What lives there</th></tr>
     <tr><td>Almanac</td><td>Your cards, notices, the daily note, the year's goals, and the month's calendar of bars, deadlines, checks and bills.</td></tr>
-    <tr><td>Titles</td><td>A catalog card for every signed title, with stages, money, the ☆ star and its buttons. Finished titles are listed below with their real hours and real hourly rate.</td></tr>
+    <tr><td>Titles</td><td>A catalog card for every signed title, with stages, money, the ☆ star and its buttons. Finished titles are listed below with their real hours and real hourly rate. <b>What an hour really pays</b> beneath them divides each title's net by every hour you both put in: booth time from the Lamp Room (on a day you also logged it, the larger of the two, never both), plus editing, pickups and admin from your logs; then by client and arrangement.</td></tr>
     <tr><td>Pipeline</td><td>Maybes. They stay off the calendar until you press <b>Commit</b>.</td></tr>
     <tr><td>Work Log</td><td>Every note, searchable. Finished Hour stats come in here (paste or screenshot), and so do days off.</td></tr>
     <tr><td>Ledger</td><td>Money in and out by month with a running balance, your bills, royalties, and the year's CSV report.</td></tr>
@@ -1199,6 +1248,7 @@ document.addEventListener('change',async ev=>{
   const el=ev.target;if(!el.closest('.ll'))return;
   if(el.id==='tgl-partner'){S.showPartner=el.checked;try{localStorage.setItem('ll-partner',el.checked?'1':'0');}catch(e){}rerender();return;}
   if(el.id==='log-p'){logFilter.p=el.value;rerender();return;}
+  if(el.dataset.act==='rate-year'){rateYear=el.value;rerender();return;}
   if(el.closest('.modal')&&/^f-/.test(el.id||''))payHint();
   if(el.closest('#ent-rows')&&el.dataset.f==='titleId'){syncPrevFromForm();const i=+el.closest('.ent-row').dataset.i;PREV.entries[i].stageId=null;logPreview(PREV);return;}
   if(el.name==='ink'){document.querySelectorAll('input[name=ink]+.swatch').forEach(s=>s.style.outline='none');el.nextElementSibling.style.outline='2px solid var(--ink)';return;}

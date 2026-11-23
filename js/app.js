@@ -168,12 +168,14 @@
   function titleFromBook(book) {
     const wb = wordsFor(book), me = LL.keyOf(Store.me()) || "anne", stages = [], recs = [];
     let ext = null;
-    for (const n in wb) { const k = LL.keyOf(n); if (k) { stages.push({ id: "rec-" + k, type: "record", owner: k, words: Math.round(wb[n]), after: [], done: false, doneDate: null }); recs.push("rec-" + k); } else ext = ext || { n, w: 0 }, ext.w += wb[n]; }
+    for (const n in wb) { const k = LL.keyOf(n); if (k) { stages.push({ id: "rec-" + k, type: "record", owner: k, words: Math.round(wb[n]), after: [], done: false, doneDate: null }); recs.push("rec-" + k); } else { ext = ext || { n, w: 0, who: [] }; ext.w += wb[n]; ext.who.push(Store.castName(book, n)); } }
     if (ext) { stages.push({ id: "rec-ext", type: "ext", owner: "ext", words: Math.round(ext.w), after: [], done: false, doneDate: null, extDate: null }); recs.push("rec-ext"); }
     stages.push({ id: "edit", type: "edit", owner: me, after: recs, done: false, doneDate: null, cost: 0, turnaround: null }, { id: "deliver", type: "deliver", owner: me, after: ["edit"], done: false, doneDate: null }, { id: "pickups", type: "pickups", owner: me, after: ["deliver"], done: false, doneDate: null });
     const r = book.rate || {}, ks = Object.keys(wb).map(LL.keyOf).filter(Boolean);
     return { kind: "narration", status: "active", name: book.title, short: "", client: book.client || "", due: book.due || null, color: LL.nextInk(),
-      category: ext ? "B" : ks.length > 1 ? "A" : "S", partnerName: ext ? ext.n : "", rateModel: r.type === "perword" ? "per2k" : "pfh", rate: r.type === "perword" ? (+r.amount || 0) * 2000 : r.type === "pfh" ? (+r.amount || 0) : 0, software: 0, stages };
+      // one outside partner: a 50/50 duet. Two or more: a full cast, paid per word (Settings ▸ Money: cast pay)
+      category: ext ? (ext.who.length > 1 ? "C" : "B") : ks.length > 1 ? "A" : "S", partnerName: ext ? ext.who.join(", ") : "",
+      ...(ext && ext.who.length > 1 ? { partnerPayMode: "perword", partnerPerWord: +(Store.settings.castPerWord || 0.05) } : {}), rateModel: r.type === "perword" ? "per2k" : "pfh", rate: r.type === "perword" ? (+r.amount || 0) * 2000 : r.type === "pfh" ? (+r.amount || 0) : 0, software: 0, stages };
   }
   async function moveCover(from, to) { const u = await Store.coverURL(from); if (!u || await Store.coverURL(to)) return; const blob = await (await fetch(u)).blob(); await Store.setCover(to, blob); await Store.removeCover(from); }
   function linkBook(bookId) {
@@ -535,6 +537,7 @@
     $$("[data-delcast]").forEach(b => b.onclick = () => { book.cast.splice(+b.dataset.delcast, 1); save(true); });
     const mk = $("#mkparts"); if (mk) mk.onclick = () => { book.parts = { n: Store.me() || (S.narrators[0] || {}).name }; save(true); };
     $$("[data-part]").forEach(el => el.onchange = () => { book.parts[el.dataset.part] = el.value; save(true); });
+    wireCastSheet(() => book.chapters.filter(c => c.included), (res, rows, name) => { book.castNames = book.castNames || {}; const missed = LRCastSheet.apply(res, book.parts, book.castNames); book.castSheet = rows; Object.defineProperty(book, "_cs", { value: { res, rows, name, missed }, enumerable: false, configurable: true, writable: true }); save(true); });
     $$("[data-castname]").forEach(el => el.onchange = () => { book.castNames = book.castNames || {}; const v = el.value.trim(); if (v) book.castNames[el.dataset.castname] = v; else delete book.castNames[el.dataset.castname]; save(true); });
     const np = $("#noparts"); if (np) np.onclick = () => { if (!confirm("Turn off parts? Everyone's lines count as one reader again.")) return; delete book.parts; save(true); };
     const ac = $("#addcast"); if (ac) ac.onclick = () => { book.cast = book.cast || []; const used = book.cast.map(c => c.name); const n = S.narrators.find(x => !used.includes(x.name)) || S.narrators[0]; book.cast.push({ name: n.name, share: book.cast.length ? 0 : 100 }); save(true); };
@@ -612,9 +615,10 @@
     const order = ["n", "m", "f", "s"], keys = Object.keys(found).sort((a, b) => (order.indexOf(a) + 1 || 9) - (order.indexOf(b) + 1 || 9));
     const rw = readerWords(book);
     return `<div style="margin-top:14px"><div class="row" style="align-items:center"><div class="small muted">Who reads what — from the highlight colours in the manuscript</div><div class="spacer"></div><button class="btn small quiet" id="noparts">Turn off parts</button></div>
-      <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
+      ${castSheetBar(book._cs)}
+      <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th>${book._cs ? "<th>From the casting sheet</th>" : ""}</tr></thead><tbody>
       ${keys.map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
-        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k], book)}</select>${CAST.includes(book.parts[k]) ? ` <input class="cast-real" data-castname="${book.parts[k]}" value="${esc((book.castNames || {})[book.parts[k]] || "")}" placeholder="their name" list="castpeople" title="Who ${book.parts[k]} is: shown to you and the editor in the Booth" style="width:150px">` : ""}</td></tr>`).join("")}
+        <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k], book)}</select>${CAST.includes(book.parts[k]) ? ` <input class="cast-real" data-castname="${book.parts[k]}" value="${esc((book.castNames || {})[book.parts[k]] || "")}" placeholder="their name" list="castpeople" title="Who ${book.parts[k]} is: shown to you and the editor in the Booth" style="width:150px">` : ""}</td>${book._cs ? `<td class="small">${castSheetCell(book._cs, k)}</td>` : ""}</tr>`).join("")}
       </tbody></table><datalist id="castpeople">${[...new Set((book.sharedPeople || []).filter(x => x.role === "outside").map(x => x.name).concat((Store.settings.people || []).filter(p => !p.team).map(p => p.full || p.name)))].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
       <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(Store.castName(book, k)) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
   }
@@ -783,6 +787,7 @@
     $("#im").onchange = e => { keep(); imp.method = e.target.value; viewImport(); };
     [["#o-sb", "sceneBreaks"], ["#o-np", "normalizePunct"], ["#o-jb", "joinBrokenLines"]].forEach(([id, k]) => $(id).onchange = e => { keep(); imp.opts[k] = e.target.checked; viewImport(); });
     $$("[data-ipart]").forEach(el => el.onchange = () => { keep(); imp.parts[el.dataset.ipart] = el.value; });
+    wireCastSheet(() => imp.chapters.filter(c => c.included), (res, rows, name) => { keep(); imp.castNames = imp.castNames || {}; imp.parts = imp.parts || {}; const missed = LRCastSheet.apply(res, imp.parts, imp.castNames); imp.cs = { res, rows, name, missed }; viewImport(); });
     const fc = $("#fullcast"); if (fc) fc.onchange = async () => { keep(); imp.fullCast = fc.checked; imp.parts = {}; imp.raw = await window.readDocx(imp.buf.slice(0), { fullCast: imp.fullCast }); viewImport(); };
     $("#restart").onclick = () => { imp = null; viewImport(); };
     $("#create").onclick = async () => {
@@ -794,6 +799,8 @@
         cast: [{ name: (S.narrators[0] || {}).name || "Me", share: 100 }], status: "active", notes: "",
         source: { file: imp.file ? imp.file.name : null, method: imp.method, options: imp.opts }, chapters: imp.chapters };
       if (imp.hasParts) book.parts = Object.assign({}, imp.parts);
+      if (imp.castNames && Object.keys(imp.castNames).length) book.castNames = Object.assign({}, imp.castNames);
+      if (imp.cs) book.castSheet = imp.cs.rows;
       $("#create").disabled = true;
       try {
         // every book joins the schedule: its own title, or the one it was imported for
@@ -816,6 +823,24 @@
     return `<optgroup label="Narrators">${names.map(n => `<option ${sel === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup><optgroup label="Outside cast (send files)">${CAST.map(n => `<option value="${n}" ${sel === n ? "selected" : ""}>${n}${book && Store.castName(book, n) !== n ? " · " + esc(Store.castName(book, n)) : ""}</option>`).join("")}</optgroup>`;
   }
   const partSwatch = k => ({ n: "transparent", m: "#BDD7EE", f: "#F8CBDE", s: "#FFF59D" }[k] || Prep.colorCss(k));
+  // casting sheet (js/castsheet.js): a button above a parts table, and what it found for each colour
+  function castSheetBar(cs) {
+    return `<div class="row castsheet" style="align-items:center;gap:10px;margin:4px 0 8px"><button class="btn small" id="cs-btn">📋 ${cs ? "Another casting sheet…" : "Use a casting sheet…"}</button><input type="file" id="cs-file" accept=".csv,.tsv,.txt" class="hidden">
+      <span class="small muted">${cs ? `From ${esc(cs.name)}: ${cs.rows.length} characters, ${cs.res.actors.length} actors.${cs.res.unplaced.length ? ` <b>No colour found for</b> ${cs.res.unplaced.map(esc).join(", ")}.` : ""}${cs.missed && cs.missed.length ? ` <b>No free Cast slot for</b> ${cs.missed.map(esc).join(", ")}.` : ""} Check each row, then change any that look wrong.` : "A CSV with a Character and an Actor column (from your sheet: File ▸ Download ▸ CSV). It fills in who reads each colour and the cast's real names."}</span></div>`;
+  }
+  function castSheetCell(cs, k) {
+    const a = cs.res.parts[k]; if (!a) return k === "n" ? '<span class="muted">no narrator row</span>' : '<span class="muted">couldn\'t tell</span>';
+    const chars = k === "n" ? "narration" : cs.res.charsOf(a).slice(0, 4).join(", ") + (cs.res.charsOf(a).length > 4 ? "…" : "");
+    const sc = cs.res.score[k] || {}, tot = Object.values(sc).reduce((x, y) => x + y, 0), sure = k === "n" || !tot ? "" : Math.round(sc[a] / tot * 100) < 60 ? ` <span class="warn" title="Other actors' characters are named around these lines too">· check</span>` : "";
+    return `<b>${esc(a)}</b> <span class="muted">(${esc(chars)})</span>${sure}`;
+  }
+  function wireCastSheet(chapters, done) {
+    const b = $("#cs-btn"), f = $("#cs-file"); if (!b || !f) return;
+    b.onclick = () => f.click();
+    f.onchange = async () => { const file = f.files[0]; if (!file) return;
+      const p = LRCastSheet.parse(await file.text()); if (p.error) { toast(p.error); return; }
+      done(LRCastSheet.match(chapters(), p.rows), p.rows, file.name); };
+  }
   // highlight colours found in the manuscript → who reads each
   function impParts() {
     const found = Prep.partsInBook({ chapters: imp.chapters.filter(c => c.included) });
@@ -827,9 +852,10 @@
     ["n", ...keys].forEach(k => { if (!imp.parts[k]) imp.parts[k] = me; });
     return `<div class="card" style="background:var(--panel2)"><h3>Highlights found — who reads each part?</h3>
       ${imp.buf ? `<label class="check"><input type="checkbox" id="fullcast" ${imp.fullCast ? "checked" : ""}> <b>Full cast:</b> every highlight colour is a different voice${imp.colors ? ` (${imp.colors} colour${imp.colors === 1 ? "" : "s"} in this file)` : ""}. Off: blues, pinks and yellow are grouped as male, female and system.</label>` : ""}
-      <table class="ch"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th></tr></thead><tbody>
+      ${castSheetBar(imp.cs)}
+      <table class="ch"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th>${imp.cs ? "<th>From the casting sheet</th>" : ""}</tr></thead><tbody>
       ${["n", ...keys].map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}</td><td class="num">${num((found[k] || {}).passages || 0)}</td><td class="num">${num((found[k] || {}).words || 0)}</td>
-        <td><select data-ipart="${esc(k)}">${readerOptions(imp.parts[k])}</select></td></tr>`).join("")}
+        <td><select data-ipart="${esc(k)}">${readerOptions(imp.parts[k], { castNames: imp.castNames || {} })}</select></td>${imp.cs ? `<td class="small">${castSheetCell(imp.cs, k)}</td>` : ""}</tr>`).join("")}
       </tbody></table><p class="small muted">Outside cast (Cast 1–4) never open the Lamp Room: they send you a recording and you drop it into the Booth's Collaborate tab, where it's cut into their lines. You can change all of this later in the book's details.</p></div>`;
   }
   async function loadFile(file) {
@@ -1143,6 +1169,7 @@
       <div class="card"><h3>Estimates</h3><div class="row">
         <label title="Shared with the planner: one setting. Once books are finished in the Lamp Room, it's measured from them.">Words per finished hour<input type="number" id="wp" value="${(window.LL && LL.S && LL.S.cfg && LL.S.cfg.wordsPerFH) || S.wpfh}" style="width:120px"><span class="small muted">now using ${num(LRPace.wpfh())}: ${esc(LRPace.wpfhFrom())}</span></label>
         <div class="small muted" style="align-self:center">Hours a day: ${(S.narrators || []).map(n => esc(n.name) + " " + LRPace.hoursPerDay(n.name)).join(" · ")}, from <a href="#/settings?tab=money">Planning &amp; money</a>.</div>
+        <label title="Shared: new full-cast books go on the schedule paying outside cast this much per word they voice. Change it per title in the planner.">Cast pay, $ per word<input type="number" step="0.001" id="cpw" value="${S.castPerWord != null && S.castPerWord !== "" ? S.castPerWord : 0.05}" style="width:110px"><span class="small muted">$100 / booth hr at 2,000 words / hr = 0.05</span></label>
         <label title="Just this computer">Editing pay, $ per finished hour<input type="number" step="0.01" id="edr" value="${S.editorRate != null && S.editorRate !== "" ? S.editorRate : 50}" style="width:110px"></label>
       </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays. In a full-cast book, the book page and dashboard count only the lines read by the narrators on this computer (the whole book is shown beside them). Editing pay is for the editor of a shared book: it's figured on the whole book's finished hours.</p></div>
       <div class="card"><h3>Export file names</h3><div class="row">
@@ -1222,6 +1249,7 @@
     $("#addp").onclick = () => { LRPeople.add({ name: "New person" }); save(); viewSettings(); };
     const unk = LRPeople.unknown();
     $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
+    $("#cpw").onchange = e => { const v = Number(e.target.value); S.castPerWord = v >= 0 ? v : 0.05; save(); };
     $("#wp").onchange = async e => { const v = Number(e.target.value) || 9300; S.wpfh = v; save(); if (window.LL && LL.saveCfg) await LL.saveCfg({ wordsPerFH: v }); viewSettings(); };
     $("#edr").onchange = e => { S.editorRate = e.target.value === "" ? 50 : Number(e.target.value); save(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);
