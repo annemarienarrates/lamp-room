@@ -22,9 +22,10 @@ async def main():
     print("card:", (await pg.evaluate("[...document.querySelectorAll('.project-card')].map(c=>c.innerText.replace(/\\n+/g,' | ')).join(' ## ')"))[:400])
     await pg.evaluate("(()=>{const b=Store.books[0]; b.parts.m='Cast 2'; Store.saveBook(b,true);})()"); await pg.wait_for_timeout(8000)
     print("planner after Jack's lines go to Cast 2:", await pg.evaluate("JSON.stringify(LL.tById(Store.books[0].titleId).stages.filter(s=>s.type==='record').map(s=>[s.owner,s.words]))"))
-    # editor
-    await pg.evaluate("(()=>{const b=Store.books[0]; b.shared=true; b.sharedOwner='Anne'; b.sharedPeople=[{name:'Anne',role:'lead'},{name:'Eddie',role:'editor'}]; Store.settings.narrators.push({name:'Eddie',pace:1}); Store.saveBook(b,true);})()")
+    # someone with no lines on a shared book: no editing-pay tile any more (the editor role is retired)
+    await pg.evaluate("(()=>{const b=Store.books[0]; b.shared=true; b.sharedOwner='Anne'; b.sharedPeople=[{name:'Anne',role:'lead'},{name:'Eddie',role:'outside'}]; Store.settings.narrators.push({name:'Eddie',pace:1}); Store.saveBook(b,true);})()")
     await pg.evaluate("localStorage.setItem('lr-me','Eddie')"); await pg.goto(U+"#/library"); await pg.goto(U+f"#/book/{bid}"); await pg.wait_for_timeout(800)
-    print("editor tiles:", await pg.evaluate(TILES))
+    et = await pg.evaluate(TILES); print("Eddie's tiles:", et)
+    if "editing" in str(et).lower(): errs.append("editing-pay tile still shown")
     print("ERRORS:", errs); await b.close()
 asyncio.run(main()); srv.terminate()

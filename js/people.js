@@ -93,7 +93,7 @@
   Object.assign(Store, { leadOf, isLead });
 
   // ---- notes to the Lead: kept in the asker's own people file (book.asks[person]); the Lead clears them in book.json ----
-  // In a shared project the editor and cast keep their own Lamp Rooms, so their notes also go into the book's shared
+  // In a shared project co-narrators and cast keep their own Lamp Rooms, so their notes also go into the book's shared
   // folder (Asks/<Name>.json), and the Lead's "done" goes back the same way (Asks/_done.json). Read on the book page.
   const remote = {};                                   // book id → { asks: { who: [..] }, done: [ids], at }
   const safeN = s => String(s || "Someone").replace(/[\\/:*?"<>|]/g, "_");

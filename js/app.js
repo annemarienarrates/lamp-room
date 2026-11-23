@@ -218,7 +218,6 @@
   }
   // the people recording on this computer (Settings ▸ Narrators): in a full-cast book, only their lines are "ours"
   const oursName = n => n && n !== "?" && Store.settings.narrators.some(x => x.name === n);
-  const roleIn = book => { if (!book.shared) return null; const x = (book.sharedPeople || []).find(p => Store.samePerson(p.name, Store.me())); return x ? x.role : null; };
   const chapCache = new Map();
   function chapterReaders(book) {
     const key = book.id + "|" + book.updated; if (chapCache.has(key)) return chapCache.get(key);
@@ -231,8 +230,7 @@
   function bookStats(book) {
     const S = Store.settings, inc = book.chapters.filter(c => c.included);
     const total = inc.reduce((a, c) => a + c.words, 0), wpfh = LRPace.wpfh();
-    const editor = roleIn(book) === "editor";
-    const rwAll = book.parts && !editor ? readerWords(book) : null, names = rwAll ? Object.keys(rwAll).filter(n => n !== "?") : [];
+    const rwAll = book.parts ? readerWords(book) : null, names = rwAll ? Object.keys(rwAll).filter(n => n !== "?") : [];
     // part of a bigger cast: count only the lines read here (solo and duet books are unchanged: every reader is ours)
     const part = !!(rwAll && names.some(oursName) && names.some(n => !oursName(n)));
     const cw = part ? (() => { const m = chapterReaders(book); return c => { const w = m.get(c) || {}; let n = 0; for (const k in w) if (oursName(k)) n += w[k]; return n; }; })() : c => c.words;
@@ -255,9 +253,7 @@
       track.days = days; track.finish = finish; track.perDay = days ? toRecord / days : toRecord;
     }
     const whole = { words: total, fh: total / wpfh };
-    // the editor is paid per finished hour of the whole book
-    const edRate = S.editorRate != null && S.editorRate !== "" ? +S.editorRate : 50, edPay = editor ? edRate * whole.fh : 0;
-    return { words, byStatus, toRecord, est, left, delivered, track, chapters: inc.length, part, editor, whole, edRate, edPay, who: part ? names.filter(oursName) : [] };
+    return { words, byStatus, toRecord, est, left, delivered, track, chapters: inc.length, part, whole, who: part ? names.filter(oursName) : [] };
   }
   function progressBar(st) {
     if (!st.words) return `<div class="bar"></div>`;
@@ -326,7 +322,7 @@
         <div class="project-meta">${num(recW(st))} / ${num(st.words)} words (${p}%)${st.part ? ` <span class="muted" title="${esc(linesOf(st))} only">· your lines of ${num(st.whole.words)}</span>` : ""}</div>
         ${st.toRecord && !st.delivered ? `<div class="project-meta">${num(st.toRecord)} words remaining · ${fh(st.left.fh)} FH</div>` : ""}
         <div class="project-meta">${doneCh(b)} / ${st.chapters} chapters recorded</div>
-        ${st.editor ? `<div class="project-meta earn">${money(st.edPay)} editing · $${num(st.edRate)} / FH of the whole book</div>` : t ? moneyLine(t) : st.est.mine ? `<div class="project-meta earn">${money(st.est.mine)} est.</div>` : ""}
+        ${t ? moneyLine(t) : st.est.mine ? `<div class="project-meta earn">${money(st.est.mine)} est.</div>` : ""}
         <div class="project-meta">${b.due ? "Due " + esc(prettyDate(b.due)) : "No due date"}${t ? schedStamp(t) : st.delivered ? `<span class="badge good">Delivered</span>` : st.track ? `<span class="badge ${st.track.cls}">${st.track.label}</span>` : ""}</div>
         ${!t && b.status !== "archived" ? `<div class="project-meta"><button class="btn small quiet" data-link="${esc(b.id)}">📅 Put on the schedule</button></div>` : ""}
       </div>`;
@@ -464,9 +460,9 @@
         <a class="btn primary" href="#/booth/${esc(book.id)}">🎙 Booth</a>
       </div>
       <div class="tiles">
-        <div class="tile"><span>${st.part ? esc(linesOf(st)) : st.editor ? "Words · whole book" : "Words"}</span><b>${num(st.words)}</b><em>${st.part ? "of " + num(st.whole.words) + " in the book · " : ""}${st.chapters} chapters</em></div>
+        <div class="tile"><span>${st.part ? esc(linesOf(st)) : "Words"}</span><b>${num(st.words)}</b><em>${st.part ? "of " + num(st.whole.words) + " in the book · " : ""}${st.chapters} chapters</em></div>
         <div class="tile"><span>Finished hours</span><b>${fh(st.est.fh)}</b><em>${st.part ? "whole book " + fh(st.whole.fh) : "at " + num(LRPace.wpfh()) + " words / FH"}</em></div>
-        ${st.editor ? `<div class="tile"><span>Your pay · editing</span><b>${money(st.edPay)}</b><em>$${num(st.edRate)} / FH × ${fh(st.whole.fh)} FH of the whole book</em></div>` : T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
+        ${T ? (() => { const m = LL.moneyOf(T); return `<div class="tile"><span>Net</span><b>${money(m.net)}</b><em>${m.gross ? "of a " + money(m.gross) + " check" + (T.checkDate ? " · received" : "") : "no check: royalties"}</em></div>`; })() : `<div class="tile"><span>Pay</span><b>${money(st.est.mine)}</b><em>${st.est.gross !== st.est.mine ? "of " + money(st.est.gross) + " gross" : book.rate && book.rate.type !== "none" ? "gross" : "rate not set"}</em></div>`}
         <div class="tile"><span>${st.part ? "Left to record · your part" : "Left to record"}</span><b>${num(st.toRecord)}</b><em>${st.left.perNarrator.map(p => esc(p.name) + " " + hrs(p.boothHours)).join(" · ")} in booth</em></div>
         <div class="tile"><span>Booth days left</span><b>${st.left.days.toFixed(1)}</b><em title="${esc(LRPace.describe(Store.me(), book))}">at ${num(LRPace.paceOf(Store.me(), book))} words / hr${LRPace.of(Store.me(), book).from === "series" ? " on this series" : ""}, ${LRPace.hoursPerDay(Store.me())} hrs / day</em></div>
         ${tr ? `<div class="tile"><span>Due ${esc(prettyDate(book.due))}</span><b>${tr.days} workdays</b><em>${num(tr.perDay)} words / day needed · recording done ${esc(prettyDate(tr.finish))}</em></div>` : `<div class="tile"><span>Due</span><b>—</b><em>set a due date below</em></div>`}
@@ -918,24 +914,26 @@
       toast("Joined “" + book.title + "”" + (on ? " as " + on.role : "") + "."); location.hash = "#/book/" + book.id;
     } catch (e) { toast(e.message); }
   }
-  const ROLES = [["lead", "Lead narrator"], ["narrator", "Co-narrator"], ["cast", "Cast"], ["outside", "Outside (sends a file)"], ["editor", "Editor"]];
+  const ROLES = [["lead", "Lead narrator"], ["narrator", "Co-narrator"], ["cast", "Cast"], ["outside", "Outside (sends a file)"]];
   function sharedCard(book) {
     const me = Store.me(), owner = !book.shared || book.sharedOwner === me, people = book.sharedPeople || [];
-    if (!book.shared) return `<details class="card" id="sharedc"><summary>Shared project <span class="small muted">· for co-narrators, cast and an editor</span></summary>
-      <p class="small muted" style="margin-top:10px">Make an empty folder in Google Drive, share it with everyone on this book, then choose it here. The Lamp Room keeps the book there (text, parts, credits), plus each person's sent chapters, pickups and the editor's Finished files. Your Ledger, money, sessions and other books stay private.</p>
+    if (!book.shared) return `<details class="card" id="sharedc"><summary>Shared project <span class="small muted">· for co-narrators and cast</span></summary>
+      <p class="small muted" style="margin-top:10px">Make an empty folder in Google Drive, share it with everyone on this book, then choose it here. The Lamp Room keeps the book there (text, parts, credits), plus everyone's shared takes, line clips, pickups and finished chapters. Your Ledger, money, sessions and other books stay private.</p>
       <div class="row"><div class="spacer"></div><button class="btn primary" id="shsetup">Set up a shared folder…</button></div></details>`;
     const narr = [...new Set(Object.values(book.parts || {}).filter(Boolean))];
     return `<details class="card" id="sharedc" ${sharedOpenUI[book.id] ? "open" : ""}><summary>Shared project <span class="small muted" id="shstat">· checking…</span></summary>
       <p class="small muted" style="margin-top:10px">${owner ? "You own this book's shared folder: changes to the text, parts and credits go there when you save." : "Shared by " + esc(book.sharedOwner || "the owner") + ". Their text updates come to you when you open the book."}</p>
       <div class="section-label">Who's on it</div>
       <datalist id="allpeople">${(Store.settings.people || []).map(p => `<option value="${esc(p.full || p.name)}">`).join("")}</datalist>
-      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}" list="allpeople"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${x.name && Store.samePerson(x.name, book.sharedOwner || me) && x.role !== "editor" ? `<label class="check" title="Only the book's owner can edit alongside reading: you record and send your part, then each chapter opens to you as its editor"><input type="checkbox" ${owner ? "" : "disabled"} data-shedit="${i}" ${x.edits ? "checked" : ""}> Also edits</label>` : ""}${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
-      <p class="small muted">Someone reading without the Lamp Room? Set them to <b>Outside (sends a file)</b>: chapters don't wait on them, and the editor (or the lead) drops their recording into the Booth's 🤝 Collaborate tab.</p>
+      ${people.map((x, i) => `<div class="cast-row"><label style="flex:1">Name<input ${owner ? "" : "disabled"} data-shp="${i}" data-k="name" value="${esc(x.name)}" list="allpeople"></label><label>Role<select ${owner ? "" : "disabled"} data-shp="${i}" data-k="role">${ROLES.map(([v, l]) => `<option value="${v}" ${x.role === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${owner ? `<button class="btn small quiet" data-shpdel="${i}">✕</button>` : ""}</div>`).join("") || `<p class="small muted">No one yet.</p>`}
+      <p class="small muted">Someone reading without the Lamp Room? Set them to <b>Outside (sends a file)</b>: the lead (or whoever's splicing) drops their recording into the Booth's 🤝 Collaborate tab. Anyone else can still get the takes from the shared Drive folder the old way.</p>
       ${owner ? `<button class="btn small" id="shadd">+ Person</button>${narr.filter(n => !people.some(x => x.name === n)).length ? ` <button class="btn small quiet" id="shfill">Add everyone reading parts</button>` : ""}` : ""}
       <div class="row" style="margin-top:10px"><button class="btn small" id="shconn">Connect this computer to the folder…</button><div class="spacer"></div>${owner ? `<button class="btn small" id="shpush">Update the shared copy now</button>` : ""}</div></details>`;
   }
   const sharedOpenUI = {};
   function bindShared(book, save) {
+    // the editor role is retired: anyone listed as Editor now reads as Outside (their name stays on the list)
+    if (book.shared && book.sharedOwner === Store.me() && (book.sharedPeople || []).some(x => x.role === "editor" || x.edits)) { book.sharedPeople.forEach(x => { if (x.role === "editor") x.role = "outside"; delete x.edits; }); save(false); }
     const el = $("#sharedc"); if (!el) return;
     el.ontoggle = () => { sharedOpenUI[book.id] = el.open; };
     const me = Store.me();
@@ -946,12 +944,11 @@
       const narr = [...new Set(Object.values(book.parts || {}).filter(Boolean))];
       book.sharedPeople = book.sharedPeople && book.sharedPeople.length ? book.sharedPeople : narr.map(n => ({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }));
       await Store.rememberShared(book, h); await Store.writeProject(book); sharedOpenUI[book.id] = true; save(true);
-      toast("Shared folder set up. Add your editor under Who's on it, then share the Drive folder with everyone.");
+      toast("Shared folder set up. Add your co-narrators and cast under Who's on it, then share the Drive folder with everyone.");
     };
     $$("[data-shp]", el).forEach(i => i.onchange = () => { book.sharedPeople[+i.dataset.shp][i.dataset.k] = i.value.trim(); sharedOpenUI[book.id] = true; save(true); });
-    $$("[data-shedit]", el).forEach(i => i.onchange = () => { book.sharedPeople[+i.dataset.shedit].edits = i.checked; sharedOpenUI[book.id] = true; save(true); });
     $$("[data-shpdel]", el).forEach(b => b.onclick = () => { book.sharedPeople.splice(+b.dataset.shpdel, 1); sharedOpenUI[book.id] = true; save(true); });
-    const ad = $("#shadd", el); if (ad) ad.onclick = () => { (book.sharedPeople = book.sharedPeople || []).push({ name: "", role: "editor" }); sharedOpenUI[book.id] = true; save(true); };
+    const ad = $("#shadd", el); if (ad) ad.onclick = () => { (book.sharedPeople = book.sharedPeople || []).push({ name: "", role: "narrator" }); sharedOpenUI[book.id] = true; save(true); };
     const fl = $("#shfill", el); if (fl) fl.onclick = () => { for (const n of new Set(Object.values(book.parts || {}).filter(Boolean))) if (!book.sharedPeople.some(x => Store.samePerson(x.name, n))) book.sharedPeople.push({ name: n, role: n === (book.parts || {}).n ? "lead" : "narrator" }); save(true); };
     const cn = $("#shconn", el); if (cn) cn.onclick = async () => {
       let h = await Store.sharedHandle(book, true);
@@ -1154,7 +1151,7 @@
         <label>Listening<select id="pfk">${[["careful", "Careful (better with names, a bit slower)"], ["fast", "Fast"]].map(([v, l]) => `<option value="${v}" ${(S.proofModel || "careful") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <button class="btn small quiet" id="pfl">Download it now</button></div>
         <p class="small muted" style="margin:6px 0 0">Live always listens fast, so it keeps up. Names and made-up words it doesn't know: press <b>Always ignore</b> on the flag and it won't flag that word again in the book.</p></div>
-      <div class="card"><h3>People</h3><p class="small muted">One record for each person: you, Jack, cast and editors. The app finds someone by any of their spellings, so “Anne”, “Anne Marie” and a full credit name are one person. <b>Works here</b> puts them in Who's working here and the planner. Booth pace is words per booth hour, used until the Booth has measured it.</p>
+      <div class="card"><h3>People</h3><p class="small muted">One record for each person: you, Jack, co-narrators and cast. The app finds someone by any of their spellings, so “Anne”, “Anne Marie” and a full credit name are one person. <b>Works here</b> puts them in Who's working here and the planner. Booth pace is words per booth hour, used until the Booth has measured it.</p>
         ${(S.people || []).map((p, i) => `<div class="person-row ${p.team ? "team" : ""}">
           <label>Name<input data-pp="${i}" data-k="name" value="${esc(p.name)}"></label>
           <label>Full name<input data-pp="${i}" data-k="full" value="${esc(p.full || "")}" placeholder="${esc(p.name)}"></label>
@@ -1170,8 +1167,7 @@
         <label title="Shared with the planner: one setting. Once books are finished in the Lamp Room, it's measured from them.">Words per finished hour<input type="number" id="wp" value="${(window.LL && LL.S && LL.S.cfg && LL.S.cfg.wordsPerFH) || S.wpfh}" style="width:120px"><span class="small muted">now using ${num(LRPace.wpfh())}: ${esc(LRPace.wpfhFrom())}</span></label>
         <div class="small muted" style="align-self:center">Hours a day: ${(S.narrators || []).map(n => esc(n.name) + " " + LRPace.hoursPerDay(n.name)).join(" · ")}, from <a href="#/settings?tab=money">Planning &amp; money</a>.</div>
         <label title="Shared: new full-cast books go on the schedule paying outside cast this much per word they voice. Change it per title in the planner.">Cast pay, $ per word<input type="number" step="0.001" id="cpw" value="${S.castPerWord != null && S.castPerWord !== "" ? S.castPerWord : 0.05}" style="width:110px"><span class="small muted">$100 / booth hr at 2,000 words / hr = 0.05</span></label>
-        <label title="Just this computer">Editing pay, $ per finished hour<input type="number" step="0.01" id="edr" value="${S.editorRate != null && S.editorRate !== "" ? S.editorRate : 50}" style="width:110px"></label>
-      </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays. In a full-cast book, the book page and dashboard count only the lines read by the narrators on this computer (the whole book is shown beside them). Editing pay is for the editor of a shared book: it's figured on the whole book's finished hours.</p></div>
+      </div><p class="small muted">Workdays are Monday–Friday, skipping US federal holidays. In a full-cast book, the book page and dashboard count only the lines read by the narrators on this computer (the whole book is shown beside them).</p></div>
       <div class="card"><h3>Export file names</h3><div class="row">
         <label style="flex:1">Pattern<input id="np" value="${esc(S.namePattern && S.namePattern !== "{book} - {nn} - {chapter}" ? S.namePattern : "{seq}_{name}")}"></label></div>
         <p class="small muted">The default is your delivery rule: <b>{seq}_{name}</b> gives 001_Opening_Credits, 002_Previously, 003_Chapter_01 (a running number across everything included, chapters padded to two digits). Also: {book} {chapter} {n} {nn} {nnn}. A client profile can set its own.</p></div>
@@ -1251,7 +1247,6 @@
     $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
     $("#cpw").onchange = e => { const v = Number(e.target.value); S.castPerWord = v >= 0 ? v : 0.05; save(); };
     $("#wp").onchange = async e => { const v = Number(e.target.value) || 9300; S.wpfh = v; save(); if (window.LL && LL.saveCfg) await LL.saveCfg({ wordsPerFH: v }); viewSettings(); };
-    $("#edr").onchange = e => { S.editorRate = e.target.value === "" ? 50 : Number(e.target.value); save(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);
     $("#np").onchange = e => { S.namePattern = e.target.value; save(); viewSettings(); };
     $$("[data-cl]").forEach(el => el.onchange = () => { const c = S.clients[+el.dataset.cl]; c[el.dataset.k] = el.value; B_openClient = c.id; save(); if (el.dataset.k === "name") viewSettings(); });
@@ -1283,7 +1278,7 @@
       <div class="hp-keys">${hotkeyGroups().map(([g, rows]) => `<div><h3>${esc(g)}</h3>${rows.map(([k, d]) => `<div class="hp-k"><kbd>${esc(k || "—")}</kbd><span>${esc(d)}</span></div>`).join("")}</div>`).join("")}</div></section>`;
     const order = H.slice(0, 5).map(sec).join("") + keysSec + H.slice(5).map(sec).join("");
     main().innerHTML = `<div class="hp"><aside class="hp-nav"><div class="section-label">Guide</div>${H.slice(0, 5).concat([{ id: "keys", icon: "⌨", title: "Hotkeys" }], H.slice(5)).map(s => `<a href="#" data-go="hp-${s.id}">${s.icon} ${esc(s.title)}</a>`).join("")}
-        <div class="hp-dl-btns"><a class="btn small" href="guide/Lamp Room Guide${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">📄 Guide (PDF)</a><a class="btn small" href="guide/Lamp Room Keyboard${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">⌨ Keyboard sheet${LRPlat.pc ? " (PC)" : ""}</a><a class="btn small" href="guide/Lamp Room Editor Quick Start${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">✂ Editor quick start</a><a class="btn small" href="guide/Lamp Room Co-narrator Quick Start${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">🎙 Co-narrator quick start</a><a class="btn small" href="guide/Lamp Room FX Guide.pdf" target="_blank" rel="noopener">🎚 FX guide</a><a class="btn small quiet" href="#/key">The Key: how the planner thinks →</a></div></aside>
+        <div class="hp-dl-btns"><a class="btn small" href="guide/Lamp Room Guide${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">📄 Guide (PDF)</a><a class="btn small" href="guide/Lamp Room Keyboard${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">⌨ Keyboard sheet${LRPlat.pc ? " (PC)" : ""}</a><a class="btn small" href="guide/Lamp Room Co-narrator Quick Start${LRPlat.pc ? " (PC)" : ""}.pdf" target="_blank" rel="noopener">🎙 Co-narrator quick start</a><a class="btn small" href="guide/Lamp Room FX Guide.pdf" target="_blank" rel="noopener">🎚 FX guide</a><a class="btn small quiet" href="#/key">The Key: how the planner thinks →</a></div></aside>
       <div class="hp-main"><h1>How the Lamp Room works</h1>${order}</div></div>`;
     $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.go); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   }

@@ -5,8 +5,8 @@
   // A "run" is a stretch of one reader's words with nobody else's in between. The chapter's narrator is the lead: they
   // record straight through and their co-narrator's runs drop in as lines. The co-narrator records their runs and sends
   // them: each run is cut from their recording by its word timing and the pauses around it.
-  // the editor assembles a shared book, so the editor gets the lead's view (for the cast who don't use the Lamp Room)
-  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs || isEditor();
+  // a timeline built from everyone's shares gets the lead's view (to drop in the cast who don't use the Lamp Room)
+  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs || assembled();
   const runKey = x => x.r + ":" + x.from;
   function runsOf(pred) {
     const out = []; let cur = null;
@@ -22,8 +22,8 @@
   // every reader's runs, mine included (what the editor assembles from)
   function everyoneRuns() { return runsOf((i, t) => Prep.readerOf(t.part, B.chap, B.book)); }
   function allRuns() { if (!B.runsCache || B.runsCache.v !== B.toks) B.runsCache = { v: B.toks, runs: runsOf((i, t) => B.mine[i] ? null : Prep.readerOf(t.part, B.chap, B.book)) }; return B.runsCache.runs; }
-  // what I bring in by hand: everyone else's lines — or, for the editor, only the cast outside the Lamp Room (the rest arrive in the sends)
-  function theirRuns() { const r = allRuns(); return isEditor() ? r.filter(x => outsideCast(x.r)) : r; }
+  // what I bring in by hand: everyone else's lines — or, in a timeline built from shares, only the cast outside the Lamp Room (the rest came in the shares)
+  function theirRuns() { const r = allRuns(); return assembled() ? r.filter(x => outsideCast(x.r)) : r; }
   // my runs (what a co-narrator sends) — only in a chapter someone else narrates
   function myRuns() { return runsOf((i) => B.mine[i] ? B.readingAs : null); }
   const duetData = () => (B.audio.duet = B.audio.duet || {});
@@ -232,19 +232,20 @@
         if (s.lo != null) a2 = Math.max(a2, s.lo + 0.05); if (s.hi != null) b2 = Math.min(b2, s.hi - 0.03);
         out.push({ x: s.x, a: a2, b: Math.max(b2, a2 + 0.25), guess: s.guess });
       });
-      const d = await Store.duetDir(B.book, B.chap, B.readingAs, true);
-      for await (const [name] of d.entries()) await d.removeEntry(name).catch(() => {});
+      const d = await Store.duetDir(B.book, B.chap, B.readingAs, true), sh = await Store.sharedLinesDir(B.book, B.chap, B.readingAs, true);
+      for (const x of [d, sh]) if (x) for await (const [name] of x.entries()) await x.removeEntry(name).catch(() => {});
+      copyTo = [copyTo, sh].filter(Boolean);
       const R = LRAudio.RATE, lines = [];
       for (let i = 0; i < out.length; i++) {
         // each line carries ~0.6 s of handle either side, hidden: drag its edge out on the lead's side to get a clipped word back
         const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
         const fade = Math.min(x.length, Math.round(R * 0.012)); for (let k = 0; k < fade; k++) { x[k] *= k / fade; x[x.length - 1 - k] *= k / fade; }
-        for (const dd of [d].concat(copyTo ? [copyTo] : [])) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
+        for (const dd of [d].concat(copyTo)) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
         lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: +(o.b - o.a).toFixed(4), hin: +hin.toFixed(4), hout: +hout.toFixed(4), guess: !!o.guess });
         busyNote("Cutting line " + n + " / " + out.length);
       }
       const pack = { v: 1, book: B.book.title, bookId: B.book.id, chapter: B.chap.title, chapterId: B.chap.id, reader: B.readingAs, made: new Date().toISOString(), rate: R, lines };
-      for (const dd of [d].concat(copyTo ? [copyTo] : [])) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
+      for (const dd of [d].concat(copyTo)) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
       B.sent = { ci: B.ci, n: lines.length, guessed: lines.filter(l => l.guess).length, missing: runs.length - lines.length, when: Date.now() };
       celebrateOrToast(lines.length + " LINES SENT", "to " + (Prep.readerOf("n", B.chap, B.book) || "the lead") + " · " + B.chap.title);
     } catch (e) { console.error(e); toast("Sending failed: " + e.message); }
@@ -259,7 +260,12 @@
     for (const r of readers) {
       let d = null, pack = null;
       if (picked) { pack = await readPack(picked); if (pack && pack.reader === r) d = picked; else { try { d = await picked.getDirectoryHandle(r); pack = await readPack(d); } catch (e) { d = null; } } }
-      else { try { d = await Store.duetDir(B.book, B.chap, r, false); pack = await readPack(d); } catch (e) { d = null; } }
+      else {
+        // the shared folder's pack or the Library's, whichever is newer (a co-narrator in another Library only reaches the shared one)
+        for (const get of [() => Store.sharedLinesDir(B.book, B.chap, r, false), () => Store.duetDir(B.book, B.chap, r, false)]) {
+          try { const dd = await get(); const pk = dd && await readPack(dd); if (pk && (!pack || pk.made > pack.made)) { d = dd; pack = pk; } } catch (e) {}
+        }
+      }
       if (!d || !pack || (pack.chapterId && pack.chapterId !== B.chap.id && !picked)) continue;
       const have = duetData()[r]; if (have && have.made === pack.made && !picked) { got += have.lines.length; continue; }
       const cd = await dir(), stamp = Date.now().toString(36), runs = theirRuns().filter(x => x.r === r), lines = [];
@@ -346,5 +352,5 @@
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot);
     return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}), proofing flags and the spots that clipped. Each one's sentence is <b class="pk-t">red</b> in the text and on the waveform; drag the red zone's edges to take in more or less. <b>▶</b> plays it in context. <b>Fix</b> re-records just that zone, on the same track, and the chapter closes up or opens to fit.</div>
-        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips">${isEditor() ? (pkAsked(m) ? `<span class="stu-note">asked ${esc(pkAsked(m).to)}</span>` : `<button class="stu-btn stu-rec" data-p="pask:${m.id}" ${B.rec ? "disabled" : ""} title="Send this to whoever read it">🔁 Ask ${esc(whoRead(m) || "…")}</button>`) : `<button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button>`}<button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
+        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips">${assembled() ? (pkAsked(m) ? `<span class="stu-note">asked ${esc(pkAsked(m).to)}</span>` : `<button class="stu-btn stu-rec" data-p="pask:${m.id}" ${B.rec ? "disabled" : ""} title="Send this to whoever read it">🔁 Ask ${esc(whoRead(m) || "…")}</button>`) : `<button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button>`}<button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
   }

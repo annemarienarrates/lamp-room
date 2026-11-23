@@ -154,7 +154,6 @@
     const snapTo = (t, ti, ci) => { const v = view(), pts = [0]; B.audio.tracks.forEach((tr, k) => tr.clips.forEach((c, j) => { if (k === ti && j === ci) return; pts.push(c.at, c.at + c.dur); })); B.audio.markers.forEach(m => pts.push(m.t)); let best = t, bd = 8 / v.pps; for (const q of pts) { const d = Math.abs(q - t); if (d < bd) { bd = d; best = q; } } return best; };
     cv.onpointerdown = e => {
       if (!B || B.rec) return;
-      if (lockedHere()) { const p0 = pos(e); seek(p0.t); return; }
       const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = p.ly < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
       if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }

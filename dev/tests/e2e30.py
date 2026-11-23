@@ -37,13 +37,14 @@ async def main():
     print("shared tab:", await pg.evaluate("document.querySelector('#sh-body').innerText.replace(/\\n+/g,' | ')"))
     await pg.click("[data-p='shsend']"); await pg.wait_for_timeout(500); await pg.wait_for_function("!Booth.state.busy", timeout=60000); await pg.wait_for_timeout(500)
     print("sent:", await pg.evaluate("JSON.stringify(Booth.state.chap.sent)"))
-    await pg.keyboard.press("r"); await pg.wait_for_timeout(400); print("locked (no recording):", await pg.evaluate("!Booth.state.rec"))
+    await pg.keyboard.press("r"); await pg.wait_for_timeout(400); rec = await pg.evaluate("!!Booth.state.rec"); print("can still record after sharing:", rec); await pg.keyboard.press("s"); await pg.wait_for_timeout(400)
+    if not rec: errs.append("chapter locked after sharing")
     # Jack sends his own read too
     await pg.evaluate("localStorage.setItem('lr-me','Jack')"); await pg.goto(U+"#/library"); await pg.wait_for_timeout(300)
     await pg.goto(U+f"#/booth/{bid}/0"); await pg.wait_for_selector("#booth-dock"); await pg.wait_for_timeout(1200)
     await pg.evaluate("Booth._test.sendToShared(true)"); await pg.wait_for_timeout(500); await pg.wait_for_function("!Booth.state.busy", timeout=60000)
     print("jack sent:", await pg.evaluate("JSON.stringify(Booth.state.chap.sent)"))
-    # the editor
+    # Eddie, on the book with no lines of his own, brings everyone in
     await pg.evaluate("localStorage.setItem('lr-me','Eddie')"); await pg.goto(U+"#/library"); await pg.wait_for_timeout(300)
     await pg.goto(U+f"#/booth/{bid}/0"); await pg.wait_for_selector("#booth-dock"); await pg.wait_for_timeout(1200)
     await pg.evaluate("Booth.state.side=null; Booth.state.tab='shared'; Booth._test.act('tools')"); await pg.wait_for_timeout(900)

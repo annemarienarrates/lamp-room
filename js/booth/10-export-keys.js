@@ -125,18 +125,18 @@
         if (bookMineDone) LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines in " + B.book.title + ". Go outside. Briefly.", level: 3 });
       } else cheer("chapterRecorded");
       const next = B.book.chapters.findIndex((c, i) => i > B.ci && c.included && myCount(B.book, c).mine > 0);
-      const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]);
+      const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !assembled();
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
         <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
-        ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Export</b> saves it to your own Studio folder, as usual. <b>Send to Editor</b> puts your tracks in the book's shared folder for the editor; after that this chapter stays as sent, and any changes come back to you as pickups. You can do both, or send later from Tools ▸ 📦 Shared.</p>` : ""}
-        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn" data-shs>📤 Send to Editor</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Share my takes</b> puts them in the book's shared folder${amLead() ? "" : " and sends your lines to " + esc(Prep.readerOf("n", B.chap, B.book) || "the lead") + " to drop in as they read"}. Anyone on the book can bring them in to listen or splice. Share again any time; nothing locks.</p>` : ""}
+        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
       const xb = $("[data-exp]", ov); if (xb) xb.onclick = () => { ov.remove(); render(); exportDialog(true); };
-      const ss = $("[data-shs]", ov); if (ss) ss.onclick = async () => { ss.disabled = true; ss.textContent = "Sending…"; ss.textContent = (await sendToShared(true)) ? "Sent ✓" : "Not sent"; };
+      const ss = $("[data-shs]", ov); if (ss) ss.onclick = async () => { ss.disabled = true; ss.textContent = "Sharing…"; if (!amLead() && myRuns().length) await sendLines(); ss.textContent = (await sendToShared(true)) ? "Shared ✓" : "Not shared"; };
       const sb = $("[data-send]", ov); if (sb) sb.onclick = async () => { sb.disabled = true; sb.textContent = "Sending…"; await sendLines(); sb.textContent = "Sent ✓"; };
     };
     finish();

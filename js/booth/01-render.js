@@ -186,10 +186,8 @@
     };
     draw(); document.body.appendChild(ov);
   }
-  const LOCK_EDITS = new Set(["rec", "punch", "flub", "fxLast", "cut", "paste", "pasteOver", "del", "split", "addSpace", "addTrack", "nudgeL", "nudgeR", "click", "undo", "redo"]);
   function act(name) {
     const playhead = () => B.playhead != null ? B.playhead : len();
-    if (LOCK_EDITS.has(name) && lockedHere()) { lockNote(); return; }
     switch (name) {
       case "rec": return recordToggle();
       case "stop": return B.rec ? stopRecording() : (B.player.stop(), stopPreview(), renderTransport());

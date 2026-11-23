@@ -246,11 +246,12 @@
     },
     byId(id) { return this.books.find(b => b.id === id); },
 
-    // ---- shared project folders: one book's folder in Drive, for co-narrators, cast and an editor ----
+    // ---- shared project folders: one book's folder in Drive, for co-narrators and cast ----
     //   <Shared>/project.json            the book (text, parts, credits, chapters, who's on it); written by the book's owner
     //   <Shared>/Chapters/<001_Name>/<Person>/   what each person sent for that chapter: send.json + one WAV per track
     //   <Shared>/Pickups/                 pickup requests and returns (same files as the Library's pickups)
-    //   <Shared>/Finished/                the editor's finished chapters, delivery-named
+    //   <Shared>/Lines/<chapter id>/<Person>/   a co-narrator's line pack for the lead to drop in as they read
+    //   <Shared>/Finished/                finished chapters, delivery-named
     // Each computer picks the folder once; the handle is remembered here, never in the shared files.
     sharedOpen: {},
     async sharedHandle(book, ask) {
@@ -270,7 +271,7 @@
     },
     async writeProject(book) {
       const h = await this.sharedHandle(book); if (!h) return false;
-      for (const d of ["Chapters", "Pickups", "Finished"]) await h.getDirectoryHandle(d, { create: true });
+      for (const d of ["Chapters", "Lines", "Pickups", "Finished"]) await h.getDirectoryHandle(d, { create: true });
       await writeFile(h, "project.json", JSON.stringify(this.projectSnapshot(book), null, 1)); return true;
     },
     async readProject(h) { return readJson(h, "project.json"); },
@@ -518,6 +519,11 @@
 
     // ---- duet lines: <Library>/Books/<book>/duet/<chapter id>/<reader>/ (lines.json + one WAV per line).
     //      The Library is the folder you and your co-narrator share, so lines sent on one computer appear on the other.
+    // in a shared book the same line packs also go in the shared folder, so co-narrators with their own Library get them
+    async sharedLinesDir(book, chapter, reader, create) {
+      const sh = book.shared && this.sharedOpen[book.id]; if (!sh) return null;
+      try { const L = await sh.getDirectoryHandle("Lines", { create: !!create }), c = await L.getDirectoryHandle(chapter.id, { create: !!create }); return await c.getDirectoryHandle(safeFolder(reader), { create: !!create }); } catch (e) { return null; }
+    },
     async duetDir(book, chapter, reader, create) {
       const opt = { create: !!create };
       const booksDir = await this.root.getDirectoryHandle("Books", { create: true });

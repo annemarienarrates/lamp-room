@@ -147,7 +147,6 @@
     return startRecording(t, true);
   }
   async function startRecording(at, punched, preSnap) {
-    if (lockedHere()) { lockNote(); return; }
     if (B.edit) { B.edit = false; renderManuscript(); renderEditBar(); }
     if (!(await ensureStudio())) return;
     if (!(await ensureMic())) return;

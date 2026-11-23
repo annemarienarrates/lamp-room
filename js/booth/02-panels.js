@@ -73,7 +73,7 @@
       case "gainReset": return gainSel(null);
       case "acx": return acxCheck();
       case "mic": return chooseMic();
-      case "send": return sendLines();
+      case "send": return (async () => { await sendLines(); if (B.book.shared && await sharedH(false) && !assembled()) await sendToShared(true); })();
       case "sendcopy": return pickCopyFolder();
       case "bring": return bringLines();
       case "bringfrom": return pickLinesFolder();
@@ -87,7 +87,7 @@
       case "ohit": return goHit(+x, +y);
       case "orepl": return replaceSel();
       case "asmon": return assemble(true);
-      case "shsend": return sendToShared();
+      case "shsend": return (async () => { if (!amLead() && myRuns().length && T().hasAudio(B.audio)) await sendLines(); return sendToShared(); })();
       case "shconn": return connectShared();
       case "shin": return bringInSends(false);
       case "shre": return bringInSends(true);
@@ -462,7 +462,7 @@
     el.innerHTML = `<div class="sb-grp">${item("Remaining", num(bkLeft), "Your words left in this book · " + num(chLeft) + " in this chapter")}${item("Pace", pace ? num(pace) : "—", st.paceSrc)}${item("Time Left", pace ? hm(bkLeft / pace * 3600) : "—", "Booth time to finish your part at this pace")}</div>
       <div class="sb-grp">${item("Earned", money(st.earnedToday), "Earned today")}${item("Est. Value", money(st.bookValue), "Your share of this book")}${item("Next Goal", st.milestone ? num(st.milestone.left) : "—", st.milestone ? "Words to " + st.milestone.pct + "% of your part" : "")}</div>
       <div class="sb-grp sb-small">${item("This Chapter Time", hm(prog().boothSec))}${item("This Book Time", hm(st.bookSec))}${item("Booth Today", hm(st.boothToday))}${item("Words Today", num(st.wordsToday))}${item("FH Today", (st.wordsToday / (Store.settings.wpfh || 9300)).toFixed(2))}</div>
-      <span style="flex:1"></span><span class="sb-as">${B.book.shared && isEditor() ? `✂ Editing as <b>${esc(B.readingAs)}</b>` : B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
+      <span style="flex:1"></span><span class="sb-as">${assembled() ? `🧩 Built from everyone's shared takes` : B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
   }
   function statsNow() {
     const today = Prep.ymd(new Date()), S = Store.settings;

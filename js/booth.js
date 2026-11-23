@@ -124,9 +124,9 @@
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
-    if (amLead() && !isEditor() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
+    if (amLead() && !assembled() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
-    if (B.mine.every(m => !m) && !(B.book.shared && isEditor()) && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
+    if (B.mine.every(m => !m) && !assembled() && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }
 
   // ======================= render (Finished Hour layout) =======================
@@ -314,10 +314,8 @@
     };
     draw(); document.body.appendChild(ov);
   }
-  const LOCK_EDITS = new Set(["rec", "punch", "flub", "fxLast", "cut", "paste", "pasteOver", "del", "split", "addSpace", "addTrack", "nudgeL", "nudgeR", "click", "undo", "redo"]);
   function act(name) {
     const playhead = () => B.playhead != null ? B.playhead : len();
-    if (LOCK_EDITS.has(name) && lockedHere()) { lockNote(); return; }
     switch (name) {
       case "rec": return recordToggle();
       case "stop": return B.rec ? stopRecording() : (B.player.stop(), stopPreview(), renderTransport());
@@ -439,7 +437,7 @@
       case "gainReset": return gainSel(null);
       case "acx": return acxCheck();
       case "mic": return chooseMic();
-      case "send": return sendLines();
+      case "send": return (async () => { await sendLines(); if (B.book.shared && await sharedH(false) && !assembled()) await sendToShared(true); })();
       case "sendcopy": return pickCopyFolder();
       case "bring": return bringLines();
       case "bringfrom": return pickLinesFolder();
@@ -453,7 +451,7 @@
       case "ohit": return goHit(+x, +y);
       case "orepl": return replaceSel();
       case "asmon": return assemble(true);
-      case "shsend": return sendToShared();
+      case "shsend": return (async () => { if (!amLead() && myRuns().length && T().hasAudio(B.audio)) await sendLines(); return sendToShared(); })();
       case "shconn": return connectShared();
       case "shin": return bringInSends(false);
       case "shre": return bringInSends(true);
@@ -828,7 +826,7 @@
     el.innerHTML = `<div class="sb-grp">${item("Remaining", num(bkLeft), "Your words left in this book · " + num(chLeft) + " in this chapter")}${item("Pace", pace ? num(pace) : "—", st.paceSrc)}${item("Time Left", pace ? hm(bkLeft / pace * 3600) : "—", "Booth time to finish your part at this pace")}</div>
       <div class="sb-grp">${item("Earned", money(st.earnedToday), "Earned today")}${item("Est. Value", money(st.bookValue), "Your share of this book")}${item("Next Goal", st.milestone ? num(st.milestone.left) : "—", st.milestone ? "Words to " + st.milestone.pct + "% of your part" : "")}</div>
       <div class="sb-grp sb-small">${item("This Chapter Time", hm(prog().boothSec))}${item("This Book Time", hm(st.bookSec))}${item("Booth Today", hm(st.boothToday))}${item("Words Today", num(st.wordsToday))}${item("FH Today", (st.wordsToday / (Store.settings.wpfh || 9300)).toFixed(2))}</div>
-      <span style="flex:1"></span><span class="sb-as">${B.book.shared && isEditor() ? `✂ Editing as <b>${esc(B.readingAs)}</b>` : B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
+      <span style="flex:1"></span><span class="sb-as">${assembled() ? `🧩 Built from everyone's shared takes` : B.assembling ? `🧩 Assembling on <b>${esc(B.readingAs)}</b>'s narration` : `Reading as <b>${esc(B.readingAs)}</b>`}</span>`;
   }
   function statsNow() {
     const today = Prep.ymd(new Date()), S = Store.settings;
@@ -1009,7 +1007,6 @@
     return startRecording(t, true);
   }
   async function startRecording(at, punched, preSnap) {
-    if (lockedHere()) { lockNote(); return; }
     if (B.edit) { B.edit = false; renderManuscript(); renderEditBar(); }
     if (!(await ensureStudio())) return;
     if (!(await ensureMic())) return;
@@ -1288,30 +1285,27 @@
 
   function pacerManual() { return Store.settings.pacer === "manual"; }
 
-  // ======================= shared projects: send a finished chapter, lock it, and the editor's side =======================
-  const myRole = () => { const me = Store.me(); const x = (B.book.sharedPeople || []).find(p => Store.samePerson(p.name, me)); return x ? x.role : null; };
-  // the book's owner can tick "Also edits": they read and send like everyone else, then edit each chapter once their own part is sent
-  const editsToo = () => { const me = Store.me(); if (!B.book.shared || !me || !Store.samePerson(B.book.sharedOwner, me)) return false; const x = (B.book.sharedPeople || []).find(p => Store.samePerson(p.name, me)); return !!(x && x.edits && x.role !== "editor"); };
-  const isEditor = () => !!B.book.shared && (myRole() === "editor" || (editsToo() && (!!(B.chap.sent && B.chap.sent[Store.me()]) || !(B.mine || []).some(Boolean))));
-  // in a shared book, anyone not on its people list reads outside the Lamp Room: they send a file, and it's dropped in 🤝 Collaborate
+  // ======================= shared projects: share your takes, and bring in everyone's =======================
+  // Everyone on a shared book shares their takes (whole tracks, with where every line sits) to the book's Drive folder,
+  // as often as they like: a new share replaces the last, and nothing locks. Anyone can bring in everyone's shares to
+  // listen or splice: that timeline is then marked assembled (it's built from shares, so it isn't shared on as yours).
   const nm = r => Store.castName(B.book, r);
-  const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => Store.samePerson(x.name, r)); return !p || p.role === "outside"; };
-  function lockedHere() { const me = Store.me() || B.readingAs; return !!(B && B.book.shared && !isEditor() && B.chap.sent && B.chap.sent[me]); }
-  function lockNote() { toast("🔒 " + B.chap.title + " is with the editor, so it's locked here. Pickups they ask for come to you through 🚩 Pickups."); }
+  // in a shared book, anyone not on its people list reads outside the Lamp Room: they send a file, and it's dropped in 🤝 Collaborate
+  const outsideCast = r => { if (!r || !B.book.shared) return false; const p = (B.book.sharedPeople || []).find(x => Store.samePerson(x.name, r)); return !p || p.role === "outside" || p.role === "editor"; };
+  const assembled = () => !!(B && B.book.shared && B.audio && B.audio.assembled);
   async function sharedH(ask) { return B.book.shared ? Store.sharedHandle(B.book, ask) : null; }
   async function connectShared() { let h = await Store.sharedHandle(B.book, true); if (!h) { try { h = await Store.pickSharedFolder(); } catch (e) { return; } const pj = await Store.readProject(h).catch(() => null); if (!pj || pj.id !== B.book.id) { toast("That's not this book's shared folder."); return; } await Store.rememberShared(B.book, h); } B.shReady = true; renderSide(); }
-  // who has to send before the editor can start: the narrator, and everyone with lines here who isn't already in someone else's send
+  // who has lines in this chapter: the narrator, and everyone with lines here who reads in the Lamp Room
   function sharedNeeds() {
     const narr = Prep.readerOf("n", B.chap, B.book), out = new Set(narr ? [narr] : []);
     for (const x of everyoneRuns()) if (x.r && !outsideCast(x.r)) out.add(x.r);
-    const ed = (B.book.sharedPeople || []).filter(p => p.role === "editor").map(p => p.name); ed.forEach(n => out.delete(n));
     return [...out];
   }
   async function sharedStatus() {
     const sends = await Store.sharedSends(B.book, B.chap), covered = new Set();
     for (const sd of Object.values(sends)) for (const t of sd.tracks || []) covered.add(t.actor || sd.person);
     const need = sharedNeeds(), waiting = need.filter(n => !covered.has(n));
-    return { sends, need, waiting, ready: Object.keys(sends).length > 0 && !waiting.length };
+    return { sends, need, waiting, ready: Object.keys(sends).length > 0 };
   }
   function outsideNote() {
     const runs = everyoneRuns().filter(x => outsideCast(x.r));
@@ -1319,25 +1313,27 @@
     if (!out.length) return "";
     const rows = out.map(r => { const mine = runs.filter(x => x.r === r), inn = mine.filter(x => placedClip(x)).length;
       return `<div class="co-line ${inn === mine.length ? "placed" : ""}"><span class="n">${inn === mine.length ? "✓" : "…"}</span><span><b>${esc(nm(r))}</b>${nm(r) !== r ? ` <span class="muted small">(${esc(r)})</span>` : ""}<br><i>${inn === mine.length ? "all " + mine.length + " lines in" : inn + " of " + mine.length + " lines in · " + (mine.length - inn) + " still missing"}</i></span></div>`; }).join("");
-    return `<div class="bd-sec"><b>Outside the Lamp Room</b>${rows}<div class="stu-note">Their lines don't hold the chapter up. Once the sends are in, drop the file they sent you in <b>🤝 Collaborate</b> ▸ 🎧 <i>name</i>'s file… and Splice all.${out.some(r => nm(r) === r && /^Cast \d$/.test(r)) ? " Give Cast 1–4 their real names on the book page (Who reads what)." : ""}</div></div>`;
+    return `<div class="bd-sec"><b>Outside the Lamp Room</b>${rows}<div class="stu-note">Their lines come as files. Once everyone's takes are in, drop the file they sent you in <b>🤝 Collaborate</b> ▸ 🎧 <i>name</i>'s file… and Splice all.${out.some(r => nm(r) === r && /^Cast \d$/.test(r)) ? " Give Cast 1–4 their real names on the book page (Who reads what)." : ""}</div></div>`;
   }
   async function sharedTabHtmlAsync() {
-    const h = await sharedH(false), me = Store.me() || B.readingAs, role = myRole();
-    if (!B.book.shared) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This book isn't shared. Book page ▸ Shared project sets up a Drive folder for co-narrators, cast and an editor.</div></div>`;
+    const h = await sharedH(false), me = Store.me() || B.readingAs;
+    if (!B.book.shared) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This book isn't shared. Book page ▸ Shared project sets up a Drive folder for co-narrators and cast.</div></div>`;
     if (!h) return `<div class="bd-sec"><b>📦 Shared</b><div class="stu-note">This computer isn't connected to the book's shared folder yet.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shconn">Connect the shared folder…</button></div></div>`;
-    const st = await sharedStatus(), dis = B.rec || B.busy ? "disabled" : "";
-    if (isEditor()) {
-      const has = T().hasAudio(B.audio);
-      return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b><div class="stu-note">${role === "editor" ? "You're the editor." : "You're editing this book too, and your part here is sent."} A chapter opens once everyone with lines in it has sent.</div>
-        ${st.need.map(n => `<div class="co-line ${st.waiting.includes(n) ? "" : "placed"}"><span class="n">${st.waiting.includes(n) ? "…" : "✓"}</span><span><b>${esc(nm(n))}</b><br><i>${st.waiting.includes(n) ? "waiting" : st.sends[n] ? "sent " + new Date(st.sends[n].sentAt).toLocaleDateString() : "in someone else's send"}</i></span><span></span></div>`).join("")}
-        <div class="fx-chips">${has ? `<button class="stu-btn" data-p="shre" ${dis} ${st.ready ? "" : "disabled"}>Start over from the sends</button>` : `<button class="stu-btn stu-rec" data-p="shin" ${dis} ${st.ready ? "" : "disabled"}>${st.ready ? "Bring in everyone's sends" : "Waiting on " + esc(st.waiting.join(", "))}</button>`}</div></div>
-        ${outsideNote()}
-        <div class="bd-sec"><b>Finished</b><div class="stu-note">Exports with your spacing and the delivery name (e.g. 003_Chapter_01) straight into the shared Finished folder.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shfin" ${dis} ${has ? "" : "disabled"}>⤓ Export to Finished</button></div></div>`;
-    }
-    const sent = B.chap.sent && B.chap.sent[me];
-    return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b>${sent ? `<div class="stu-note">🔒 Sent ${esc(new Date(sent).toLocaleString())}. It's with the editor now and locked here; pickups they ask for come through 🚩 Pickups.</div>`
-      : `<div class="stu-note">When the chapter's done, send it to the editor: your tracks (one file each, with their FX settings) and where every line sits in the text. After that it stays as sent here, and any changes come back as pickups. (⤓ Export still saves to your own Studio folder whenever you like.)</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="shsend" ${dis} ${T().hasAudio(B.audio) ? "" : "disabled"}>📤 Send to Editor</button></div>`}
-      <div class="stu-note" style="margin-top:6px">${st.need.length ? "This chapter needs: " + st.need.map(n => esc(nm(n)) + (st.waiting.includes(n) ? " (not yet)" : " ✓")).join(", ") : ""}</div></div>`;
+    const st = await sharedStatus(), dis = B.rec || B.busy ? "disabled" : "", has = T().hasAudio(B.audio), asm = assembled();
+    const mineShared = st.sends[me], when = d => new Date(d).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const newer = asm ? Object.values(st.sends).filter(sd => sd.sentAt > B.audio.assembled && !Store.samePerson(sd.person, me)).map(sd => sd.person) : [];
+    const rows = [...new Set(st.need.concat(Object.keys(st.sends)))].map(n => { const sd = st.sends[n], inOther = !sd && !st.waiting.includes(n);
+      return `<div class="co-line ${sd || inOther ? "placed" : ""}"><span class="n">${sd || inOther ? "✓" : "…"}</span><span><b>${esc(nm(n))}</b><br><i>${sd ? "shared " + esc(when(sd.sentAt)) : inOther ? "in someone else's takes" : "not shared yet"}</i></span><span></span></div>`; }).join("");
+    return `<div class="bd-sec"><b>📦 ${esc(B.chap.title)}</b>
+        ${asm ? `<div class="stu-note">🧩 This timeline is built from everyone's shared takes (${esc(when(B.audio.assembled))}). Edit and splice it freely; it stays yours, and isn't shared on as your takes.</div>`
+          : `<div class="stu-note">Share your takes whenever you like: your tracks (with their FX settings), your markers and where every line sits. Sharing again replaces what you shared before. Nothing locks.</div>
+            <div class="fx-chips"><button class="stu-btn ${mineShared ? "" : "stu-rec"}" data-p="shsend" ${dis} ${has ? "" : "disabled"}>📤 ${mineShared ? "Share again" : "Share my takes"}</button></div>${mineShared ? `<div class="stu-note">You shared ${esc(when(mineShared.sentAt))}.</div>` : ""}`}</div>
+      <div class="bd-sec"><b>Everyone's takes</b>${rows}
+        ${newer.length ? `<div class="stu-note"><b>${esc(newer.map(nm).join(", "))}</b> shared newer takes since you brought them in.</div>` : ""}
+        <div class="stu-note">Bring them in to listen or splice: they become one timeline here, each person's lines in place.${!asm && has ? " Yours are shared first, so nothing of yours is lost; Undo brings back what you had." : ""}</div>
+        <div class="fx-chips"><button class="stu-btn ${asm ? "" : "stu-rec"}" data-p="${asm ? "shre" : "shin"}" ${dis} ${st.ready ? "" : "disabled"}>${asm ? "↻ Bring in again" : "Bring in everyone's takes"}</button></div></div>
+      ${outsideNote()}
+      ${amLead() || asm ? `<div class="bd-sec"><b>Finished</b><div class="stu-note">Exports with your spacing and the delivery name (e.g. 003_Chapter_01) into the shared Finished folder.</div><div class="fx-chips"><button class="stu-btn" data-p="shfin" ${dis} ${has ? "" : "disabled"}>⤓ Export to Finished</button></div></div>` : ""}`;
   }
   function sharedTabHtml() { setTimeout(async () => { const el = document.getElementById("sh-body"); if (el && B) el.innerHTML = await sharedTabHtmlAsync(); }, 0); return `<div id="sh-body"><div class="stu-note">Checking the shared folder…</div></div>`; }
   // send: one WAV per track, the whole chapter long (so positions line up), written before send.json so a half-sent chapter never looks finished
@@ -1345,8 +1341,7 @@
     if (B.rec || B.busy) return false;
     const me = Store.me() || B.readingAs;
     if (!(await sharedH(true))) { toast("Connect this computer to the shared folder first (📦 Shared)."); return false; }
-    if (B.chap.sent && B.chap.sent[me]) { toast("Already sent."); return false; }
-    if (!fromDialog && !confirm("Send " + B.chap.title + " to the editor? Your tracks go to the book's shared folder, and this chapter stays as sent here; any changes come back to you as pickups.")) return false;
+    if (assembled()) { toast("This timeline is built from everyone's shares, so it isn't shared on as your takes."); return false; }
     B.busy = "send"; renderSide();
     try {
       const out = await Store.sharedChapterDir(B.book, B.chap, me, true), d = await dir(), L = len(), ts = trackSet(), tracks = [];
@@ -1359,12 +1354,12 @@
         await w.close();
         tracks.push({ file, name: st.name || "Track " + (ti + 1), actor, samples: Math.round(L * LRAudio.RATE), fx: { armed: st.armed || [], chain: LRFx.chainOf(st), vol: st.vol || 0 } });
       }
-      // markers go along (flubs, named markers, ✂ line ends, warnings): the editor splices by them. Slots don't: she fills those.
+      // markers go along (flubs, named markers, ✂ line ends, warnings): whoever brings them in splices by them. Slots don't.
       const markers = (B.audio.markers || []).filter(m => !m.slot).map(m => ({ t: m.t, w: m.w, note: m.note || "", ctx: m.ctx || "", cut: !!m.cut, done: !!m.done, auto: !!m.auto }));
       const send = { v: 1, person: me, chapterId: B.chap.id, chapter: B.chap.title, sentAt: new Date().toISOString(), length: L, rate: LRAudio.RATE, tracks, anchors: B.audio.anchors || [], markers, complete: true };
       const fh = await out.getFileHandle("send.json", { create: true }), wr = await fh.createWritable(); await wr.write(JSON.stringify(send, null, 1)); await wr.close();
       B.chap.sent = Object.assign({}, B.chap.sent, { [me]: send.sentAt }); Store.saveBook(B.book, true);
-      notice("📤 " + B.chap.title + " sent to the shared folder (" + tracks.length + " track" + (tracks.length === 1 ? "" : "s") + "). It's locked here now.");
+      if (!fromDialog) notice("📤 " + B.chap.title + ": your takes are shared (" + tracks.length + " track" + (tracks.length === 1 ? "" : "s") + "). Share again any time.");
       return true;
     } catch (e) { toast("Couldn't send: " + e.message); return false; }
     finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
@@ -1372,7 +1367,7 @@
   // Follow-along sometimes misses a line (short ones: "Yes.") or catches it late, when a reader reads ahead of it.
   // Each reader reads only their own lines, with a pause before each, so the start of such a line can be found in their
   // audio: the first speech after the previous line ends. That start becomes a word timing, so the lines around it splice
-  // in the right place, and a flag asks the editor to give it a listen. Returns the flags as markers on that timeline.
+  // in the right place, and a flag asks whoever brings it in to give it a listen. Returns the flags as markers on that timeline.
   async function timeLinesByPauses(who, runs, anchors, render, L) {
     const has = r => anchors.find(q => q[1] >= r.from && q[1] <= r.to);
     const todo = runs.filter(r => { const q = has(r); return !q || q[1] - r.from > 3; });
@@ -1396,11 +1391,14 @@
     anchors.sort((a, b) => a[0] - b[0]);
     return flags;
   }
-  // the editor: everyone's sends become one timeline, one track per sent track, grouped by actor; separate reads splice in by their words' positions
+  // bring in: everyone's shares become one timeline, one track per sent track, grouped by actor; separate reads splice in by their words' positions
   async function bringInSends(replace) {
     if (B.rec || B.busy) return;
-    const st = await sharedStatus(); if (!st.ready) { toast("Still waiting on " + st.waiting.join(", ") + "."); return; }
-    if (T().hasAudio(B.audio) && !(replace && confirm("Replace this chapter's timeline with the sends? (Undo can bring your edits back.)"))) return;
+    const meNow = Store.me() || B.readingAs;
+    // my own takes go first, so bringing in never loses them
+    if (!assembled() && T().hasAudio(B.audio) && myRuns().length) { if (!(await sendToShared(true))) return; }
+    const st = await sharedStatus(); if (!st.ready) { toast("Nobody has shared takes for this chapter yet."); return; }
+    if (assembled() && !confirm("Bring everyone's takes in again? This rebuilds the timeline from the latest shares; Undo brings back your edits.")) return;
     B.busy = "bring"; renderSide(); pushUndo();
     try {
       const narr = Prep.readerOf("n", B.chap, B.book), people = Object.keys(st.sends), base = st.sends[narr] ? narr : people[0];
@@ -1421,7 +1419,8 @@
       // others' lines (sent, or spliced later from outside cast) go in at the base reader's timings: repair them first
       if (everyoneRuns().some(x => x.r !== base)) { busyNote("Checking " + base + "'s timing…"); const fl = await timeLinesByPauses(base, everyoneRuns().filter(x => x.r === base), B.audio.anchors, await mix(), bs.length); fl.forEach(m => B.audio.markers.push(Object.assign({ id: Prep.uid(), by: base }, m))); }
       // anyone else: cut each of their lines from their read and open room for it before the next word of the narration
-      for (const p of people.filter(n => n !== base)) {
+      const inBase = p => bs.tracks.some(t => t.actor && t.actor !== base && Store.samePerson(t.actor, p));
+      for (const p of people.filter(n => n !== base && !inBase(n))) {
         const sd = st.sends[p], files = []; busyNote("Splicing " + p + "'s lines…");
         for (const t of sd.tracks) files.push(await copy(sd, t));
         const tis = sd.tracks.map(t => addTrack(t.actor || p, t, []));
@@ -1455,8 +1454,9 @@
         }
       }
       B.audio.markers.sort((a, b) => a.t - b.t);
+      B.audio.assembled = new Date().toISOString();
       edited(); loadPeaks();
-      notice("📦 Brought in " + people.length + " send" + (people.length === 1 ? "" : "s") + ": " + B.audio.tracks.length + " tracks, grouped by actor. ⊟ collapses them.");
+      notice("📦 Brought in " + people.length + " " + (people.length === 1 ? "person's takes" : "people's takes") + ": " + B.audio.tracks.length + " tracks, grouped by actor. ⊟ collapses them.");
     } catch (e) { toast("Couldn't bring them in: " + e.message); }
     finally { B.busy = null; busyNote(""); renderSide(); renderTransport(); }
   }
@@ -1833,8 +1833,8 @@
   // A "run" is a stretch of one reader's words with nobody else's in between. The chapter's narrator is the lead: they
   // record straight through and their co-narrator's runs drop in as lines. The co-narrator records their runs and sends
   // them: each run is cut from their recording by its word timing and the pauses around it.
-  // the editor assembles a shared book, so the editor gets the lead's view (for the cast who don't use the Lamp Room)
-  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs || isEditor();
+  // a timeline built from everyone's shares gets the lead's view (to drop in the cast who don't use the Lamp Room)
+  const amLead = () => (Prep.readerOf("n", B.chap, B.book) || B.readingAs) === B.readingAs || assembled();
   const runKey = x => x.r + ":" + x.from;
   function runsOf(pred) {
     const out = []; let cur = null;
@@ -1850,8 +1850,8 @@
   // every reader's runs, mine included (what the editor assembles from)
   function everyoneRuns() { return runsOf((i, t) => Prep.readerOf(t.part, B.chap, B.book)); }
   function allRuns() { if (!B.runsCache || B.runsCache.v !== B.toks) B.runsCache = { v: B.toks, runs: runsOf((i, t) => B.mine[i] ? null : Prep.readerOf(t.part, B.chap, B.book)) }; return B.runsCache.runs; }
-  // what I bring in by hand: everyone else's lines — or, for the editor, only the cast outside the Lamp Room (the rest arrive in the sends)
-  function theirRuns() { const r = allRuns(); return isEditor() ? r.filter(x => outsideCast(x.r)) : r; }
+  // what I bring in by hand: everyone else's lines — or, in a timeline built from shares, only the cast outside the Lamp Room (the rest came in the shares)
+  function theirRuns() { const r = allRuns(); return assembled() ? r.filter(x => outsideCast(x.r)) : r; }
   // my runs (what a co-narrator sends) — only in a chapter someone else narrates
   function myRuns() { return runsOf((i) => B.mine[i] ? B.readingAs : null); }
   const duetData = () => (B.audio.duet = B.audio.duet || {});
@@ -2060,19 +2060,20 @@
         if (s.lo != null) a2 = Math.max(a2, s.lo + 0.05); if (s.hi != null) b2 = Math.min(b2, s.hi - 0.03);
         out.push({ x: s.x, a: a2, b: Math.max(b2, a2 + 0.25), guess: s.guess });
       });
-      const d = await Store.duetDir(B.book, B.chap, B.readingAs, true);
-      for await (const [name] of d.entries()) await d.removeEntry(name).catch(() => {});
+      const d = await Store.duetDir(B.book, B.chap, B.readingAs, true), sh = await Store.sharedLinesDir(B.book, B.chap, B.readingAs, true);
+      for (const x of [d, sh]) if (x) for await (const [name] of x.entries()) await x.removeEntry(name).catch(() => {});
+      copyTo = [copyTo, sh].filter(Boolean);
       const R = LRAudio.RATE, lines = [];
       for (let i = 0; i < out.length; i++) {
         // each line carries ~0.6 s of handle either side, hidden: drag its edge out on the lead's side to get a clipped word back
         const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
         const fade = Math.min(x.length, Math.round(R * 0.012)); for (let k = 0; k < fade; k++) { x[k] *= k / fade; x[x.length - 1 - k] *= k / fade; }
-        for (const dd of [d].concat(copyTo ? [copyTo] : [])) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
+        for (const dd of [d].concat(copyTo)) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
         lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: +(o.b - o.a).toFixed(4), hin: +hin.toFixed(4), hout: +hout.toFixed(4), guess: !!o.guess });
         busyNote("Cutting line " + n + " / " + out.length);
       }
       const pack = { v: 1, book: B.book.title, bookId: B.book.id, chapter: B.chap.title, chapterId: B.chap.id, reader: B.readingAs, made: new Date().toISOString(), rate: R, lines };
-      for (const dd of [d].concat(copyTo ? [copyTo] : [])) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
+      for (const dd of [d].concat(copyTo)) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
       B.sent = { ci: B.ci, n: lines.length, guessed: lines.filter(l => l.guess).length, missing: runs.length - lines.length, when: Date.now() };
       celebrateOrToast(lines.length + " LINES SENT", "to " + (Prep.readerOf("n", B.chap, B.book) || "the lead") + " · " + B.chap.title);
     } catch (e) { console.error(e); toast("Sending failed: " + e.message); }
@@ -2087,7 +2088,12 @@
     for (const r of readers) {
       let d = null, pack = null;
       if (picked) { pack = await readPack(picked); if (pack && pack.reader === r) d = picked; else { try { d = await picked.getDirectoryHandle(r); pack = await readPack(d); } catch (e) { d = null; } } }
-      else { try { d = await Store.duetDir(B.book, B.chap, r, false); pack = await readPack(d); } catch (e) { d = null; } }
+      else {
+        // the shared folder's pack or the Library's, whichever is newer (a co-narrator in another Library only reaches the shared one)
+        for (const get of [() => Store.sharedLinesDir(B.book, B.chap, r, false), () => Store.duetDir(B.book, B.chap, r, false)]) {
+          try { const dd = await get(); const pk = dd && await readPack(dd); if (pk && (!pack || pk.made > pack.made)) { d = dd; pack = pk; } } catch (e) {}
+        }
+      }
       if (!d || !pack || (pack.chapterId && pack.chapterId !== B.chap.id && !picked)) continue;
       const have = duetData()[r]; if (have && have.made === pack.made && !picked) { got += have.lines.length; continue; }
       const cd = await dir(), stamp = Date.now().toString(36), runs = theirRuns().filter(x => x.r === r), lines = [];
@@ -2174,7 +2180,7 @@
   function pickupsTabHtml() {
     const open = B.audio.markers.filter(m => !m.done && !m.slot);
     return pickupsAskedHtml() + `<div class="bd-sec"><b>Pickups</b><div class="stu-note">Your flags in this chapter: flub markers (${esc(kl("marker"))}), named markers (${esc(kl("custom"))}), proofing flags and the spots that clipped. Each one's sentence is <b class="pk-t">red</b> in the text and on the waveform; drag the red zone's edges to take in more or less. <b>▶</b> plays it in context. <b>Fix</b> re-records just that zone, on the same track, and the chapter closes up or opens to fit.</div>
-        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips">${isEditor() ? (pkAsked(m) ? `<span class="stu-note">asked ${esc(pkAsked(m).to)}</span>` : `<button class="stu-btn stu-rec" data-p="pask:${m.id}" ${B.rec ? "disabled" : ""} title="Send this to whoever read it">🔁 Ask ${esc(whoRead(m) || "…")}</button>`) : `<button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button>`}<button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
+        ${open.length ? open.map(m => { const z = pkZone(m); return `<div class="co-line"><span class="n">⚑</span><span><b data-p="pgo:${m.id}" class="lnk" title="Play it in context">▶ ${clock(z ? z.a : m.t)}</b> ${esc(m.note || "Flub")}<br><i>${m.ctx ? "“…" + esc(m.ctx) + "…”" : ""}</i></span><span class="fx-chips">${assembled() ? (pkAsked(m) ? `<span class="stu-note">asked ${esc(pkAsked(m).to)}</span>` : `<button class="stu-btn stu-rec" data-p="pask:${m.id}" ${B.rec ? "disabled" : ""} title="Send this to whoever read it">🔁 Ask ${esc(whoRead(m) || "…")}</button>`) : `<button class="stu-btn stu-rec" data-p="pfix:${m.id}" ${B.rec ? "disabled" : ""}>Fix</button>`}<button class="stu-btn" data-p="pdone:${m.id}" title="It's fine: remove the flag">✓</button>${m.proof && m.proof.text ? `<button class="stu-btn" data-p="pign:${m.id}" title="This is right (a name, a word the proofer doesn't know): never flag it again, in any of your books">Always ignore</button>` : ""}</span></div>`; }).join("") : `<div class="stu-note">No open flags. Clean chapter.</div>`}</div>`;
   }
   // ---- pickup zones: the sentence the flag is in, in red, adjustable on the waveform; stored relative to the flag so ripple edits carry it ----
   function pkSentence(m) {
@@ -2500,7 +2506,6 @@
     const snapTo = (t, ti, ci) => { const v = view(), pts = [0]; B.audio.tracks.forEach((tr, k) => tr.clips.forEach((c, j) => { if (k === ti && j === ci) return; pts.push(c.at, c.at + c.dur); })); B.audio.markers.forEach(m => pts.push(m.t)); let best = t, bd = 8 / v.pps; for (const q of pts) { const d = Math.abs(q - t); if (d < bd) { bd = d; best = q; } } return best; };
     cv.onpointerdown = e => {
       if (!B || B.rec) return;
-      if (lockedHere()) { const p0 = pos(e); seek(p0.t); return; }
       const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = p.ly < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
       if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
@@ -2759,18 +2764,18 @@
         if (bookMineDone) LRCele.celebrate({ title: "BOOK RECORDED", sub: "Every one of your lines in " + B.book.title + ". Go outside. Briefly.", level: 3 });
       } else cheer("chapterRecorded");
       const next = B.book.chapters.findIndex((c, i) => i > B.ci && c.included && myCount(B.book, c).mine > 0);
-      const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !isEditor() && !(B.chap.sent && B.chap.sent[Store.me() || B.readingAs]);
+      const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !assembled();
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
         <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
-        ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Export</b> saves it to your own Studio folder, as usual. <b>Send to Editor</b> puts your tracks in the book's shared folder for the editor; after that this chapter stays as sent, and any changes come back to you as pickups. You can do both, or send later from Tools ▸ 📦 Shared.</p>` : ""}
-        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn" data-shs>📤 Send to Editor</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Share my takes</b> puts them in the book's shared folder${amLead() ? "" : " and sends your lines to " + esc(Prep.readerOf("n", B.chap, B.book) || "the lead") + " to drop in as they read"}. Anyone on the book can bring them in to listen or splice. Share again any time; nothing locks.</p>` : ""}
+        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
       const xb = $("[data-exp]", ov); if (xb) xb.onclick = () => { ov.remove(); render(); exportDialog(true); };
-      const ss = $("[data-shs]", ov); if (ss) ss.onclick = async () => { ss.disabled = true; ss.textContent = "Sending…"; ss.textContent = (await sendToShared(true)) ? "Sent ✓" : "Not sent"; };
+      const ss = $("[data-shs]", ov); if (ss) ss.onclick = async () => { ss.disabled = true; ss.textContent = "Sharing…"; if (!amLead() && myRuns().length) await sendLines(); ss.textContent = (await sendToShared(true)) ? "Shared ✓" : "Not shared"; };
       const sb = $("[data-send]", ov); if (sb) sb.onclick = async () => { sb.disabled = true; sb.textContent = "Sending…"; await sendLines(); sb.textContent = "Sent ✓"; };
     };
     finish();
@@ -3209,7 +3214,7 @@
         const src = await (await sd.getFileHandle(rep.file)).getFile(), fh = await cd.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(src); await w.close();
         try { const ps = await (await sd.getFileHandle(rep.file.replace(/\.wav$/, ".peaks2"))).getFile(), ph = await cd.getFileHandle(name.replace(/\.wav$/, ".peaks2"), { create: true }), pw = await ph.createWritable(); await pw.write(ps); await pw.close(); } catch (e) {}
         const mk = q.mark && B.audio.markers.find(m => m.id === q.mark);
-        if (mk) {            // the editor's pickup: it replaces the red zone on that actor's track, and the chapter fits around it
+        if (mk) {            // a pickup asked from an assembled timeline: it replaces the red zone on that actor's track, and the chapter fits around it
           if (!undone) { pushUndo(); undone = true; }
           const z = pkZone(mk), ti = pkTrack(z);
           T().deleteRange(B.audio, z.a, z.b); T().insertGap(B.audio, z.a, rep.dur);
@@ -3321,5 +3326,5 @@
 
   window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a) };
   // Test hooks exist only in ?test mode, so the everyday app carries no back door.
-  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
+  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
 })();
