@@ -512,6 +512,8 @@ function unitsFor(start,end){
   // {date: {person: {tid: stageType}}}
   const u={};const set=(d,p,tid,type)=>{u[d]=u[d]||{};u[d][p]=u[d][p]||{};if(!u[d][p][tid])u[d][p][tid]=type;};
   for(const l of S.logs){if(l.date<start||l.date>end||l.date>=TODAY)continue;for(const e of (l.entries||[]))if(e.titleId&&tById(e.titleId))set(l.date,e.person,e.titleId,tById(e.titleId).stages.find(s=>s.id===e.stageId)?.type||'');}
+  // days the Booth clocked recording count as worked on that title, logged or not
+  for(const k of Object.keys(IDX.boothX||{})){const [p,d]=k.split('|');if(d<start||d>end||d>TODAY)continue;for(const b of IDX.boothX[k])if(tById(b.titleId))set(d,p,b.titleId,'record');}
   for(const [d,list] of Object.entries(S.sim.alloc)){if(d<start||d>end)continue;for(const a of list)set(d,a.p,a.tid,a.type);}
   if(TODAY>=start&&TODAY<=end)for(const l of S.logs.filter(l=>l.date===TODAY))for(const e of (l.entries||[]))if(e.titleId&&tById(e.titleId))set(TODAY,e.person,e.titleId,'');
   return u;
@@ -1411,7 +1413,7 @@ window.LL = {
   init, show, compute, rerender, render, syncS, keyOf, nameOf, loadBoothFh, views: LLV,
   get S() { return S; }, PEOPLE, PNAME, STAGE_LABEL, CAT, INKS,
   tById, moneyOf, titleFH, partWords, checkDateOf, invoiceOf, ourCheck, netCheck, hardDue, targetOf, stageLabel, titleColor, shortOf,
-  nextAlloc, waitingFor, hoursOn, boothOn, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount, billsOverdue, monthName,
+  nextAlloc, waitingFor, hoursOn, boothOn, unitsFor, alertsHTML, goalsHTML, saveCfg, estHours, remainingHours, wphOf, isWorkday, capacity, holidayName, dayOff, billDate, billAmount, billsOverdue, monthName,
   titleForm, cardHTML, settingsHTML: viewSettings, logPreview, handLog, monthEvents, put, patch, del, setStageDone, fmt, fmtShort, hrs, money, TODAY: () => TODAY, addDays, addBD, nextInk, uid
 };
 

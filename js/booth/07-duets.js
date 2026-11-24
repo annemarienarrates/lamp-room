@@ -232,13 +232,15 @@
         if (s.lo != null) a2 = Math.max(a2, s.lo + 0.05); if (s.hi != null) b2 = Math.min(b2, s.hi - 0.03);
         out.push({ x: s.x, a: a2, b: Math.max(b2, a2 + 0.25), guess: s.guess });
       });
+      // A re-send never reuses a file name and never deletes lines.json: Drive trips over a file deleted and written
+      // again under the same name (it makes "line-008 (1).wav" and can lose the index). New lines go under a fresh
+      // prefix, lines.json is overwritten in place, and only then are the old files cleared away.
       const d = await Store.duetDir(B.book, B.chap, B.readingAs, true), sh = await Store.sharedLinesDir(B.book, B.chap, B.readingAs, true);
-      for (const x of [d, sh]) if (x) for await (const [name] of x.entries()) await x.removeEntry(name).catch(() => {});
       copyTo = [copyTo, sh].filter(Boolean);
-      const R = LRAudio.RATE, lines = [];
+      const R = LRAudio.RATE, lines = [], tag = Date.now().toString(36);
       for (let i = 0; i < out.length; i++) {
         // each line carries ~0.6 s of handle either side, hidden: drag its edge out on the lead's side to get a clipped word back
-        const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
+        const o = out[i], n = i + 1, file = tag + "-line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
         const fade = Math.min(x.length, Math.round(R * 0.012)); for (let k = 0; k < fade; k++) { x[k] *= k / fade; x[x.length - 1 - k] *= k / fade; }
         for (const dd of [d].concat(copyTo)) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
         lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: +(o.b - o.a).toFixed(4), hin: +hin.toFixed(4), hout: +hout.toFixed(4), guess: !!o.guess });
@@ -246,6 +248,8 @@
       }
       const pack = { v: 1, book: B.book.title, bookId: B.book.id, chapter: B.chap.title, chapterId: B.chap.id, reader: B.readingAs, made: new Date().toISOString(), rate: R, lines };
       for (const dd of [d].concat(copyTo)) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
+      const keep = new Set(["lines.json"].concat(lines.map(l => l.file)));
+      for (const dd of [d].concat(copyTo)) { const old = []; for await (const [name, h] of dd.entries()) if (h.kind === "file" && !keep.has(name) && /\.(wav|peaks2|json)$/i.test(name)) old.push(name); for (const n of old) await dd.removeEntry(n).catch(() => {}); }
       B.sent = { ci: B.ci, n: lines.length, guessed: lines.filter(l => l.guess).length, missing: runs.length - lines.length, when: Date.now() };
       celebrateOrToast(lines.length + " LINES SENT", "to " + (Prep.readerOf("n", B.chap, B.book) || "the lead") + " · " + B.chap.title);
     } catch (e) { console.error(e); toast("Sending failed: " + e.message); }
@@ -282,8 +286,10 @@
       const re = recutOf(r); if (re.length) { B.recut = B.recut || {}; B.recut[r] = re.length; }
       B.peaks = B.peaks || {};
     }
+    // a re-send of lines already in the chapter swaps in by itself (Undo puts the old ones back)
     const rc = Object.entries(B.recut || {}).filter(([r, n]) => n && recutOf(r).length);
-    if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
+    if (rc.length && !B.rec && !B.busy) for (const [r] of rc) swapRecut(r);
+    else if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
     if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;

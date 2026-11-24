@@ -17,7 +17,7 @@
         ["Focus", "The one thing to do today: the title, the stage (record, edit, proof…), the chapter and the hours the planner set aside. Click it to start."],
         ["Then", "The rest of today's plan, in order."],
         ["Partner line", "One line on what your partner is doing today."],
-        ["Heads up", "Anything that needs attention: titles running late, checks due, bills due, money owed between you, a day with no log."],
+        ["Heads up", "Anything that needs attention: titles running late, checks due, bills due, money owed between you, a day with no log (a day the Booth clocked counts as logged), and chapters at Auphonic. × hides an item until it changes; Show dismissed brings them back."],
         ["Rings", "Today's words, booth hours and earnings against your goals."],
         ["Projects", "Every book and title. Switch between cards and a list, and sort them. Archived books fold away at the bottom; open one and press Unarchive to bring it back."],
         ["Join a shared project", "⇄ Join a shared project opens a book someone shared with you: choose its shared Drive folder (the one with Chapters, Pickups and Finished)."],
@@ -98,13 +98,15 @@
         ["If you're the lead", "Your partner's lines arrive on their own. Just read: when you finish the line before theirs and go quiet, their line drops in on their track (and plays in your headphones if you like). Wait for “Your turn”, then carry on."],
         ["Don't want to wait?", "Just keep reading while their line plays (or press Space). Their line keeps its place and what you read lands after it, so you never record over them."],
         ["Flub after their line", "F goes back to your sentence and keeps their line whole in front of it. If you flub before their line, their line comes out and drops in again when you get there."],
-        ["Re-sent lines", "If your partner re-cuts and sends lines you've already placed, Tools ▸ Collaborate shows “Swap them in”. Each one replaces the old in place."],
+        ["Re-sent lines", "If your partner re-cuts and sends lines you've already placed, the new ones swap in by themselves when they arrive (Undo puts the old ones back). Each one replaces the old in place."],
         ["Headphone bleed", "Tools ▸ Collaborate ▸ While their lines play: turn their volume down, and leave “Clean up my track under their lines” on. It swaps your track for room tone while they speak, and stops the moment you start."],
         ["Fix a splice", "Click their line on its track. A small editor opens: hear it in place, move the start or end by 50 ms, nudge it, re-cut it from what they sent, or remove it. The chapter moves along with every change. Older lines (sent before the spare edges were added) can be trimmed but not extended."],
-        ["Fix it at the source", "If you read the partner's lines: open the chapter, put the playhead where a line really ends, press C to drop a cut mark, and Send again. The lead gets “Swap them in”."],
+        ["Fix it at the source", "If you read the partner's lines: open the chapter, put the playhead where a line really ends, press C to drop a cut mark, and Send again. The new cuts swap into the lead's chapter by themselves. Drag a mark's flag along the ruler to move it; right-click it to remove it (or 🚩 Flags ▸ ✕)."],
         ["C", "Drops their next line in by hand, right now. If it hasn't arrived yet, it marks a slot instead. You rarely need it: auto-place usually does it."],
         ["Slots & Splice all", "Lines that weren't there yet leave a slot. When they arrive, Splice all fills every slot at once."],
-        ["Wrong reader?", "Select the words in the text and choose who reads them."]
+        ["Wrong reader?", "Select the words in the text and choose who reads them. The Lead's choice changes the book for everyone; anyone else's changes their own copy only (their word counts, pacer and lines), and ↩ puts it back. Ask the Lead to change it for everyone."],
+        ["Pickup effects", "Recording a pickup someone asked for: the Effect menu offers your tracks in that book (High, Normal, Low…) and your saved voice presets. It starts on the track the line was on, and the effect is baked in before it's sent."],
+        ["Lines that follow the scripts", "Book page ▸ Character scripts: when the actors' scripts and the highlighting disagree, Give all … to the reader their script names fixes the highlighting to match the scripts (the Lead does this)."]
       ] },
     { id: "finished", icon: "📼", title: "Finished audio: corrections & assembly", lead: "Open a book that's already recorded, or a chapter someone else narrated, and work on it in the Booth like any other.",
       items: [

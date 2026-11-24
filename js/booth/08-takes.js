@@ -107,8 +107,9 @@
     const pop = document.createElement("div"); pop.className = "part-pop"; pop.id = "part-pop";
     const words = B.toks.slice(from, to + 1).map(t => t.w), txt = words.length > 6 ? words.slice(0, 3).join(" ") + " … " + words.slice(-2).join(" ") : words.join(" ");
     const leadHere = Store.isLead(B.book), leadName = Store.leadOf(B.book);
-    if (leadHere) pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
-    else pop.innerHTML = `<div class="pp-q">Wrong reader for <i>“${esc(txt)}”</i>?</div><div class="fx-chips"><button class="stu-btn" data-asklead>Ask ${esc(leadName)} to fix it</button></div>`;
+    const ownHere = !leadHere && B.toks.slice(from, to + 1).some(t => t.own);
+    pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?${leadHere ? "" : ` <span class="muted small">(in your copy)</span>`}</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    if (!leadHere) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px">${ownHere ? `<button class="stu-btn" data-unown>↩ Back to ${esc(leadName)}'s highlighting</button>` : ""}<button class="stu-btn quiet" data-asklead>Ask ${esc(leadName)} to change it for everyone</button></div>`);
     const run = theirRuns().find(x => from >= x.from && to <= x.to);
     if (run && amLead()) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px"><button class="stu-btn" data-ask="1">🔁 Ask ${esc(nm(run.r))} for a pickup of this line</button></div>`);
     const nm = words.map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’-]+$/gu, "").replace(/['’]s$/, "")).join(" ").trim();
@@ -117,10 +118,25 @@
     pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
     pop.style.top = Math.max(8, rect.top - pop.offsetHeight - 8) + "px";
     pop.onmousedown = e => e.preventDefault();
-    pop.onclick = e => { if (e.target.closest("[data-asklead]")) { hidePartPop(); window.getSelection().removeAllRanges(); window.LRAskLead && LRAskLead(B.book, leadName, B.ci, "“" + txt + "” should be read by "); return; } const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+    pop.onclick = e => { if (e.target.closest("[data-asklead]")) { hidePartPop(); window.getSelection().removeAllRanges(); window.LRAskLead && LRAskLead(B.book, leadName, B.ci, "“" + txt + "” should be read by "); return; } const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } if (e.target.closest("[data-unown]")) { hidePartPop(); window.getSelection().removeAllRanges(); setOwnReader(from, to, "__undo"); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+  }
+  // not the Lead: the change goes in my copy only (my people file), over the Lead's highlighting
+  function setOwnReader(from, to, who) {
+    const c = B.chap, me = B.readingAs; c.mine = c.mine || {};
+    const base = Prep.viewer; Prep.viewer = "\u0000"; const plain = Prep.tokens(c); Prep.viewer = base;           // the Lead's words, without my changes
+    const list = (c.mine[me] || []).filter(o => o.to < from || o.from > to);
+    if (who !== "__undo") list.push({ from, to, part: who === "__n" ? "n" : "@" + who, text: plain.slice(from, to + 1).map(t => t.k).join(" ") });
+    c.mine[me] = list; if (!list.length) delete c.mine[me];
+    refreshReaders();
+  }
+  function refreshReaders() {
+    const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos); B.f.setManual(pacerManual());
+    B.runsCache = null; const wrap = $("#ms-wrap"), top = wrap ? wrap.scrollTop : 0;
+    Store.saveBook(B.book); renderManuscript(); if (wrap) wrap.scrollTop = top; renderSide(); renderStats();
   }
   function hidePartPop() { const p = $("#part-pop"); if (p) p.remove(); }
   function setReader(from, to, who) {
+    if (!Store.isLead(B.book)) return setOwnReader(from, to, who);
     const parts = B.book.parts = B.book.parts || {};
     let part = "n";
     if (who !== "__n") { part = Object.keys(parts).find(k => k !== "n" && parts[k] === who); if (!part) { part = "r:" + who; parts[part] = who; } }

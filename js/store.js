@@ -26,7 +26,7 @@
   // (and two people sharing one computer each keep theirs).
   const PERSONAL = ["theme", "readFont", "confetti", "encouragement", "celebrations", "combo", "comboHidden", "calm", "goalEarn", "duet", "voiceWave", "confirmations", "progressNotes", "duetCues", "proofMode", "proofModel", "pacer", "proofIgnore", "editorRate", "cueTags", "cueWin", "cueMini"];
   // browser-remembered things that are also personal (hotkeys, text size, track height, zoom, pre-roll…)
-  const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|done-open|dash-mode|dash-sort|xproof|xspace|matchlvl|castwords)$/;
+  const PERSONAL_LS = /^lr-(keys|tzoom|laneh|preroll|follow|pps|fxp|combo-best|last-book|opened|arch-open|done-open|dash-mode|dash-sort|xproof|xspace|matchlvl|castwords|heads-x|pkfx-.*|auphonic-svcname)$/;
   const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
 
   // ---- tiny IndexedDB key/value for the folder handle ----
@@ -145,7 +145,8 @@
           if (p.asks && p.asks.length) { b.asks = b.asks || {}; b.asks[who] = p.asks; }
           for (const c of b.chapters || []) { const x = (p.chapters || {})[c.id]; if (!x) continue;
             if (x.prog) { c.prog = c.prog || {}; c.prog[who] = x.prog; }
-            if (x.audio) { c.audio = c.audio || {}; c.audio[who] = x.audio; } }
+            if (x.audio) { c.audio = c.audio || {}; c.audio[who] = x.audio; }
+            if (x.mine && x.mine.length) { c.mine = c.mine || {}; c.mine[who] = x.mine; } }
         }
       } catch (e) { if (e.name !== "NotFoundError") console.warn(e); }
       if (b._repair) { delete b._repair; setTimeout(() => this.saveBook(b), 1500); }
@@ -162,7 +163,8 @@
       for (const c of shared.chapters || []) {
         for (const n in (c.prog || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).prog = c.prog[n];
         for (const n in (c.audio || {})) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).audio = c.audio[n];
-        delete c.prog; delete c.audio;
+        for (const n in (c.mine || {})) if ((c.mine[n] || []).length) (P(n).chapters[c.id] = P(n).chapters[c.id] || {}).mine = c.mine[n];
+        delete c.prog; delete c.audio; delete c.mine;
       }
       return { shared, people };
     },
@@ -340,6 +342,16 @@
       if ((await h.requestPermission({ mode: "readwrite" })) !== "granted") throw new Error("Permission wasn't granted.");
       this.studio = h;
     },
+    // a folder this computer keeps a handle to (Auphonic's Drive folder, say): get / remember / ask again
+    // (in test mode the handles stay in memory: headless Chrome can't read a test-folder handle back out of IndexedDB)
+    _kept: {},
+    async keptFolder(key, ask) {
+      const h = this.testMode ? this._kept[key] : await idb.get("dir:" + key).catch(() => null); if (!h) return null;
+      let st = await h.queryPermission({ mode: "readwrite" }); if (st !== "granted" && ask) st = await h.requestPermission({ mode: "readwrite" });
+      return st === "granted" ? h : null;
+    },
+    async keepFolder(key, h) { if (this.testMode) this._kept[key] = h; else await idb.set("dir:" + key, h); },
+    async hasKeptFolder(key) { return this.testMode ? !!this._kept[key] : !!(await idb.get("dir:" + key).catch(() => null)); },
     // folder for one chapter's audio: <Studio>/<Book folder>/audio/<chapter id>/
     async chapterAudioDir(book, chapter) {
       const b = await this.studio.getDirectoryHandle(book.folder, { create: true });

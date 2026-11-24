@@ -135,6 +135,8 @@
     // what's under the pointer: a fade dot, a clip edge, or nothing special
     const hitTest = e => {
       const r = cv.getBoundingClientRect(), v = view(), hs = laneHs(), x = e.clientX - r.left, y = e.clientY - r.top;
+      // a marker's flag, on the ruler: drag it along, right-click to remove
+      if (y < RULER + 12) { let mk = null; for (const m of B.audio.markers) { const d = Math.abs(x - (m.t - v.t0) * v.pps); if (d <= 6 && (!mk || d < mk.d)) mk = { kind: "mk", id: m.id, d }; } if (mk) return mk; }
       if (y < RULER) return null;
       const ti = laneAt(y, hs), LH = hs[ti], top = laneTop(ti, hs), clips = B.audio.tracks[ti].clips, X = t => (t - v.t0) * v.pps;
       for (const m of B.audio.markers) if (!m.done && !m.slot) { const z = pkZone(m); if (Math.abs(x - X(z.a)) <= 5) return { kind: "pz", side: "a", id: m.id }; if (Math.abs(x - X(z.b)) <= 5) return { kind: "pz", side: "b", id: m.id }; }
@@ -156,6 +158,7 @@
       if (!B || B.rec) return;
       const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = p.ly < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
+      if (h && h.kind === "mk") { if (e.button === 2) return; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "fade") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); B.track = h.ti; return; }
       if (h && h.kind === "edge") { const c = B.audio.tracks[h.ti].clips[h.ci]; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false, orig: JSON.stringify(B.audio), src: srcDurOf(c.file), t0: h.edge === "start" ? c.at : c.at + c.dur }); B.track = h.ti; return; }
@@ -168,8 +171,12 @@
       drawWave();
     };
     cv.onpointermove = e => {
-      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : "ew-resize") : ci >= 0 && (p.ly < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
+      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : h.kind === "mk" ? "col-resize" : "ew-resize") : ci >= 0 && (p.ly < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
       const p = pos(e);
+      if (d.kind === "mk") {
+        const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; if (Math.abs(e.clientX - d.x0) > 2) d.moved = true; if (!d.moved) return;
+        m.t = +Math.max(0, Math.min(len(), p.t)).toFixed(3); cv.style.cursor = "ew-resize"; drawWave(); return;
+      }
       if (d.kind === "pz") {
         const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; d.moved = true; pkZone(m); cv.style.cursor = "ew-resize";
         const t = Math.max(0, Math.min(len(), p.t));
@@ -202,9 +209,13 @@
       else if (Math.abs(e.clientX - d.x0) > 3) { B.selTake = null; B.sel = { a: Math.max(0, Math.min(d.a, p.t)), b: Math.min(len(), Math.max(d.a, p.t)) }; }
       drawWave();
     };
+    cv.addEventListener("contextmenu", e => { if (!B || B.rec) return; const h = hitTest(e); if (!h || h.kind !== "mk") return; e.preventDefault();
+      const k = B.audio.markers.findIndex(m => m.id === h.id); if (k < 0) return; pushUndo(); const m = B.audio.markers.splice(k, 1)[0];
+      Store.saveBook(B.book); drawWave(); renderSide(); toast((m.cut ? "✂ mark" : "Marker") + " removed. Undo brings it back."); });
     cv.onpointerup = e => {
       const d = B && B.dragging; if (!d) return; B.dragging = null;
       const p = pos(e);
+      if (d.kind === "mk") { if (!d.moved) { B.undo.pop(); return; } B.audio.markers.sort((a, b) => a.t - b.t); Store.saveBook(B.book); renderSide(); return; }
       if (d.kind === "pz") { if (!d.moved) { B.undo.pop(); return; } Store.saveBook(B.book); renderSide(); return; }
       if (d.kind === "fade" || d.kind === "edge") {
         B.trimView = null;

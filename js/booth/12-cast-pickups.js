@@ -280,8 +280,30 @@
     return put;
   }
   // the reader's side: record one pickup in a small booth of its own, then send it
+  // the voices a pickup can wear: my tracks in this book (their armed effects and track sound), and my saved voice presets
+  function pickupVoices() {
+    const out = [{ id: "", label: "No effect", fx: null }], ts = trackSet();
+    B.audio.tracks.forEach((_, i) => { const st = ts[i] || {}; const fx = { armed: st.armed || [], chain: LRFx.chainOf(st) }; if (fx.armed.length || LRFx.chainActive(fx.chain)) out.push({ id: "t" + i, label: (st.name || "Track " + (i + 1)) + (fx.armed.length ? " · " + fx.armed.map(e => LRFx.KINDS[e.k].name).join(", ") : ""), fx }); });
+    for (const [name, pr] of Object.entries(Store.settings.fxPresets || {})) out.push({ id: "p:" + name, label: "Preset · " + name, fx: { armed: pr.armed || [], chain: LRFx.chainOf(pr) } });
+    return out;
+  }
+  // which of my tracks holds the line being picked up, in that chapter (from my word timing)
+  function pickupTrackOf(q) {
+    const ch = B.book.chapters.find(c => c.id === q.chapterId), au = ch && ch.audio && ch.audio[B.readingAs]; if (!au || !au.anchors) return null;
+    const p = au.anchors.find(a => a[1] >= q.w0); if (!p) return null;
+    const ti = (au.tracks || []).findIndex(t => (t.clips || []).some(c => c.at <= p[0] && c.at + c.dur >= p[0])); return ti >= 0 ? "t" + ti : null;
+  }
+  async function voiced(x, fx) {
+    if (!fx) return x;
+    const R = LRAudio.RATE, tail = LRFx.tailOf(fx.armed || []), y0 = new Float32Array(x.length + Math.round(tail * R)); y0.set(x);
+    let y = fx.armed && fx.armed.length ? await LRFx.runList(fx.armed, y0, R) : y0;
+    if (LRFx.chainActive(fx.chain)) { y = Float32Array.from(y); new LRFx.Chain(fx.chain, R).process(y); }
+    return y;
+  }
   function pickupRecorder(q) {
     if (B.rec) return;
+    const voices = pickupVoices(), remembered = Store.lsGet("lr-pkfx-" + B.book.id), guess = pickupTrackOf(q);
+    let voice = [guess, remembered].find(v => v && voices.some(o => o.id === v)) || "";
     const ov = document.createElement("div"); ov.className = "overlay pk-ov";
     let chunks = [], rec = false, t0 = 0, raf = 0, playCtx = null; const prevFrames = B.mic.onFrames;
     const total = () => chunks.reduce((a, c) => a + c.length, 0), joined = () => { const x = new Float32Array(total()); let o = 0; for (const c of chunks) { x.set(c, o); o += c.length; } return x; };
@@ -290,6 +312,7 @@
       ov.innerHTML = `<div class="card reader pk-card"><div class="pk-head"><b>🔁 Pickup for ${esc(q.asker)}</b><span class="muted">${esc(q.chapter || "")}</span></div>
         ${q.ctx ? `<div class="pk-ctx">…${esc(q.ctx)}</div>` : ""}<div class="pk-line">${esc(q.text)}</div>
         ${q.note ? `<div class="pk-note">“${esc(q.note)}” — ${esc(q.asker)}</div>` : ""}
+        ${voices.length > 1 ? `<label class="pk-fx">Effect<select id="pk-voice">${voices.map(o => `<option value="${esc(o.id)}" ${o.id === voice ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>` : ""}
         <div class="pk-meter"><i id="pk-lvl"></i></div><div class="pk-time" id="pk-time">${(total() / LRAudio.RATE).toFixed(1)} s</div>
         <div class="row pk-btns"><button class="btn ${rec ? "" : "primary"}" data-k="rec">${rec ? "■ Stop (S)" : has ? "● Record again (R)" : "● Record (R)"}</button><button class="btn" data-k="play" ${has && !rec ? "" : "disabled"}>▶ Listen</button>
           <div class="spacer"></div><button class="btn quiet" data-k="x">Close</button><button class="btn primary" data-k="send" ${has && !rec ? "" : "disabled"}>✓ Send to ${esc(q.asker)}</button></div></div>`;
@@ -301,13 +324,14 @@
     const stop = () => { rec = false; B.mic.onFrames = prevFrames; draw(); };
     const close = () => { rec = false; stopPlay(); cancelAnimationFrame(raf); document.removeEventListener("keydown", key, true); if (B) B.mic.onFrames = prevFrames; ov.remove(); };
     let sending = false;
-    const play = () => { stopPlay(); const x = joined(); if (!x.length) return; playCtx = new AudioContext({ sampleRate: LRAudio.RATE }); const buf = playCtx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = playCtx.createBufferSource(); s.buffer = buf; s.connect(playCtx.destination); s.start(); };
+    const play = async () => { stopPlay(); const x = await voiced(joined(), (voices.find(o => o.id === voice) || {}).fx); if (!x.length) return; playCtx = new AudioContext({ sampleRate: LRAudio.RATE }); const buf = playCtx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = playCtx.createBufferSource(); s.buffer = buf; s.connect(playCtx.destination); s.start(); };
     const send = async () => {
       if (sending) return; sending = true; const sb = $("[data-k=send]", ov); if (sb) { sb.disabled = true; sb.textContent = "Sending…"; }
       const x = joined(), E = envOf(x); let f = 0, l = E.n - 1; while (f < E.n && E.env[f] < E.thr) f++; while (l > f && E.env[l] < E.thr) l--;
       if (f >= E.n) { sending = false; draw(); toast("That take is silent. Check the microphone and record again."); return; }
       const a = Math.max(0, f * 0.01 - 0.15), b = Math.min(x.length / LRAudio.RATE, (l + 1) * 0.01 + 0.3);
-      try { const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, x, a, b);
+      try { const R = LRAudio.RATE, fx = (voices.find(o => o.id === voice) || {}).fx, y = await voiced(x.slice(Math.round(a * R), Math.round(b * R)), fx);
+        const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, y, 0, y.length / R);
         await Store.savePickupReply(book, me, q.id, { file: name, dur, made: new Date().toISOString() });
         close(); if (!B) return; renderSide(); const left = pkForMe().filter(z => !Store.pickupReply(B.book, z)).length;
         if (window.LRCele && !left) LRCele.celebrate({ title: "PICKUPS SENT", sub: "All of them, to " + q.asker, level: 1, noConfetti: true }); else notice("✓ Sent to " + q.asker + "." + (left ? " " + left + " to go." : ""));
@@ -316,6 +340,7 @@
     const key = e => { if (e.target.closest && e.target.closest("input,textarea")) return; const k = e.key.toLowerCase();
       if (k === "r" && !rec) { e.preventDefault(); e.stopImmediatePropagation(); start(); } else if ((k === "s" || k === " ") && rec) { e.preventDefault(); e.stopImmediatePropagation(); stop(); }
       else if (k === "escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); } else if (["r", "s", " ", "f", "m", "n", "c", "e"].includes(k)) { e.preventDefault(); e.stopImmediatePropagation(); } };
+    ov.onchange = e => { if (e.target.id === "pk-voice") { voice = e.target.value; Store.lsSet("lr-pkfx-" + B.book.id, voice); } };
     ov.onclick = e => { const b = e.target.closest("[data-k]"); if (!b || b.disabled) return; ({ rec: () => rec ? stop() : start(), play, send, x: close })[b.dataset.k](); };
     document.addEventListener("keydown", key, true);
     draw(); document.body.appendChild(ov); tick();
@@ -371,5 +396,5 @@
 
   window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a) };
   // Test hooks exist only in ?test mode, so the everyday app carries no back door.
-  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
+  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, view, RULER, drawWave, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
 })();

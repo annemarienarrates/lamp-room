@@ -52,6 +52,8 @@
       toast("Now working as " + e.detail.to + ". Their look, hotkeys and goals are in place.");
     });
     // measured pace arrives a moment after start-up (and after each save): redraw what shows it
+    // Auphonic progress: the Dashboard's Heads up and the Auphonic card follow along (at most once a second)
+    { let t = 0; document.addEventListener("lr-auphonic", () => { if (t) return; t = setTimeout(() => { t = 0; if (["library", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim, input:focus, select:focus")) render(); }, 1000); }); }
     document.addEventListener("lr-pace", () => { if (["library", "book", "settings"].includes(route.name) && !document.querySelector(".overlay, #layer .scrim, input:focus")) render(); });
     document.addEventListener("lr-external", e => {
       const d = e.detail || []; if (d.includes("settings")) applyTheme();
@@ -383,7 +385,7 @@
     for (const o of (LL.billsOverdue ? LL.billsOverdue() : [])) heads.push({ cls: "bad", html: `🧾 ${esc(o.b.name)} for ${esc(LL.monthName(o.ym))} is ${o.days} days late · ${money(o.amt)}`, go: "#/ledger" });
     for (const bl of (P.bills || []).filter(b => b.active !== false)) { const ym = today.slice(0, 7), d = LL.billDate(bl, ym); if (!(bl.paid || {})[ym] && d >= today && d <= LL.addDays(today, 7)) heads.push({ cls: "", html: `🧾 ${esc(bl.name)} ${money(LL.billAmount(bl, ym))} due ${esc(LL.fmtShort(d))}`, go: "#/ledger" }); }
     let yd = LL.addDays(today, -1), guard = 0; while (!LL.isWorkday(me, yd) && guard++ < 7) yd = LL.addDays(yd, -1);
-    if (LL.isWorkday(me, yd) && !(P.logs || []).some(l => l.date === yd && (l.person === me || (l.entries || []).some(e => e.person === me)))) heads.push({ cls: "", html: `No log for ${esc(LL.fmt(yd))} yet`, go: "#/log" });
+    if (LL.isWorkday(me, yd) && !(LL.boothOn && LL.boothOn(me, yd).length) && !(P.logs || []).some(l => l.date === yd && (l.person === me || (l.entries || []).some(e => e.person === me)))) heads.push({ cls: "", html: `No log for ${esc(LL.fmt(yd))} yet`, go: "#/log" });
     // pickups through the shared folder: asked of me, or sent back to me
     for (const b of Store.books) {
       const qs = Store.pickupReqs(b), ch = id => b.chapters.findIndex(c => c.id === id);
@@ -392,7 +394,11 @@
       const back = qs.filter(q => q.asker === meName && q.status === "open" && Store.pickupReply(b, q));
       if (back.length) heads.unshift({ cls: "", html: `🔁 <b>${back.length} pickup${back.length === 1 ? "" : "s"}</b> came back from ${esc([...new Set(back.map(q => q.to))].join(" & "))} for ${esc(b.title)}: they go in when you open the chapter`, go: "#/booth/" + b.id + "/" + Math.max(0, ch(back[0].chapterId)) + "?tab=pickups" });
     }
-    const headCard = `<div class="dt-card"><div class="dt-label">Heads up</div>${heads.length ? heads.slice(0, 7).map(h => `<div class="head-row ${h.cls}" data-go="${esc(h.go)}">${h.html}</div>`).join("") + (heads.length > 7 ? `<div class="dt-empty"><a href="#/almanac">${heads.length - 7} more on the Almanac</a></div>` : "") : `<div class="dt-empty">All quiet.</div>`}</div>`;
+    for (const j of (window.LRAuphonic && LRAuphonic.key() ? LRAuphonic.jobs() : [])) heads.unshift({ cls: j.error ? "bad" : j.need ? "warn" : "", html: `🎚 ${esc(j.title || j.name)} · ${esc(j.state || "")}`, go: j.need === "click" ? "aup:retry" : "#/settings?tab=computer", keep: true });
+    // × hides an item until it changes (a new date or amount makes it a new item); dismissals are yours alone
+    const hx = (() => { try { return JSON.parse(Store.lsGet("lr-heads-x") || "{}"); } catch (e) { return {}; } })(), hk = h => h.html.replace(/<[^>]+>/g, "").trim();
+    const shown = heads.filter(h => h.keep || !hx[hk(h)]), hidden = heads.length - shown.length;
+    const headCard = `<div class="dt-card"><div class="dt-label">Heads up</div>${shown.length ? shown.slice(0, 7).map(h => `<div class="head-row ${h.cls}" data-go="${esc(h.go)}"><span style="flex:1">${h.html}</span>${h.keep ? "" : `<button class="head-x" data-headx="${esc(hk(h))}" title="Dismiss" aria-label="Dismiss">×</button>`}</div>`).join("") + (shown.length > 7 ? `<div class="dt-empty"><a href="#/almanac">${shown.length - 7} more on the Almanac</a></div>` : "") : `<div class="dt-empty">All quiet.</div>`}${hidden ? `<div class="dt-empty"><button class="lnk" data-headback>Show ${hidden} dismissed</button></div>` : ""}</div>`;
     const ring = (id, label, sub) => `<div class="ring" id="${id}"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="trk" cx="32" cy="32" r="28.5" stroke-width="7"/><circle class="arc" cx="32" cy="32" r="28.5" stroke-width="7" transform="rotate(-90 32 32)" stroke-dasharray="179.07" stroke-dashoffset="179.07"/></svg><div class="ctr">—</div><div class="lbl">${label}</div><div class="sub">${sub}</div></div>`;
     const cb = (() => { try { return JSON.parse(Store.lsGet("lr-combo-best") || "null"); } catch (e) { return null; } })();
     const todayCard = `<div class="dt-card"><div class="dt-label">Today${meName ? " · " + esc(meName) : ""}</div><div class="rings">
@@ -418,7 +424,9 @@
     $$("[data-id]").forEach(el => el.onclick = e => { if (stop(e)) return; location.hash = "#/book/" + el.dataset.id; });
     $$("[data-tid]").forEach(el => el.onclick = e => { if (stop(e)) return; LL.titleForm(structuredClone(LL.tById(el.dataset.tid))); });
     $$("[data-tcard]").forEach(el => el.onclick = () => LL.titleForm(structuredClone(LL.tById(el.dataset.tcard))));
-    $$("[data-go]").forEach(el => el.onclick = () => { location.hash = el.dataset.go; });
+    $$("[data-go]").forEach(el => el.onclick = async () => { if (el.dataset.go === "aup:retry") { await LRAuphonic.retry(); render(); return; } location.hash = el.dataset.go; });
+    $$("[data-headx]").forEach(b => b.onclick = e => { e.stopPropagation(); let x = {}; try { x = JSON.parse(Store.lsGet("lr-heads-x") || "{}"); } catch (er) {} x[b.dataset.headx] = new Date().toISOString().slice(0, 10); Store.lsSet("lr-heads-x", JSON.stringify(x)); viewLibrary(); });
+    { const hb = $("[data-headback]"); if (hb) hb.onclick = () => { Store.lsSet("lr-heads-x", "{}"); viewLibrary(); }; }
     $$("[data-star]").forEach(el => el.onclick = async e => { e.stopPropagation(); const b = Store.byId(el.dataset.star);
       if (b.titleId && LL.tById(b.titleId)) { const t = LL.tById(b.titleId), on = !t.starred; for (const o of LL.S.titles.filter(x => x.starred && x.id !== t.id)) await LL.patch("titles", o.id, { starred: false }); await LL.patch("titles", t.id, { starred: on }); toast(on ? "⭐ " + (t.short || t.name) + " goes first, deadlines permitting." : "Star removed."); }
       else { const on = !b.star; Store.books.forEach(x => { if (x.star && x !== b) { x.star = false; Store.saveBook(x); } }); b.star = on; Store.saveBook(b); }
@@ -615,7 +623,7 @@
       <table class="ch" style="margin-top:6px"><thead><tr><th>Part</th><th class="num">Passages</th><th class="num">Words</th><th>Read by</th>${book._cs ? "<th>From the casting sheet</th>" : ""}</tr></thead><tbody>
       ${keys.map(k => `<tr><td><span class="sw" style="background:${partSwatch(k)}"></span> ${esc(Prep.partLabel(k))}${k === "n" ? ' <span class="muted small">(unhighlighted; a chapter\'s POV switch overrides it)</span>' : ""}</td><td class="num">${num(found[k].passages)}</td><td class="num">${num(found[k].words)}</td>
         <td><select data-part="${esc(k)}">${k === "n" ? "" : `<option value="" ${book.parts[k] ? "" : "selected"}>Same as narration</option>`}${readerOptions(book.parts[k], book)}</select>${CAST.includes(book.parts[k]) ? ` <input class="cast-real" data-castname="${book.parts[k]}" value="${esc((book.castNames || {})[book.parts[k]] || "")}" placeholder="their name" list="castpeople" title="Who ${book.parts[k]} is: shown to you and the editor in the Booth" style="width:150px">` : ""}</td>${book._cs ? `<td class="small">${castSheetCell(book._cs, k)}</td>` : ""}</tr>`).join("")}
-      </tbody></table><datalist id="castpeople">${[...new Set((book.sharedPeople || []).filter(x => x.role === "outside").map(x => x.name).concat((Store.settings.people || []).filter(p => !p.team).map(p => p.full || p.name)))].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+      </tbody></table><datalist id="castpeople">${[...new Set((book.sharedPeople || []).filter(x => x.role === "outside").map(x => x.name).concat(Store.books.flatMap(b => Object.values(b.castNames || {}))))].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
       <div class="small muted" style="margin-top:6px">${Object.entries(rw).filter(([k]) => k !== "?").map(([k, v]) => esc(Store.castName(book, k)) + " voices " + num(v) + " words").join(" · ")}</div></div>`;
   }
   function setStatus(book, c, v) {
@@ -978,13 +986,24 @@
       ${list.map(x => `<div class="cast-row"><b style="flex:1">${esc(x.char)}</b>${rd ? readBySel(x) : ""}<span class="small muted">${LRCues.tidyLines(x.lines).length} lines${miss ? ` · ${LRCues.tidyLines(x.lines).length - missOf(x.id)} placed` : ""} · ${esc(x.file || "")}</span><button class="btn small" data-csre="${x.id}" title="A newer version of this script">Replace</button><button class="btn small ghost" data-csdel="${x.id}" title="Remove">✕</button></div>`).join("")}
       <div class="row" style="margin-top:8px"><button class="btn" id="csadd">+ Add a character script</button></div>
       ${lead && offAll.length ? `<details style="margin-top:10px" open><summary class="small"><b>${offAll.length} line${offAll.length === 1 ? "" : "s"} where the script and the highlighting disagree</b></summary>
-        <p class="small muted" style="margin:6px 0">Fix the highlight in the Booth (select the words, pick the reader), or change the script's Read by.</p>
+        <p class="small muted" style="margin:6px 0">Fix the highlight in the Booth (select the words, pick the reader), or change the script's Read by. Or, since the actors read from their scripts: <button class="btn small" id="csfollow">Give all ${offAll.length} to the reader their script names</button></p>
         <div class="small" style="max-height:260px;overflow:auto">${offAll.map(o => `<div class="ask-row"><div><b>${esc(o.char)}</b> <span class="muted">· ${esc(o.c.title)} · script: ${esc(o.readBy)} · highlighted: ${esc(o.hl)}</span><div>${esc(o.text.length > 140 ? o.text.slice(0, 140) + "…" : o.text)}</div></div><div class="ask-act"><a class="btn small quiet" href="#/booth/${esc(book.id)}/${book.chapters.indexOf(o.c)}">Go</a></div></div>`).join("")}</div></details>` : ""}
       ${miss && miss.length ? `<details style="margin-top:10px"><summary class="small">${miss.length} line${miss.length === 1 ? "" : "s"} couldn't be placed</summary><div class="small" style="max-height:240px;overflow:auto">${miss.map(m => `<div style="margin:4px 0"><b>${esc(m.char)}</b> · ${esc(m.ch || "?")} <span class="muted">(${esc(m.why)})</span><br>“${esc(m.text.slice(0, 160))}”</div>`).join("")}</div><p class="small muted">Usually the manuscript changed after the script was made. These lines just don't get a cue.</p></details>` : ""}
     </details>`;
   }
   function bindCharScripts(book, save) {
     const el = $("#cscripts"); if (!el) return;
+    { const fb = $("#csfollow", el); if (fb) fb.onclick = () => {
+      const cache = new Map(), rd = LRCues.readers(book, c => cache.get(c) || (cache.set(c, Prep.tokens(c)), cache.get(c)));
+      const offs = Object.values(rd).flatMap(r => r.off.map(o => Object.assign({ readBy: r.readBy }, o)));
+      if (!offs.length || !confirm("Give " + offs.length + " line" + (offs.length === 1 ? "" : "s") + " to the reader their script names? This changes the book's highlighting for everyone (a backup is kept).")) return;
+      // the script's reader, as the book knows them: a narrator by name, or the Cast slot holding that name
+      const readerOfName = n => { const cast = Object.keys(book.castNames || {}).find(k => Store.samePerson(book.castNames[k], n)); if (cast) return cast; const team = (Store.settings.narrators || []).find(x => Store.samePerson(x.name, n)); return team ? team.name : n; };
+      const parts = book.parts = book.parts || {};
+      const partFor = r => { if (parts.n === r && !Object.keys(parts).some(k => k !== "n" && parts[k] === r)) return "n"; let k = Object.keys(parts).find(k => k !== "n" && parts[k] === r); if (!k) { k = "r:" + r; parts[k] = r; } return k; };
+      // last first in each chapter, so earlier word numbers stay put (they don't move, but it costs nothing)
+      offs.sort((x, y) => y.a - x.a).forEach(o => Prep.setPart(o.c, o.a, o.b, partFor(readerOfName(o.readBy))));
+      save(true); toast("✓ " + offs.length + " lines now follow the actors' scripts."); viewBook(); }; }
     $$("[data-csby]", el).forEach(sel => sel.onchange = () => { const x = (book.cues.scripts || []).find(z => z.id === sel.dataset.csby); if (!x) return; if (sel.value) x.readBy = sel.value; else delete x.readBy; save(true); });
     el.ontoggle = () => { const was = !!csOpen[book.id]; csOpen[book.id] = el.open; if (el.open && !was && LRCues.has(book)) viewBook(); };
     const pick = () => new Promise(res => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".docx"; inp.onchange = () => res(inp.files[0]); inp.click(); });
@@ -1091,9 +1110,9 @@
   // Settings in four tabs, with a search across all of them. Cards are sorted by their title, so new cards only
   // need a line here; an unknown card lands in "Me". The open tab is remembered on this computer.
   const SET_TABS = [["me", "Me"], ["computer", "This computer"], ["money", "Books & money"], ["look", "Look"]];
-  const SET_CARD_TAB = { "Who's working here": "me", "People": "me", "Reading & proofing": "me",
+  const SET_CARD_TAB = { "Who's working here": "me", "Estimates": "money", "Who works in this Library": "money", "Reading & proofing": "me",
     "This computer": "computer", "Auphonic": "computer", "Library folder": "computer", "Recordings on this computer": "computer", "Backups": "computer", "Problem log": "computer",
-    "Estimates": "money", "Clients & credits": "money", "Planning & money": "money", "Export file names": "money", "Look & feel": "look" };
+    "Clients & credits": "money", "Planning & money": "money", "Export file names": "money", "Look & feel": "look" };
   function settingsTabs() {
     const root = main(), cards = $$(":scope > .card", root);
     const order = Object.keys(SET_CARD_TAB), title = c => { const h = $("h3", c); return h ? h.textContent.trim() : ""; };
@@ -1122,7 +1141,8 @@
     $("#setq").oninput = show;
     show();
   }
-  function viewSettings() {
+  async function viewSettings() {
+    const aupDriveSet = await Store.hasKeptFolder("auphonic-drive").catch(() => false);
     const S = Store.settings;
     const sample = S.namePattern.replace(/\{(\w+)\}/g, (m, k) => ({ book: "The Salt Crown", chapter: "Chapter 3", n: "3", nn: "03", nnn: "003", title: "The Drowned Road" }[k] || m));
     main().innerHTML = `<h1>Settings</h1>
@@ -1151,18 +1171,16 @@
         <label>Listening<select id="pfk">${[["careful", "Careful (better with names, a bit slower)"], ["fast", "Fast"]].map(([v, l]) => `<option value="${v}" ${(S.proofModel || "careful") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <button class="btn small quiet" id="pfl">Download it now</button></div>
         <p class="small muted" style="margin:6px 0 0">Live always listens fast, so it keeps up. Names and made-up words it doesn't know: press <b>Always ignore</b> on the flag and it won't flag that word again in the book.</p></div>
-      <div class="card"><h3>People</h3><p class="small muted">One record for each person: you, Jack, co-narrators and cast. The app finds someone by any of their spellings, so “Anne”, “Anne Marie” and a full credit name are one person. <b>Works here</b> puts them in Who's working here and the planner. Booth pace is words per booth hour, used until the Booth has measured it.</p>
+      <div class="card"><h3>Who works in this Library</h3><p class="small muted">The people who share this Library (its books, planner and money): for you two, that's you and Jack. Each has a name, the full and credit names they go by, and a booth pace (words per booth hour) used until the Booth has measured it. Cast and co-narrators aren't listed here: they live on each book (Who reads what, Cast 1–4 and the shared project list).</p>
         ${(S.people || []).map((p, i) => `<div class="person-row ${p.team ? "team" : ""}">
           <label>Name<input data-pp="${i}" data-k="name" value="${esc(p.name)}"></label>
           <label>Full name<input data-pp="${i}" data-k="full" value="${esc(p.full || "")}" placeholder="${esc(p.name)}"></label>
           <label title="How they appear in audiobook credits">Credit name<input data-pp="${i}" data-k="credit" value="${esc(p.credit || "")}" placeholder="${esc(p.full || p.name)}"></label>
           <label class="wide" title="Other spellings, separated by commas">Also known as<input data-pp="${i}" data-k="aka" value="${esc((p.aka || []).join(", "))}" placeholder="other spellings"></label>
           <label>Booth pace<input type="number" data-pp="${i}" data-k="pace" value="${esc(p.pace || "")}" placeholder="—" style="width:96px"></label>
-          <label class="check" title="Works in this Library: shows in Who's working here and the planner"><input type="checkbox" data-pp="${i}" data-k="team" ${p.team ? "checked" : ""}> Works here</label>
           <button class="btn small quiet" data-delp="${i}" title="Remove ${esc(p.name)}" ${p.team && (S.people || []).filter(x => x.team).length < 2 ? "disabled" : ""}>✕</button>
           ${p.team && LRPace.ready ? (o => `<div class="small muted pace-line">Measured: ${o && o.pace && o.hours ? `<b>${num(o.pace)}</b> words / booth hour overall (last 60 days, ${o.hours} h)` : "not enough booth time yet"}${LRPace.bySeries(p.name).filter(x => x.hours >= 1).map(x => ` · ${esc(x.name)} <b>${num(x.pace)}</b> (${x.hours} h)`).join("")}</div>`)(LRPace.overall(p.name)) : ""}</div>`).join("")}
-        <div class="row" style="margin-top:8px"><button class="btn small" id="addp">+ Person</button></div>
-        ${(u => u.length ? `<div class="small" style="margin-top:12px"><span class="muted">In your books but not in People yet:</span> ${u.map((x, i) => `<span class="chip-add">${esc(x.name)} <span class="muted">(${esc(x.from)})</span> <button class="lnk" data-addu="${i}">Add</button></span>`).join(" ")}</div>` : "")(LRPeople.unknown())}</div>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="addp">+ Someone else who works in this Library</button></div></div>
       <div class="card"><h3>Estimates</h3><div class="row">
         <label title="Shared with the planner: one setting. Once books are finished in the Lamp Room, it's measured from them.">Words per finished hour<input type="number" id="wp" value="${(window.LL && LL.S && LL.S.cfg && LL.S.cfg.wordsPerFH) || S.wpfh}" style="width:120px"><span class="small muted">now using ${num(LRPace.wpfh())}: ${esc(LRPace.wpfhFrom())}</span></label>
         <div class="small muted" style="align-self:center">Hours a day: ${(S.narrators || []).map(n => esc(n.name) + " " + LRPace.hoursPerDay(n.name)).join(" · ")}, from <a href="#/settings?tab=money">Planning &amp; money</a>.</div>
@@ -1188,7 +1206,11 @@
       <div class="card" id="aupcard"><h3>Auphonic</h3><p class="small muted">Master chapters from the Booth's Export (🎚 Master with Auphonic). Your API key is in your Auphonic account settings (API Key); paste it here. It stays in this browser on this computer: never in the Library, the shared folder or anyone else's Lamp Room.</p>
         <div class="row" style="align-items:center"><label style="flex:1">API key<input type="password" id="aupkey" autocomplete="off" value="${LRAuphonic.key() ? "••••••••••••" : ""}" placeholder="Paste your Auphonic API key"></label><button class="btn small" id="aupsave">Save &amp; check</button>${LRAuphonic.key() ? `<button class="btn small quiet" id="aupclear">Remove</button>` : ""}</div>
         <div class="small" id="aupstat">${LRAuphonic.key() ? "Key saved on this computer." : ""}</div>
-        ${(j => j.length ? `<div class="section-label" style="margin-top:10px">At Auphonic now</div>${j.map(x => `<div class="small">${esc(x.title || x.name)} · <b>${esc(x.state || "")}</b> <button class="lnk" data-aupx="${esc(x.uuid)}">remove from list</button></div>`).join("")}` : "")(LRAuphonic.jobs())}</div>
+        ${LRAuphonic.key() ? `<div class="section-label" style="margin-top:12px">Results come home through Google Drive</div>
+          <p class="small muted" style="margin:2px 0 6px">In Auphonic, connect your Google Drive (Account ▸ External Services). Pick it here, then show the Lamp Room the folder Auphonic writes into on this computer (inside My Drive). Mastered files land there, Drive brings them down, and they're filed into Studio ▸ Mastered.</p>
+          <div class="row" style="align-items:center;gap:8px"><select id="aupsvc" style="flex:1"><option value="">Download straight from Auphonic</option>${(l => (LRAuphonic.service() && !l.some(x => x.uuid === LRAuphonic.service()) ? l.concat([{ uuid: LRAuphonic.service(), name: Store.lsGet("lr-auphonic-svcname") || "Google Drive", type: "" }]) : l).map(x => `<option value="${esc(x.uuid)}" ${x.uuid === LRAuphonic.service() ? "selected" : ""}>${esc(x.name)}${x.type ? " (" + esc(x.type) + ")" : ""}</option>`).join(""))(LRAuphonic.cachedServices())}</select><button class="btn small quiet" id="aupsvcload">↻ Get my services</button></div>
+          <div class="row" style="align-items:center;gap:8px;margin-top:6px"><button class="btn small" id="aupdrive">📁 ${aupDriveSet ? "Change the Auphonic folder…" : "Show me the Auphonic folder…"}</button><span class="small muted">${aupDriveSet ? "Set on this computer." : "Not set yet."}</span></div>` : ""}
+        ${(j => j.length ? `<div class="section-label" style="margin-top:10px">At Auphonic now</div>${j.map(x => `<div class="small">${esc(x.title || x.name)} · <b>${esc(x.state || "")}</b> ${x.need === "click" ? `<button class="lnk" data-aupretry>allow</button> · ` : ""}<button class="lnk" data-aupx="${esc(x.uuid)}">remove from list</button></div>`).join("")}` : "")(LRAuphonic.jobs())}</div>
       <div class="card"><h3>Recordings on this computer</h3><p class="small muted">Recordings live in this computer's Studio folder${Store.studio ? " (📁 " + esc(Store.studio.name) + ")" : ""}, not in the shared folder. After sharing one booth, move a person's takes to their own computer: copy them out here to a USB drive or a Drive folder, then bring them in on the other Mac. Nothing is deleted or overwritten.</p>
         <div class="row"><label>Whose takes<select id="tkWho">${S.narrators.map(n => `<option ${n.name === Store.me() ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label><button class="btn small" id="tkOut">Copy their takes to a folder…</button><button class="btn small" id="tkIn">Bring takes in from a folder…</button><span class="small muted" id="tkRes"></span></div></div>
       <div class="card"><h3>Backups</h3><p class="small muted">Once a day this computer saves a copy of your books, everyone's progress, the planner and booth sessions into the Library's <b>Backups</b> folder (recordings stay in the Studio folder). Each of you keeps your last ${LRBackup.KEEP} days. Restoring a book is for its Lead; a fresh backup is made first, so a restore can be undone.</p>
@@ -1246,14 +1268,18 @@
       LRPeople.mirror(); save(); if (k === "name" || k === "team") viewSettings();
     });
     $$("[data-delp]").forEach(b => b.onclick = () => { const p = S.people[+b.dataset.delp]; if (!confirm("Remove " + p.name + " from People? Books that name them keep the name.")) return; S.people.splice(+b.dataset.delp, 1); LRPeople.mirror(); save(); viewSettings(); });
-    $("#addp").onclick = () => { LRPeople.add({ name: "New person" }); save(); viewSettings(); };
-    const unk = LRPeople.unknown();
-    $$("[data-addu]").forEach(b => b.onclick = () => { const x = unk[+b.dataset.addu]; LRPeople.add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" }); save(); viewSettings(); });
+    $("#addp").onclick = () => { LRPeople.add({ name: "New person", team: true }); LRPeople.mirror(); save(); viewSettings(); };
     { const k = $("#aupkey"), sv = $("#aupsave"), cl = $("#aupclear"), stt = $("#aupstat");
       if (sv) sv.onclick = async () => { const v = k.value.trim(); if (v && !/^•+$/.test(v)) LRAuphonic.setKey(v); if (!LRAuphonic.key()) { stt.textContent = "Paste your key first."; return; }
         stt.textContent = "Checking with Auphonic…"; try { const u = await LRAuphonic.user(); const ps = await LRAuphonic.presets(); stt.innerHTML = "✓ Connected as <b>" + esc(u.username || u.email || "you") + "</b>" + (u.credits != null ? " · " + esc(String(u.credits)) + " h of credits" : "") + " · " + ps.length + " presets: " + esc(ps.map(p => p.name).join(", ")); k.value = "••••••••••••"; } catch (e) { stt.textContent = e.message; } };
       if (cl) cl.onclick = () => { LRAuphonic.setKey(""); viewSettings(); };
-      $$("[data-aupx]").forEach(b => b.onclick = () => { LRAuphonic.remove(b.dataset.aupx); viewSettings(); }); }
+      $$("[data-aupx]").forEach(b => b.onclick = () => { LRAuphonic.remove(b.dataset.aupx); viewSettings(); });
+      $$("[data-aupretry]").forEach(b => b.onclick = async () => { await LRAuphonic.retry(); viewSettings(); });
+      const svc = $("#aupsvc"); if (svc) svc.onchange = () => { LRAuphonic.setService(svc.value); Store.lsSet("lr-auphonic-svcname", svc.selectedOptions[0].textContent); };
+      const sl = $("#aupsvcload"); if (sl) sl.onclick = async () => { try { const list = await LRAuphonic.services(), cur = LRAuphonic.service();
+        svc.innerHTML = `<option value="">Download straight from Auphonic</option>` + list.map(x => `<option value="${esc(x.uuid)}" ${x.uuid === cur ? "selected" : ""}>${esc(x.name)} (${esc(x.type)})</option>`).join("");
+        if (!list.some(x => /drive/i.test(x.type))) toast("No Google Drive connected in Auphonic yet: Auphonic ▸ Account ▸ External Services."); } catch (e) { toast(e.message); } };
+      const dv = $("#aupdrive"); if (dv) dv.onclick = async () => { try { const h = await window.showDirectoryPicker({ id: "lamp-room-auphonic", mode: "readwrite" }); await Store.keepFolder("auphonic-drive", h); toast("✓ The Lamp Room will look for mastered files in “" + h.name + "”."); viewSettings(); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }; }
     $("#cpw").onchange = e => { const v = Number(e.target.value); S.castPerWord = v >= 0 ? v : 0.05; save(); };
     $("#wp").onchange = async e => { const v = Number(e.target.value) || 9300; S.wpfh = v; save(); if (window.LL && LL.saveCfg) await LL.saveCfg({ wordsPerFH: v }); viewSettings(); };
     $("#platSel").onchange = e => LRPlat.set(e.target.value);

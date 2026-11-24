@@ -342,21 +342,17 @@
 
   // Give tokens [from, to] (inclusive, chapter token indexes as tokens() numbers them) a new part.
   // Works on the characters, so the text and its spacing are untouched; the spaces between two retagged words go with them.
+  // Give words from..to (word numbers as Prep.tokens counts them: bits of punctuation standing alone don't count) to a part.
   function setPart(chapter, from, to, part) {
     let ti = -1;
     chapter.paras.forEach((p, pi) => {
       if (p === SCENE_MARK) return;
       const chars = []; for (const [t, pt] of paraRuns(p)) for (const ch of t) chars.push([ch, pt]);
-      let inTok = false, changed = false, lastIn = -1;
-      for (let i = 0; i < chars.length; i++) {
-        const sp = /\s/.test(chars[i][0]);
-        if (!sp && !inTok) { ti++; inTok = true; } else if (sp) inTok = false;
-        if (!sp && ti >= from && ti <= to) {
-          if (lastIn >= 0 && ti > from) for (let k = lastIn + 1; k < i; k++) chars[k][1] = part;   // the gap between two chosen words
-          chars[i][1] = part; lastIn = i; changed = true;
-        }
-      }
-      if (!changed) return;
+      // this paragraph's words, as [start, end] character spans, numbered like Prep.tokens
+      const spans = []; let st = -1;
+      for (let i = 0; i <= chars.length; i++) { const sp = i === chars.length || /\s/.test(chars[i][0]); if (!sp && st < 0) st = i; if (sp && st >= 0) { const w = chars.slice(st, i).map(c => c[0]).join(""); if (/[\p{L}\p{N}]/u.test(w)) spans.push([st, i - 1, ++ti]); st = -1; } }
+      const pick = spans.filter(x => x[2] >= from && x[2] <= to); if (!pick.length) return;
+      for (let k = 0; k < pick.length; k++) { const [a0, b0] = pick[k], end = k < pick.length - 1 ? pick[k + 1][0] - 1 : b0; for (let i = a0; i <= end; i++) chars[i][1] = part; }
       const runs = [];
       for (const [ch, pt] of chars) { const last = runs[runs.length - 1]; if (last && last[1] === pt) last[0] += ch; else runs.push([ch, pt]); }
       chapter.paras[pi] = runs.length === 1 && runs[0][1] === "n" ? runs[0][0] : { r: runs };
@@ -366,6 +362,7 @@
   // Who reads a part: narration follows the chapter's POV switch; other parts follow the book's assignments.
   function readerOf(part, chapter, book) {
     const parts = (book && book.parts) || {};
+    if (part && part[0] === "@") return part.slice(1);              // a personal assignment names its reader outright
     if (part === "n") return (chapter && chapter.pov) || parts.n || null;
     return parts[part] || parts.n || null;
   }
@@ -389,11 +386,16 @@
   // counts often while you record. So each chapter's words are kept until its text or highlights actually change:
   // the paragraphs are fingerprinted (a fraction of a millisecond) and compared, so no edit can leave a stale count.
   // Who reads which part is looked up fresh every time, since that can change without the text changing.
+  // Personal assignments: anyone can give words to a reader in their own copy (chapter.mine[person] = [{ from, to,
+  // part, text }], kept in their own people file). They apply for whoever is viewing (Prep.viewer); the Lead's
+  // highlighting stays the shared master. A range whose words no longer match (the text was edited) is skipped.
   const tokCache = new WeakMap();
+  function overlay(chapter) { const v = Prep.viewer || (window.Store && Store.me && Store.me()); return (v && chapter.mine && chapter.mine[v]) || null; }
   function cached(chapter) {
-    const sig = JSON.stringify(chapter.paras || []), hit = tokCache.get(chapter);
+    const ov = overlay(chapter), sig = JSON.stringify(chapter.paras || []) + (ov ? "|" + Prep.viewer + JSON.stringify(ov) : ""), hit = tokCache.get(chapter);
     if (hit && hit.sig === sig) return hit;
     const toks = tokenize(chapter), byPart = {};
+    if (ov) for (const o of ov) { if (o.to >= toks.length || (o.text && toks.slice(o.from, o.to + 1).map(t => t.k).join(" ") !== o.text)) continue; for (let i = o.from; i <= o.to; i++) toks[i] = Object.assign({}, toks[i], { part: o.part, own: true }); }
     for (const t of toks) byPart[t.part] = (byPart[t.part] || 0) + 1;
     const rec = { sig, toks, byPart }; tokCache.set(chapter, rec); return rec;
   }
@@ -456,20 +458,30 @@
     F.atEnd = () => F.manual && F.pos >= F.lim;
     F.next = () => { const from = F.pos >= F.lim ? F.lim : F.pos; F.pos = nextMine(sentEnd(from) > from && F.pos < F.lim ? F.lim : from); F.lim = sentEnd(F.pos); return F.pos; };
     // heard: array of recognised words (already split). Returns true if pos moved.
+    // Rules (steady rather than eager):
+    //   · the word you're due to read moves you on at once;
+    //   · a word you've just read is a re-read, and moves nothing (re-reads used to match text further on and jump);
+    //   · a word further ahead (past the next one, or into the next sentence) only counts when the next heard word
+    //     agrees with what follows it there: two in a row, so a common word or a name can't drag the pacer ahead.
+    const accept = hit => { F.pos = F.manual && hit + 1 >= F.lim ? F.lim : nextMine(hit + 1); if (!F.manual) F.lim = sentEnd(F.pos); F.pend = null; };
+    const recent = h => { let j = F.pos - 1, n = 0; while (j >= 0 && n < 8) { if (mineFlags[j]) { if (wordsMatch(h, toks[j].k)) return true; n++; } j--; } return false; };
+    F.pend = null;
     F.hear = heard => {
       let moved = false;
       for (const raw of heard) {
         const h = matchKey(raw); if (!h) continue;
+        if (F.pos < toks.length && wordsMatch(h, toks[F.pos].k) && !(F.manual && F.pos >= F.lim)) { accept(F.pos); moved = true; continue; }
+        if (F.pend != null) { const nx = nextMine(F.pend + 1); const ok = nx < toks.length && wordsMatch(h, toks[nx].k) && !(F.manual && nx >= F.lim); const at = F.pend; F.pend = null; if (ok) { accept(nx); moved = true; continue; } if (at != null && wordsMatch(h, toks[at].k)) { F.pend = at; continue; } }
+        if (recent(h)) continue;
         // look ahead over the next 14 of the reader's tokens for this word
         let i = F.pos, seen = 0, hit = -1;
         while (i < toks.length && seen < 14) {
           if (mineFlags[i]) { if (wordsMatch(h, toks[i].k)) { hit = i; break; } seen++; }
           i++;
         }
-        // a far jump needs the next word to agree too, so a common word ("the") can't skip a sentence
-        if (hit >= 0 && seen >= 4 && h.length <= 3) hit = -1;
-        if (hit >= 0 && F.manual && hit >= F.lim) hit = -1;
-        if (hit >= 0) { F.pos = F.manual && hit + 1 >= F.lim ? F.lim : nextMine(hit + 1); if (!F.manual) F.lim = sentEnd(F.pos); moved = true; }
+        if (hit < 0 || (F.manual && hit >= F.lim)) continue;
+        const crosses = hit >= sentEnd(F.pos);
+        if (seen <= 1 && !crosses) { accept(hit); moved = true; } else F.pend = hit;
       }
       return moved;
     };
@@ -552,7 +564,7 @@
     return parts.map(p => ({ text: p.text, heading: /^h[1-3]$/i.test(p.tag) }));
   }
 
-  const Prep = { setPart, paraText, paraRuns, partOfColor, partLabel, colorName, colorCss, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
+  const Prep = { viewer: null, setPart, paraText, paraRuns, partOfColor, partLabel, colorName, colorCss, readerOf, partsInBook, wordsByReader, tokens, matchKey, makeFollower, wordsMatch, countWords, blocksFromPlainText, blocksFromPdfPages, linesFromPdfItems, blocksFromHtmlParts, cleanBlocks, detect, buildChapters, mergeChapters, splitChapter,
     __tokenizeForTest: tokenize, estimate, usFederalHolidays, isWorkday, workdaysUntil, addWorkdays, ymd, uid, METHOD_LABELS, SCENE_MARK };
   if (typeof module !== "undefined" && module.exports) module.exports = Prep; else root.Prep = Prep;
 })(typeof window !== "undefined" ? window : globalThis);

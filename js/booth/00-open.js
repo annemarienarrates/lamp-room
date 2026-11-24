@@ -31,6 +31,7 @@
     if (book.shared) { try { if (await Store.sharedHandle(book)) await Store.loadPickups(book); } catch (e) { } }
     const me = Store.me() || (Store.settings.narrators[0] || {}).name || "Me";
     if (!B) {
+      Prep.viewer = me;
       B = { book, readingAs: me, mic: new LRAudio.Mic(), player: new LRAudio.Player(), listening: false, rec: null, playhead: null,
         prerollSec: num0(Store.lsGet("lr-preroll"), 3), follow: Store.lsGet("lr-follow") !== "0",
         edit: false, sessions: [], session: null, peaks: {}, bRun: {}, clockPaused: false, lastAct: Date.now(),
@@ -69,7 +70,7 @@
     await flushSession();
     document.body.classList.remove("booth-on", "booth-recording");
     stopLine(); if (window.LRCele) { LRCele.comboEnd(); LRCele.drawCombo(); }
-    B = null;
+    B = null; Prep.viewer = null;
   }
 
   // ======================= chapter & tracks model =======================
@@ -121,7 +122,7 @@
     bookCounts();
     B.peaks = {};
     // flags already dealt with don't linger; slots and ✂ line-end marks (C) stay: they're where the cutter splits your lines
-    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); B.audio.markers.forEach(m => { if (!m.id) m.id = Prep.uid(); }); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
     render();
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);

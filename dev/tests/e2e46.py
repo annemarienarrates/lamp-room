@@ -62,6 +62,12 @@ async def main():
     dis = await pg.evaluate("(document.querySelector('#cscripts details[open] summary')||{}).textContent||''"); print("after naming Anne:", dis)
     if "disagree" not in dis: ERR.append("disagreements not listed")
     await pg.screenshot(path=SHOTS+"/readby.png")
+    # follow the scripts: every disagreeing line goes to the script's reader
+    n_off = await pg.evaluate("(()=>{const m=(document.querySelector('#cscripts details[open] summary')||{}).textContent.match(/(\\d+) line/); return m?+m[1]:0})()")
+    await pg.click("#csfollow"); await pg.wait_for_timeout(900)
+    await pg.evaluate("document.querySelector('#cscripts').open=true"); await pg.wait_for_timeout(500)
+    left = await pg.evaluate("(document.querySelector('#cscripts details[open] summary')||{}).textContent||''"); print("follow the scripts:", n_off, "→ left:", left or "none")
+    if not n_off or "disagree" in left: ERR.append("follow-the-scripts left disagreements")
     # hand on to Jack: Anne is now locked
     await pg.select_option("#handon", "Jack"); await pg.wait_for_timeout(800)
     print("after hand on:", await pg.evaluate("Store.books[0].lead"), "| Anne locked:", await pg.evaluate("document.querySelector('[data-f=title]').disabled"))

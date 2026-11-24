@@ -17,7 +17,7 @@
       ${rd.length > 1 ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="aupmulti" ${st.multi ? "checked" : ""}> 💞 Each reader as their own track (multitrack): a different breath setting per reader</label>
         ${st.multi ? `<div class="aup-tracks">${rd.map(r => `<div class="aup-row"><span>${esc(Store.castName(B.book, r))}</span><select data-aupr="${esc(r)}">${opts(st.aupBy[r])}</select></div>`).join("")}
           <p class="small muted">Each track takes the noise and breath settings of its preset; the mix, loudness and output files come from the Preset above.</p></div>` : ""}` : ""}
-      <p class="small muted">It goes up as a raw 48 kHz WAV (with the ticks below applied first) and comes back to <b>Studio ▸ Mastered ▸ ${esc(B.book.folder)}</b> as <b>${esc(LRExport.fileName(st.pat || "{seq}_{name}", B.book, B.chap, B.ci))}</b>, in your preset's format. The chapter is marked Mastered.</p></div>`;
+      <p class="small muted">It goes up in the background as a lossless FLAC (with the ticks below applied first) and comes back to <b>Studio ▸ Mastered ▸ ${esc(B.book.folder)}</b> as <b>${esc(LRExport.fileName(st.pat || "{seq}_{name}", B.book, B.chap, B.ci))}</b>, in your preset's format. The chapter is marked Mastered.</p></div>`;
   }
   function wireAup(st, draw) {
     const m = document.getElementById("aupmain"); if (m) m.onchange = () => { st.aupMain = m.value; Store.lsSet("lr-aup-main", m.value); };
@@ -92,7 +92,8 @@
       bt.disabled = true; bar.classList.remove("hidden");
       const tmp = await (await Store.studio.getDirectoryHandle(B.book.folder, { create: true })).getDirectoryHandle("auphonic-upload", { create: true }), made = [];
       const title = B.book.title + " · " + B.chap.title, L = len() + (B.audio.pad || 0);
-      const write = async (render, file, label) => { bt.textContent = "Preparing " + label + "…"; const fh = await tmp.getFileHandle(file, { create: true }); made.push(file); await LRExport.exportChapter(render, L, "raw", fh, [], p => { fill.style.width = Math.round(p * 100) + "%"; }); return fh.getFile(); };
+      // a lossless FLAC, held in memory for the upload so the temporary file can go at once
+      const write = async (render, file, label) => { bt.textContent = "Preparing " + label + "…"; const fh = await tmp.getFileHandle(file, { create: true }); made.push(file); await LRExport.exportChapter(render, L, "flac", fh, [], p => { fill.style.width = Math.round(p * 100) + "%"; }); const f = await fh.getFile(); return new File([await f.arrayBuffer()], file, { type: "audio/flac" }); };
       try {
         let uuid;
         if (st.multi && aupReaders().length > 1) {
@@ -101,18 +102,15 @@
             const audioR = { tracks: B.audio.tracks.map((t, ti) => ({ clips: t.clips.filter(c => ownerOf(c, ti) === r) })), pad: B.audio.pad || 0, markers: [] };
             const render = LRAudio.mixer(d, audioR, trackSet(), { tone: r === narr ? await toneBuf() : null, end: L });
             const id = (Store.castName(B.book, r) || r).replace(/[^\w .-]+/g, "").trim() || r;
-            tracks.push({ id, file: await write(render, name + " - " + id + ".wav", id), presetUuid: (st.aupBy || {})[r] || main });
+            tracks.push({ id, file: await write(render, name + " - " + id + ".flac", id), presetUuid: (st.aupBy || {})[r] || main });
           }
-          bt.textContent = "Uploading " + tracks.length + " tracks to Auphonic…"; fill.style.width = "100%";
-          uuid = await LRAuphonic.startMulti(tracks, main, title);
+          bt.textContent = "Starting the upload…"; uuid = await LRAuphonic.send({ files: tracks, mainUuid: main, title, name, bookId: B.book.id, chapId: B.chap.id });
         } else {
-          const file = await write(await mix(), name + ".wav", "the chapter");
-          bt.textContent = "Uploading to Auphonic…"; fill.style.width = "100%";
-          uuid = await LRAuphonic.startSingle(file, main, title);
+          const file = await write(await mix(), name + ".flac", "the chapter");
+          bt.textContent = "Starting the upload…"; uuid = await LRAuphonic.send({ files: [{ id: "main", file, presetUuid: main }], mainUuid: main, title, name, bookId: B.book.id, chapId: B.chap.id });
         }
-        LRAuphonic.addJob({ uuid, bookId: B.book.id, chapId: B.chap.id, name, title, state: "Waiting" });
         B.chap.exportedAt = new Date().toISOString(); Store.saveBook(B.book, true);
-        ov.remove(); note("🎚 " + B.chap.title + " is at Auphonic. The mastered file comes back to Studio ▸ Mastered ▸ " + B.book.folder + " on its own; you can keep working.");
+        ov.remove(); note("🎚 " + B.chap.title + " is uploading to Auphonic in the background; keep working. Progress shows on the Dashboard (Heads up). The mastered file comes back to Studio ▸ Mastered ▸ " + B.book.folder + " by itself.");
       } catch (e) { msg.innerHTML = `<div class="xwarn">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "Try again"; bar.classList.add("hidden"); }
       finally { for (const f of made) await tmp.removeEntry(f).catch(() => {}); }
     };
@@ -188,10 +186,10 @@
       const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !assembled();
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
-        <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
+        ${!allDone ? `<p class="muted">Your part is done. It's marked Recorded once every reader has finished theirs.</p>` : ""}
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
         ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Share my takes</b> puts them in the book's shared folder${amLead() ? "" : " and sends your lines to " + esc(Prep.readerOf("n", B.chap, B.book) || "the lead") + " to drop in as they read"}. Anyone on the book can bring them in to listen or splice. Share again any time; nothing locks.</p>` : ""}
-        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        <div class="row" style="justify-content:center">${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div>${has ? `<p class="small" style="margin:12px 0 0"><button class="lnk" data-exp>${B.chap.exportedAt ? "Export again" : "Export this chapter"}</button> <span class="muted">(a WAV to your Studio folder, if you want one)</span></p>` : ""}</div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };

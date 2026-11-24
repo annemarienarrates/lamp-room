@@ -29,6 +29,7 @@
     if (book.shared) { try { if (await Store.sharedHandle(book)) await Store.loadPickups(book); } catch (e) { } }
     const me = Store.me() || (Store.settings.narrators[0] || {}).name || "Me";
     if (!B) {
+      Prep.viewer = me;
       B = { book, readingAs: me, mic: new LRAudio.Mic(), player: new LRAudio.Player(), listening: false, rec: null, playhead: null,
         prerollSec: num0(Store.lsGet("lr-preroll"), 3), follow: Store.lsGet("lr-follow") !== "0",
         edit: false, sessions: [], session: null, peaks: {}, bRun: {}, clockPaused: false, lastAct: Date.now(),
@@ -67,7 +68,7 @@
     await flushSession();
     document.body.classList.remove("booth-on", "booth-recording");
     stopLine(); if (window.LRCele) { LRCele.comboEnd(); LRCele.drawCombo(); }
-    B = null;
+    B = null; Prep.viewer = null;
   }
 
   // ======================= chapter & tracks model =======================
@@ -119,7 +120,7 @@
     bookCounts();
     B.peaks = {};
     // flags already dealt with don't linger; slots and ✂ line-end marks (C) stay: they're where the cutter splits your lines
-    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
+    { const n = B.audio.markers.length; B.audio.markers = B.audio.markers.filter(m => !m.done || m.slot || m.cut); B.audio.markers.forEach(m => { if (!m.id) m.id = Prep.uid(); }); if (B.audio.markers.length !== n) Store.saveBook(B.book); }
     render();
     loadPeaks();
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
@@ -2060,13 +2061,15 @@
         if (s.lo != null) a2 = Math.max(a2, s.lo + 0.05); if (s.hi != null) b2 = Math.min(b2, s.hi - 0.03);
         out.push({ x: s.x, a: a2, b: Math.max(b2, a2 + 0.25), guess: s.guess });
       });
+      // A re-send never reuses a file name and never deletes lines.json: Drive trips over a file deleted and written
+      // again under the same name (it makes "line-008 (1).wav" and can lose the index). New lines go under a fresh
+      // prefix, lines.json is overwritten in place, and only then are the old files cleared away.
       const d = await Store.duetDir(B.book, B.chap, B.readingAs, true), sh = await Store.sharedLinesDir(B.book, B.chap, B.readingAs, true);
-      for (const x of [d, sh]) if (x) for await (const [name] of x.entries()) await x.removeEntry(name).catch(() => {});
       copyTo = [copyTo, sh].filter(Boolean);
-      const R = LRAudio.RATE, lines = [];
+      const R = LRAudio.RATE, lines = [], tag = Date.now().toString(36);
       for (let i = 0; i < out.length; i++) {
         // each line carries ~0.6 s of handle either side, hidden: drag its edge out on the lead's side to get a clipped word back
-        const o = out[i], n = i + 1, file = "line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
+        const o = out[i], n = i + 1, file = tag + "-line-" + String(n).padStart(3, "0") + ".wav", hin = Math.min(0.6, o.a), hout = Math.min(0.6, Math.max(0, L - o.b)), x = await render(o.a - hin, o.b - o.a + hin + hout);
         const fade = Math.min(x.length, Math.round(R * 0.012)); for (let k = 0; k < fade; k++) { x[k] *= k / fade; x[x.length - 1 - k] *= k / fade; }
         for (const dd of [d].concat(copyTo)) { const w = await LRAudio.WavWriter.create(dd, file, R); w.push(x); await w.close(); }
         lines.push({ n, file, from: o.x.from, to: o.x.to, text: o.x.text, dur: +(o.b - o.a).toFixed(4), hin: +hin.toFixed(4), hout: +hout.toFixed(4), guess: !!o.guess });
@@ -2074,6 +2077,8 @@
       }
       const pack = { v: 1, book: B.book.title, bookId: B.book.id, chapter: B.chap.title, chapterId: B.chap.id, reader: B.readingAs, made: new Date().toISOString(), rate: R, lines };
       for (const dd of [d].concat(copyTo)) { const fh = await dd.getFileHandle("lines.json", { create: true }), w = await fh.createWritable(); await w.write(JSON.stringify(pack, null, 1)); await w.close(); }
+      const keep = new Set(["lines.json"].concat(lines.map(l => l.file)));
+      for (const dd of [d].concat(copyTo)) { const old = []; for await (const [name, h] of dd.entries()) if (h.kind === "file" && !keep.has(name) && /\.(wav|peaks2|json)$/i.test(name)) old.push(name); for (const n of old) await dd.removeEntry(n).catch(() => {}); }
       B.sent = { ci: B.ci, n: lines.length, guessed: lines.filter(l => l.guess).length, missing: runs.length - lines.length, when: Date.now() };
       celebrateOrToast(lines.length + " LINES SENT", "to " + (Prep.readerOf("n", B.chap, B.book) || "the lead") + " · " + B.chap.title);
     } catch (e) { console.error(e); toast("Sending failed: " + e.message); }
@@ -2110,8 +2115,10 @@
       const re = recutOf(r); if (re.length) { B.recut = B.recut || {}; B.recut[r] = re.length; }
       B.peaks = B.peaks || {};
     }
+    // a re-send of lines already in the chapter swaps in by itself (Undo puts the old ones back)
     const rc = Object.entries(B.recut || {}).filter(([r, n]) => n && recutOf(r).length);
-    if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
+    if (rc.length && !B.rec && !B.busy) for (const [r] of rc) swapRecut(r);
+    else if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
     if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;
@@ -2288,8 +2295,9 @@
     const pop = document.createElement("div"); pop.className = "part-pop"; pop.id = "part-pop";
     const words = B.toks.slice(from, to + 1).map(t => t.w), txt = words.length > 6 ? words.slice(0, 3).join(" ") + " … " + words.slice(-2).join(" ") : words.join(" ");
     const leadHere = Store.isLead(B.book), leadName = Store.leadOf(B.book);
-    if (leadHere) pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
-    else pop.innerHTML = `<div class="pp-q">Wrong reader for <i>“${esc(txt)}”</i>?</div><div class="fx-chips"><button class="stu-btn" data-asklead>Ask ${esc(leadName)} to fix it</button></div>`;
+    const ownHere = !leadHere && B.toks.slice(from, to + 1).some(t => t.own);
+    pop.innerHTML = `<div class="pp-q">Who reads <i>“${esc(txt)}”</i>?${leadHere ? "" : ` <span class="muted small">(in your copy)</span>`}</div><div class="fx-chips">${readersForPop().map(n => `<button class="stu-btn ${n === B.readingAs ? "stu-rec" : ""}" data-who="${esc(n)}">${esc(n)}${n === B.readingAs ? " (me)" : ""}</button>`).join("")}<button class="stu-btn" data-who="__n" title="Narration: read by whoever narrates this chapter">Narration</button><button class="stu-btn" data-who="__x">✕</button></div>`;
+    if (!leadHere) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px">${ownHere ? `<button class="stu-btn" data-unown>↩ Back to ${esc(leadName)}'s highlighting</button>` : ""}<button class="stu-btn quiet" data-asklead>Ask ${esc(leadName)} to change it for everyone</button></div>`);
     const run = theirRuns().find(x => from >= x.from && to <= x.to);
     if (run && amLead()) pop.insertAdjacentHTML("beforeend", `<div class="fx-chips" style="margin-top:6px"><button class="stu-btn" data-ask="1">🔁 Ask ${esc(nm(run.r))} for a pickup of this line</button></div>`);
     const nm = words.map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’-]+$/gu, "").replace(/['’]s$/, "")).join(" ").trim();
@@ -2298,10 +2306,25 @@
     pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
     pop.style.top = Math.max(8, rect.top - pop.offsetHeight - 8) + "px";
     pop.onmousedown = e => e.preventDefault();
-    pop.onclick = e => { if (e.target.closest("[data-asklead]")) { hidePartPop(); window.getSelection().removeAllRanges(); window.LRAskLead && LRAskLead(B.book, leadName, B.ci, "“" + txt + "” should be read by "); return; } const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+    pop.onclick = e => { if (e.target.closest("[data-asklead]")) { hidePartPop(); window.getSelection().removeAllRanges(); window.LRAskLead && LRAskLead(B.book, leadName, B.ci, "“" + txt + "” should be read by "); return; } const cb = e.target.closest("[data-char]"); if (cb) { hidePartPop(); window.getSelection().removeAllRanges(); charAddOrOpen(cb.dataset.char); return; } if (e.target.closest("[data-ask]")) { hidePartPop(); window.getSelection().removeAllRanges(); askPickupPrompt(run); return; } if (e.target.closest("[data-unown]")) { hidePartPop(); window.getSelection().removeAllRanges(); setOwnReader(from, to, "__undo"); return; } const b = e.target.closest("[data-who]"); if (!b) return; const w = b.dataset.who; hidePartPop(); window.getSelection().removeAllRanges(); if (w !== "__x") setReader(from, to, w); };
+  }
+  // not the Lead: the change goes in my copy only (my people file), over the Lead's highlighting
+  function setOwnReader(from, to, who) {
+    const c = B.chap, me = B.readingAs; c.mine = c.mine || {};
+    const base = Prep.viewer; Prep.viewer = "\u0000"; const plain = Prep.tokens(c); Prep.viewer = base;           // the Lead's words, without my changes
+    const list = (c.mine[me] || []).filter(o => o.to < from || o.from > to);
+    if (who !== "__undo") list.push({ from, to, part: who === "__n" ? "n" : "@" + who, text: plain.slice(from, to + 1).map(t => t.k).join(" ") });
+    c.mine[me] = list; if (!list.length) delete c.mine[me];
+    refreshReaders();
+  }
+  function refreshReaders() {
+    const pos = B.f.pos; B.toks = Prep.tokens(B.chap); B.mine = B.toks.map(t => isMine(t, B.chap)); B.f = Prep.makeFollower(B.toks, B.mine, pos); B.f.setManual(pacerManual());
+    B.runsCache = null; const wrap = $("#ms-wrap"), top = wrap ? wrap.scrollTop : 0;
+    Store.saveBook(B.book); renderManuscript(); if (wrap) wrap.scrollTop = top; renderSide(); renderStats();
   }
   function hidePartPop() { const p = $("#part-pop"); if (p) p.remove(); }
   function setReader(from, to, who) {
+    if (!Store.isLead(B.book)) return setOwnReader(from, to, who);
     const parts = B.book.parts = B.book.parts || {};
     let part = "n";
     if (who !== "__n") { part = Object.keys(parts).find(k => k !== "n" && parts[k] === who); if (!part) { part = "r:" + who; parts[part] = who; } }
@@ -2487,6 +2510,8 @@
     // what's under the pointer: a fade dot, a clip edge, or nothing special
     const hitTest = e => {
       const r = cv.getBoundingClientRect(), v = view(), hs = laneHs(), x = e.clientX - r.left, y = e.clientY - r.top;
+      // a marker's flag, on the ruler: drag it along, right-click to remove
+      if (y < RULER + 12) { let mk = null; for (const m of B.audio.markers) { const d = Math.abs(x - (m.t - v.t0) * v.pps); if (d <= 6 && (!mk || d < mk.d)) mk = { kind: "mk", id: m.id, d }; } if (mk) return mk; }
       if (y < RULER) return null;
       const ti = laneAt(y, hs), LH = hs[ti], top = laneTop(ti, hs), clips = B.audio.tracks[ti].clips, X = t => (t - v.t0) * v.pps;
       for (const m of B.audio.markers) if (!m.done && !m.slot) { const z = pkZone(m); if (Math.abs(x - X(z.a)) <= 5) return { kind: "pz", side: "a", id: m.id }; if (Math.abs(x - X(z.b)) <= 5) return { kind: "pz", side: "b", id: m.id }; }
@@ -2508,6 +2533,7 @@
       if (!B || B.rec) return;
       const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), inStrip = p.ly < 16, h = hitTest(e);
       cv.setPointerCapture(e.pointerId);
+      if (h && h.kind === "mk") { if (e.button === 2) return; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "pz") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); return; }
       if (h && h.kind === "fade") { pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false }); B.track = h.ti; return; }
       if (h && h.kind === "edge") { const c = B.audio.tracks[h.ti].clips[h.ci]; pushUndo(); B.dragging = Object.assign(h, { x0: e.clientX, moved: false, orig: JSON.stringify(B.audio), src: srcDurOf(c.file), t0: h.edge === "start" ? c.at : c.at + c.dur }); B.track = h.ti; return; }
@@ -2520,8 +2546,12 @@
       drawWave();
     };
     cv.onpointermove = e => {
-      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : "ew-resize") : ci >= 0 && (p.ly < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
+      const d = B && B.dragging; if (!d) { if (B && !B.rec) { const p = pos(e), ci = T().clipAt(B.audio, p.ti, p.t), h = hitTest(e); cv.style.cursor = h ? (h.kind === "fade" ? "grab" : h.kind === "mk" ? "col-resize" : "ew-resize") : ci >= 0 && (p.ly < 16 || e.altKey) ? "grab" : "crosshair"; } return; }
       const p = pos(e);
+      if (d.kind === "mk") {
+        const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; if (Math.abs(e.clientX - d.x0) > 2) d.moved = true; if (!d.moved) return;
+        m.t = +Math.max(0, Math.min(len(), p.t)).toFixed(3); cv.style.cursor = "ew-resize"; drawWave(); return;
+      }
       if (d.kind === "pz") {
         const m = B.audio.markers.find(x => x.id === d.id); if (!m) return; d.moved = true; pkZone(m); cv.style.cursor = "ew-resize";
         const t = Math.max(0, Math.min(len(), p.t));
@@ -2554,9 +2584,13 @@
       else if (Math.abs(e.clientX - d.x0) > 3) { B.selTake = null; B.sel = { a: Math.max(0, Math.min(d.a, p.t)), b: Math.min(len(), Math.max(d.a, p.t)) }; }
       drawWave();
     };
+    cv.addEventListener("contextmenu", e => { if (!B || B.rec) return; const h = hitTest(e); if (!h || h.kind !== "mk") return; e.preventDefault();
+      const k = B.audio.markers.findIndex(m => m.id === h.id); if (k < 0) return; pushUndo(); const m = B.audio.markers.splice(k, 1)[0];
+      Store.saveBook(B.book); drawWave(); renderSide(); toast((m.cut ? "✂ mark" : "Marker") + " removed. Undo brings it back."); });
     cv.onpointerup = e => {
       const d = B && B.dragging; if (!d) return; B.dragging = null;
       const p = pos(e);
+      if (d.kind === "mk") { if (!d.moved) { B.undo.pop(); return; } B.audio.markers.sort((a, b) => a.t - b.t); Store.saveBook(B.book); renderSide(); return; }
       if (d.kind === "pz") { if (!d.moved) { B.undo.pop(); return; } Store.saveBook(B.book); renderSide(); return; }
       if (d.kind === "fade" || d.kind === "edge") {
         B.trimView = null;
@@ -2656,7 +2690,7 @@
       ${rd.length > 1 ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="aupmulti" ${st.multi ? "checked" : ""}> 💞 Each reader as their own track (multitrack): a different breath setting per reader</label>
         ${st.multi ? `<div class="aup-tracks">${rd.map(r => `<div class="aup-row"><span>${esc(Store.castName(B.book, r))}</span><select data-aupr="${esc(r)}">${opts(st.aupBy[r])}</select></div>`).join("")}
           <p class="small muted">Each track takes the noise and breath settings of its preset; the mix, loudness and output files come from the Preset above.</p></div>` : ""}` : ""}
-      <p class="small muted">It goes up as a raw 48 kHz WAV (with the ticks below applied first) and comes back to <b>Studio ▸ Mastered ▸ ${esc(B.book.folder)}</b> as <b>${esc(LRExport.fileName(st.pat || "{seq}_{name}", B.book, B.chap, B.ci))}</b>, in your preset's format. The chapter is marked Mastered.</p></div>`;
+      <p class="small muted">It goes up in the background as a lossless FLAC (with the ticks below applied first) and comes back to <b>Studio ▸ Mastered ▸ ${esc(B.book.folder)}</b> as <b>${esc(LRExport.fileName(st.pat || "{seq}_{name}", B.book, B.chap, B.ci))}</b>, in your preset's format. The chapter is marked Mastered.</p></div>`;
   }
   function wireAup(st, draw) {
     const m = document.getElementById("aupmain"); if (m) m.onchange = () => { st.aupMain = m.value; Store.lsSet("lr-aup-main", m.value); };
@@ -2731,7 +2765,8 @@
       bt.disabled = true; bar.classList.remove("hidden");
       const tmp = await (await Store.studio.getDirectoryHandle(B.book.folder, { create: true })).getDirectoryHandle("auphonic-upload", { create: true }), made = [];
       const title = B.book.title + " · " + B.chap.title, L = len() + (B.audio.pad || 0);
-      const write = async (render, file, label) => { bt.textContent = "Preparing " + label + "…"; const fh = await tmp.getFileHandle(file, { create: true }); made.push(file); await LRExport.exportChapter(render, L, "raw", fh, [], p => { fill.style.width = Math.round(p * 100) + "%"; }); return fh.getFile(); };
+      // a lossless FLAC, held in memory for the upload so the temporary file can go at once
+      const write = async (render, file, label) => { bt.textContent = "Preparing " + label + "…"; const fh = await tmp.getFileHandle(file, { create: true }); made.push(file); await LRExport.exportChapter(render, L, "flac", fh, [], p => { fill.style.width = Math.round(p * 100) + "%"; }); const f = await fh.getFile(); return new File([await f.arrayBuffer()], file, { type: "audio/flac" }); };
       try {
         let uuid;
         if (st.multi && aupReaders().length > 1) {
@@ -2740,18 +2775,15 @@
             const audioR = { tracks: B.audio.tracks.map((t, ti) => ({ clips: t.clips.filter(c => ownerOf(c, ti) === r) })), pad: B.audio.pad || 0, markers: [] };
             const render = LRAudio.mixer(d, audioR, trackSet(), { tone: r === narr ? await toneBuf() : null, end: L });
             const id = (Store.castName(B.book, r) || r).replace(/[^\w .-]+/g, "").trim() || r;
-            tracks.push({ id, file: await write(render, name + " - " + id + ".wav", id), presetUuid: (st.aupBy || {})[r] || main });
+            tracks.push({ id, file: await write(render, name + " - " + id + ".flac", id), presetUuid: (st.aupBy || {})[r] || main });
           }
-          bt.textContent = "Uploading " + tracks.length + " tracks to Auphonic…"; fill.style.width = "100%";
-          uuid = await LRAuphonic.startMulti(tracks, main, title);
+          bt.textContent = "Starting the upload…"; uuid = await LRAuphonic.send({ files: tracks, mainUuid: main, title, name, bookId: B.book.id, chapId: B.chap.id });
         } else {
-          const file = await write(await mix(), name + ".wav", "the chapter");
-          bt.textContent = "Uploading to Auphonic…"; fill.style.width = "100%";
-          uuid = await LRAuphonic.startSingle(file, main, title);
+          const file = await write(await mix(), name + ".flac", "the chapter");
+          bt.textContent = "Starting the upload…"; uuid = await LRAuphonic.send({ files: [{ id: "main", file, presetUuid: main }], mainUuid: main, title, name, bookId: B.book.id, chapId: B.chap.id });
         }
-        LRAuphonic.addJob({ uuid, bookId: B.book.id, chapId: B.chap.id, name, title, state: "Waiting" });
         B.chap.exportedAt = new Date().toISOString(); Store.saveBook(B.book, true);
-        ov.remove(); note("🎚 " + B.chap.title + " is at Auphonic. The mastered file comes back to Studio ▸ Mastered ▸ " + B.book.folder + " on its own; you can keep working.");
+        ov.remove(); note("🎚 " + B.chap.title + " is uploading to Auphonic in the background; keep working. Progress shows on the Dashboard (Heads up). The mastered file comes back to Studio ▸ Mastered ▸ " + B.book.folder + " by itself.");
       } catch (e) { msg.innerHTML = `<div class="xwarn">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "Try again"; bar.classList.add("hidden"); }
       finally { for (const f of made) await tmp.removeEntry(f).catch(() => {}); }
     };
@@ -2827,10 +2859,10 @@
       const has = T().hasAudio(B.audio), sendable = has && !B.book.shared && !amLead() && myRuns().length > 0, shSend = has && B.book.shared && !assembled();
       const ov = document.createElement("div"); ov.className = "overlay";
       ov.innerHTML = `<div class="card reader" style="max-width:480px;text-align:center"><div style="font-size:2.2rem">🎉</div><h2>${esc(B.chap.title)} is done!</h2>
-        <p class="muted">${!allDone ? "Your part is done. It's marked Recorded once every reader has finished theirs. " : ""}${has ? (B.chap.exportedAt ? "You've already exported this one. Export again if you changed anything." : "Export it now while it's fresh, or move on and export later.") : ""}</p>
+        ${!allDone ? `<p class="muted">Your part is done. It's marked Recorded once every reader has finished theirs.</p>` : ""}
         ${sendable ? `<p class="small" style="margin:4px 0 10px">You're co-narrating: send your lines to ${esc(Prep.readerOf("n", B.chap, B.book) || "the lead")} so they drop into the chapter.</p>` : ""}
         ${shSend ? `<p class="small" style="margin:4px 0 10px"><b>Share my takes</b> puts them in the book's shared folder${amLead() ? "" : " and sends your lines to " + esc(Prep.readerOf("n", B.chap, B.book) || "the lead") + " to drop in as they read"}. Anyone on the book can bring them in to listen or splice. Share again any time; nothing locks.</p>` : ""}
-        <div class="row" style="justify-content:center">${has ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-exp>Export this chapter</button>` : ""}${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div></div>`;
+        <div class="row" style="justify-content:center">${shSend ? `<button class="btn primary" data-shs>📤 Share my takes</button>` : ""}${sendable ? `<button class="btn primary" data-send>📤 Send my lines</button>` : ""}${next >= 0 ? `<button class="btn ${sendable || shSend ? "" : "primary"}" data-next>Next chapter →</button>` : ""}<button class="btn quiet" data-stay>Stay here</button></div>${has ? `<p class="small" style="margin:12px 0 0"><button class="lnk" data-exp>${B.chap.exportedAt ? "Export again" : "Export this chapter"}</button> <span class="muted">(a WAV to your Studio folder, if you want one)</span></p>` : ""}</div>`;
       document.body.appendChild(ov);
       $("[data-stay]", ov).onclick = () => { ov.remove(); render(); };
       const nb = $("[data-next]", ov); if (nb) nb.onclick = () => { ov.remove(); openChapter(next); };
@@ -3295,8 +3327,30 @@
     return put;
   }
   // the reader's side: record one pickup in a small booth of its own, then send it
+  // the voices a pickup can wear: my tracks in this book (their armed effects and track sound), and my saved voice presets
+  function pickupVoices() {
+    const out = [{ id: "", label: "No effect", fx: null }], ts = trackSet();
+    B.audio.tracks.forEach((_, i) => { const st = ts[i] || {}; const fx = { armed: st.armed || [], chain: LRFx.chainOf(st) }; if (fx.armed.length || LRFx.chainActive(fx.chain)) out.push({ id: "t" + i, label: (st.name || "Track " + (i + 1)) + (fx.armed.length ? " · " + fx.armed.map(e => LRFx.KINDS[e.k].name).join(", ") : ""), fx }); });
+    for (const [name, pr] of Object.entries(Store.settings.fxPresets || {})) out.push({ id: "p:" + name, label: "Preset · " + name, fx: { armed: pr.armed || [], chain: LRFx.chainOf(pr) } });
+    return out;
+  }
+  // which of my tracks holds the line being picked up, in that chapter (from my word timing)
+  function pickupTrackOf(q) {
+    const ch = B.book.chapters.find(c => c.id === q.chapterId), au = ch && ch.audio && ch.audio[B.readingAs]; if (!au || !au.anchors) return null;
+    const p = au.anchors.find(a => a[1] >= q.w0); if (!p) return null;
+    const ti = (au.tracks || []).findIndex(t => (t.clips || []).some(c => c.at <= p[0] && c.at + c.dur >= p[0])); return ti >= 0 ? "t" + ti : null;
+  }
+  async function voiced(x, fx) {
+    if (!fx) return x;
+    const R = LRAudio.RATE, tail = LRFx.tailOf(fx.armed || []), y0 = new Float32Array(x.length + Math.round(tail * R)); y0.set(x);
+    let y = fx.armed && fx.armed.length ? await LRFx.runList(fx.armed, y0, R) : y0;
+    if (LRFx.chainActive(fx.chain)) { y = Float32Array.from(y); new LRFx.Chain(fx.chain, R).process(y); }
+    return y;
+  }
   function pickupRecorder(q) {
     if (B.rec) return;
+    const voices = pickupVoices(), remembered = Store.lsGet("lr-pkfx-" + B.book.id), guess = pickupTrackOf(q);
+    let voice = [guess, remembered].find(v => v && voices.some(o => o.id === v)) || "";
     const ov = document.createElement("div"); ov.className = "overlay pk-ov";
     let chunks = [], rec = false, t0 = 0, raf = 0, playCtx = null; const prevFrames = B.mic.onFrames;
     const total = () => chunks.reduce((a, c) => a + c.length, 0), joined = () => { const x = new Float32Array(total()); let o = 0; for (const c of chunks) { x.set(c, o); o += c.length; } return x; };
@@ -3305,6 +3359,7 @@
       ov.innerHTML = `<div class="card reader pk-card"><div class="pk-head"><b>🔁 Pickup for ${esc(q.asker)}</b><span class="muted">${esc(q.chapter || "")}</span></div>
         ${q.ctx ? `<div class="pk-ctx">…${esc(q.ctx)}</div>` : ""}<div class="pk-line">${esc(q.text)}</div>
         ${q.note ? `<div class="pk-note">“${esc(q.note)}” — ${esc(q.asker)}</div>` : ""}
+        ${voices.length > 1 ? `<label class="pk-fx">Effect<select id="pk-voice">${voices.map(o => `<option value="${esc(o.id)}" ${o.id === voice ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>` : ""}
         <div class="pk-meter"><i id="pk-lvl"></i></div><div class="pk-time" id="pk-time">${(total() / LRAudio.RATE).toFixed(1)} s</div>
         <div class="row pk-btns"><button class="btn ${rec ? "" : "primary"}" data-k="rec">${rec ? "■ Stop (S)" : has ? "● Record again (R)" : "● Record (R)"}</button><button class="btn" data-k="play" ${has && !rec ? "" : "disabled"}>▶ Listen</button>
           <div class="spacer"></div><button class="btn quiet" data-k="x">Close</button><button class="btn primary" data-k="send" ${has && !rec ? "" : "disabled"}>✓ Send to ${esc(q.asker)}</button></div></div>`;
@@ -3316,13 +3371,14 @@
     const stop = () => { rec = false; B.mic.onFrames = prevFrames; draw(); };
     const close = () => { rec = false; stopPlay(); cancelAnimationFrame(raf); document.removeEventListener("keydown", key, true); if (B) B.mic.onFrames = prevFrames; ov.remove(); };
     let sending = false;
-    const play = () => { stopPlay(); const x = joined(); if (!x.length) return; playCtx = new AudioContext({ sampleRate: LRAudio.RATE }); const buf = playCtx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = playCtx.createBufferSource(); s.buffer = buf; s.connect(playCtx.destination); s.start(); };
+    const play = async () => { stopPlay(); const x = await voiced(joined(), (voices.find(o => o.id === voice) || {}).fx); if (!x.length) return; playCtx = new AudioContext({ sampleRate: LRAudio.RATE }); const buf = playCtx.createBuffer(1, x.length, LRAudio.RATE); buf.copyToChannel(x, 0); const s = playCtx.createBufferSource(); s.buffer = buf; s.connect(playCtx.destination); s.start(); };
     const send = async () => {
       if (sending) return; sending = true; const sb = $("[data-k=send]", ov); if (sb) { sb.disabled = true; sb.textContent = "Sending…"; }
       const x = joined(), E = envOf(x); let f = 0, l = E.n - 1; while (f < E.n && E.env[f] < E.thr) f++; while (l > f && E.env[l] < E.thr) l--;
       if (f >= E.n) { sending = false; draw(); toast("That take is silent. Check the microphone and record again."); return; }
       const a = Math.max(0, f * 0.01 - 0.15), b = Math.min(x.length / LRAudio.RATE, (l + 1) * 0.01 + 0.3);
-      try { const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, x, a, b);
+      try { const R = LRAudio.RATE, fx = (voices.find(o => o.id === voice) || {}).fx, y = await voiced(x.slice(Math.round(a * R), Math.round(b * R)), fx);
+        const d = await Store.pickupsDir(book, me, true), name = q.id + ".wav", dur = await writeSeg(d, name, y, 0, y.length / R);
         await Store.savePickupReply(book, me, q.id, { file: name, dur, made: new Date().toISOString() });
         close(); if (!B) return; renderSide(); const left = pkForMe().filter(z => !Store.pickupReply(B.book, z)).length;
         if (window.LRCele && !left) LRCele.celebrate({ title: "PICKUPS SENT", sub: "All of them, to " + q.asker, level: 1, noConfetti: true }); else notice("✓ Sent to " + q.asker + "." + (left ? " " + left + " to go." : ""));
@@ -3331,6 +3387,7 @@
     const key = e => { if (e.target.closest && e.target.closest("input,textarea")) return; const k = e.key.toLowerCase();
       if (k === "r" && !rec) { e.preventDefault(); e.stopImmediatePropagation(); start(); } else if ((k === "s" || k === " ") && rec) { e.preventDefault(); e.stopImmediatePropagation(); stop(); }
       else if (k === "escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); } else if (["r", "s", " ", "f", "m", "n", "c", "e"].includes(k)) { e.preventDefault(); e.stopImmediatePropagation(); } };
+    ov.onchange = e => { if (e.target.id === "pk-voice") { voice = e.target.value; Store.lsSet("lr-pkfx-" + B.book.id, voice); } };
     ov.onclick = e => { const b = e.target.closest("[data-k]"); if (!b || b.disabled) return; ({ rec: () => rec ? stop() : start(), play, send, x: close })[b.dataset.k](); };
     document.addEventListener("keydown", key, true);
     draw(); document.body.appendChild(ov); tick();
@@ -3386,5 +3443,5 @@
 
   window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a) };
   // Test hooks exist only in ?test mode, so the everyday app carries no back door.
-  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
+  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, view, RULER, drawWave, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
 })();

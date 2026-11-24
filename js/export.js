@@ -74,16 +74,20 @@
   }
 
   // Export one chapter. render(from, dur) returns mono float32 at 48 kHz of the mixed chapter.
-  // fmt: "raw" (48k/24 WAV), "wav" (44.1k/16 WAV), "mp3" (44.1k 192k). Writes to a FileSystemFileHandle.
+  // fmt: "raw" (48k/24 WAV), "wav" (44.1k/16 WAV), "mp3" (44.1k 192k), "flac" (48k/16, lossless; for Auphonic).
+  // Writes to a FileSystemFileHandle.
   async function exportChapter(render, length, fmt, fileHandle, markers, onProgress) {
     const ws = await fileHandle.createWritable();
     const CH = 10;                                         // seconds per chunk
     let dataBytes = 0, mp3, rs, tail = new Int16Array(0);
-    const outRate = fmt === "raw" ? IN : OUT, bits = fmt === "raw" ? 24 : 16;
-    if (fmt !== "mp3") await ws.write(wavHeader(0, outRate, bits, 0));
-    if (fmt !== "raw") rs = new Resampler();
+    const outRate = fmt === "raw" || fmt === "flac" ? IN : OUT, bits = fmt === "raw" ? 24 : 16;
+    const fl = fmt === "flac" ? new LRFlac.Encoder(IN, 16) : null;
+    if (fl) await ws.write(fl.header());                       // rewritten with the real totals at the end (same length)
+    else if (fmt !== "mp3") await ws.write(wavHeader(0, outRate, bits, 0));
+    if (fmt !== "raw" && !fl) rs = new Resampler();
     if (fmt === "mp3") mp3 = new lamejs.Mp3Encoder(1, OUT, 192);
     const writeOut = async f32 => {
+      if (fl) { for (const b of fl.push(f32)) await ws.write(b); return; }
       if (fmt === "mp3") {
         const pcm = new Int16Array(f32.length); for (let i = 0; i < f32.length; i++) { const d = (Math.random() - Math.random()) / 32768; pcm[i] = Math.round(Math.max(-1, Math.min(1, f32[i] + d)) * 32767); }
         const all = new Int16Array(tail.length + pcm.length); all.set(tail); all.set(pcm, tail.length);
@@ -97,7 +101,10 @@
       if (onProgress) onProgress(Math.min(1, (t + d) / length));
     }
     if (rs) { const target = Math.round(length * OUT), before = rs.n - 0, rest = rs.flush(), have = before; const keep = Math.max(0, Math.min(rest.length, target - (rs.n - rest.length))); await writeOut(rest.subarray(0, keep)); }
-    if (fmt === "mp3") {
+    if (fl) {
+      const fin = fl.finish(); for (const b of fin.frames) await ws.write(b);
+      await ws.write({ type: "write", position: 0, data: fin.header });
+    } else if (fmt === "mp3") {
       if (tail.length) { const b = mp3.encodeBuffer(tail); if (b.length) await ws.write(new Uint8Array(b)); }
       const e = mp3.flush(); if (e.length) await ws.write(new Uint8Array(e));
     } else {

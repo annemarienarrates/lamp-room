@@ -43,6 +43,8 @@
 
   // First run: build People from the team and everyone the books mention. Later loads: add team members that only
   // exist in the old list (a tab from before People wrote them), never remove anyone.
+  // People holds only who works in this Library (you, Jack). Cast and co-narrators live on each book. A Library from
+  // before this kept everyone the books mentioned: those records go (the books keep the names), the team stays.
   function reconcile() {
     let changed = false;
     if (!Array.isArray(S().people) || (!S().people.length && (S().narrators || []).some(n => n.name && n.name !== "Me"))) {
@@ -52,13 +54,9 @@
         const credit = n.credit || "", full = credit.split(" ").length > 1 && norm(credit).startsWith(norm(n.name).split(" ")[0]) ? credit : "";
         add({ name: n.name, full, credit, pace: n.pace || "", team: true });
       }
-      for (const x of namesInBooks()) {
-        if (find(x.name)) continue;
-        const near = closest(x.name);
-        if (near) addAka(near, x.name); else add({ name: x.name, full: x.name.split(" ").length > 1 ? x.name : "" });
-      }
       changed = true;
     } else {
+      if (list().some(p => !p.team) && list().some(p => p.team)) { S().people = list().filter(p => p.team); changed = true; }
       for (const n of S().narrators || []) if (n.name && n.name !== "Me" && !find(n.name)) { add({ name: n.name, credit: n.credit || "", pace: n.pace || "", team: true }); changed = true; }
     }
     if (changed) { mirror(); Store.saveSettings().catch(() => {}); }
