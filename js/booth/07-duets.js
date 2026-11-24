@@ -159,11 +159,11 @@
     const sl = slotOf(x); if (sl) B.audio.markers = B.audio.markers.filter(m => m !== sl);
     return t;
   }
-  async function spliceAll() {
+  async function spliceAll(chained) {
     if (B.rec || B.busy) return;
     const todo = theirRuns().filter(x => !placedClip(x) && lineFor(x));
-    if (!todo.length) { toast("Nothing to splice: every line that has arrived is already in."); return; }
-    B.busy = "splice"; pushUndo(); let done = 0, missed = 0;
+    if (!todo.length) { if (chained) { edited(); renderSide(); } else toast("Nothing to splice: every line that has arrived is already in."); return; }
+    B.busy = "splice"; if (!chained) pushUndo(); let done = 0, missed = 0;
     for (const x of todo) {
       busyNote("Splicing " + x.r + "'s lines… " + (done + missed + 1) + " / " + todo.length);
       const sl = slotOf(x), an = (B.audio.anchors || []).find(p => p[1] > x.from);
@@ -260,7 +260,7 @@
   // ---- the lead's side: bring their lines in (from the shared Library, or a folder you choose) ----
   async function readPack(d) { try { const f = await (await d.getFileHandle("lines.json")).getFile(); return JSON.parse(await f.text()); } catch (e) { return null; } }
   async function bringLines(picked, quiet) {
-    const readers = [...new Set(theirRuns().map(x => x.r))]; let got = 0, fresh = 0;
+    const readers = [...new Set(theirRuns().map(x => x.r))]; let got = 0, fresh = 0; const resent = [];
     for (const r of readers) {
       let d = null, pack = null;
       if (picked) { pack = await readPack(picked); if (pack && pack.reader === r) d = picked; else { try { d = await picked.getDirectoryHandle(r); pack = await readPack(d); } catch (e) { d = null; } } }
@@ -271,7 +271,7 @@
         }
       }
       if (!d || !pack || (pack.chapterId && pack.chapterId !== B.chap.id && !picked)) continue;
-      const have = duetData()[r]; if (have && have.made === pack.made && !picked) { got += have.lines.length; continue; }
+      const have = duetData()[r]; if (have && (have.made === pack.made || (have.next && have.next.made === pack.made) || have.done === pack.made) && !picked) { got += have.lines.length; continue; }
       const cd = await dir(), stamp = Date.now().toString(36), runs = theirRuns().filter(x => x.r === r), lines = [];
       for (const l of pack.lines) {
         // match to my text: same word positions if the manuscripts agree, otherwise find the words
@@ -282,14 +282,14 @@
         try { const ps = await (await d.getFileHandle(l.file.replace(/\.wav$/, ".peaks2"))).getFile(), ph = await cd.getFileHandle(name.replace(/\.wav$/, ".peaks2"), { create: true }), pw = await ph.createWritable(); await pw.write(ps); await pw.close(); } catch (e) {}
         lines.push({ n: l.n, file: name, from: x.from, to: x.to, text: x.text, dur: l.dur, hin: l.hin || 0, hout: l.hout || 0 });
       }
-      duetData()[r] = { made: pack.made, got: new Date().toISOString(), lines }; got += lines.length; fresh += lines.length;
-      const re = recutOf(r); if (re.length) { B.recut = B.recut || {}; B.recut[r] = re.length; }
+      // A re-send while their lines are already in the chapter doesn't touch it: it waits in Collaborate, where you choose
+      // to replace the list (your placed clips stay as they are) or re-splice the chapter with the new cuts.
+      const placedAny = B.audio.tracks.some(t => t.clips.some(c => c.line && c.line.r === r));
+      if (have && placedAny && !picked) { have.next = { made: pack.made, got: new Date().toISOString(), lines }; resent.push(r); }
+      else { duetData()[r] = { made: pack.made, got: new Date().toISOString(), lines }; got += lines.length; fresh += lines.length; }
       B.peaks = B.peaks || {};
     }
-    // a re-send of lines already in the chapter swaps in by itself (Undo puts the old ones back)
-    const rc = Object.entries(B.recut || {}).filter(([r, n]) => n && recutOf(r).length);
-    if (rc.length && !B.rec && !B.busy) for (const [r] of rc) swapRecut(r);
-    else if (rc.length) toast("🔁 " + rc.map(([r, n]) => r + " re-sent " + n + " line" + (n === 1 ? "" : "s") + " you've already placed").join(", ") + ". Collaborate tab ▸ Swap them in.");
+    if (resent.length) { Store.saveBook(B.book); renderSide(); notice("🔁 " + resent.map(nm).join(", ") + " sent new cuts for " + B.chap.title + ". Tools ▸ 🤝 Collaborate: replace the list, or re-splice with the new cuts."); }
     if (fresh) { Store.saveBook(B.book); renderSide(); notice("👥 " + fresh + " co-narrator line" + (fresh === 1 ? "" : "s") + " arrived for " + B.chap.title + "." + (B.audio.markers.some(m => m.slot) ? " Splice all fills your slots." : "")); }
     else if (!quiet) toast(picked ? "No lines for this chapter in that folder." : "No new lines yet. When your co-narrator presses Send, they appear here (through the shared Library folder).");
     return got;
@@ -320,7 +320,35 @@
     if (B.recut) delete B.recut[r];
     edited(); renderSide(); notice("🔁 " + todo.length + " of " + r + "'s line" + (todo.length === 1 ? "" : "s") + " swapped for the new cut. Undo puts the old ones back.");
   }
-  function keepRecut(r) { const d = duetData()[r]; if (!d) return; d.done = d.made; if (B.recut) delete B.recut[r]; Store.saveBook(B.book); renderSide(); toast("Keeping the lines you have. A newer send from " + r + " will ask again."); }
+  // the new cuts become the list; the clips already in the chapter stay as they are
+  function takeNewList(r) { const d = duetData()[r]; if (!d || !d.next) return; pushUndo(); duetData()[r] = d.next; edited(); renderSide(); toast("👥 " + nm(r) + "'s new cuts are the list now. Your placed clips are as you left them."); }
+  // take every one of their clips out of the chapter (closing the room each made) and splice the new cuts in afresh
+  async function resplice(r) {
+    if (B.rec || B.busy) return; const d = duetData()[r]; if (!d) return;
+    if (!confirm("Take all of " + nm(r) + "'s clips out of this chapter and splice the new cuts in afresh? Any moves or fixes you made to their clips go; Undo brings them back.")) return;
+    pushUndo(); if (d.next) duetData()[r] = d.next;
+    // each line's old clip(s), latest line first, so taking one out and putting the new cut in never moves an earlier one
+    const byLine = new Map(); B.audio.tracks.forEach((t, ti) => t.clips.forEach(c => { if (c.line && c.line.r === r) { const k = c.line.from; if (!byLine.has(k)) byLine.set(k, []); byLine.get(k).push({ ti, c }); } }));
+    const groups = [...byLine.entries()].sort((a, b) => Math.min(...b[1].map(z => z.c.at)) - Math.min(...a[1].map(z => z.c.at)));
+    const busyIn = (a, b) => B.audio.tracks.some((_, j) => T().extract(B.audio, j, a, b).length);
+    let n = 0, out = 0; B.busy = "splice";
+    try {
+      for (const [from, list] of groups) {
+        // keep the first clip of the line where it is (with any moves or fixes); extra copies of the same line go
+        list.sort((a, b) => a.c.at - b.c.at);
+        for (const { ti, c } of list.slice(1).reverse()) {
+          const k = B.audio.tracks[ti].clips.indexOf(c); if (k < 0) continue; B.audio.tracks[ti].clips.splice(k, 1); out++;
+          if (!busyIn(c.at, c.at + c.dur)) T().deleteRange(B.audio, c.at, c.at + c.dur);
+        }
+        const x = theirRuns().find(z => z.r === r && z.from === from), l = x && lineFor(x), keep = list[0];
+        const ci = B.audio.tracks[keep.ti].clips.indexOf(keep.c);
+        if (l && ci >= 0) { busyNote("Re-splicing " + nm(r) + "'s lines… " + (++n)); swapClip(keep.ti, ci, l); }
+      }
+    } finally { B.busy = null; busyNote(""); }
+    await spliceAll(true);                       // one Undo step for the whole re-splice
+    notice("🔁 Re-spliced " + nm(r) + "'s lines with the new cuts: " + n + " swapped in where the old ones sat" + (out ? ", " + out + " extra cop" + (out === 1 ? "y" : "ies") + " taken out" : "") + ". Undo puts it back as it was.");
+  }
+  function keepRecut(r) { const d = duetData()[r]; if (!d) return; if (d.next) { d.done = d.next.made; delete d.next; } else d.done = d.made; if (B.recut) delete B.recut[r]; Store.saveBook(B.book); renderSide(); toast("Keeping the lines you have. A newer send from " + r + " will ask again."); }
   async function pickLinesFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines", mode: "read" }); await bringLines(d); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
   async function pickCopyFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines-out", mode: "readwrite" }); const sub = await d.getDirectoryHandle((B.book.folder + " - " + B.chap.title + " - " + B.readingAs).replace(/[\\/:*?"<>|]+/g, "-"), { create: true }); await sendLines(sub); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
 
@@ -338,14 +366,15 @@
     const runs = theirRuns();
     if (!runs.length) return `<div class="bd-sec"><b>Collaborate</b><div class="stu-note">No one else reads in this chapter.</div></div>`;
     const arrived = runs.filter(x => lineFor(x)).length, placed = runs.filter(x => placedClip(x)).length, slots = runs.filter(x => !placedClip(x) && slotOf(x)).length, who = [...new Set(runs.map(x => x.r))].join(" & ");
-    const rcs = [...new Set(runs.map(x => x.r))].map(r => [r, recutOf(r).length]).filter(z => z[1]);
+    const nexts = [...new Set(runs.map(x => x.r))].map(r => [r, ((duetData()[r] || {}).next || { lines: [] }).lines.length]).filter(z => z[1]);
     const miss = [...new Set(runs.map(x => x.r))].map(r => [r, runs.filter(x => x.r === r && ((duetData()[r] || {}).missing || []).includes(x.from) && !lineFor(x)).length]).filter(z => z[1]);
-    return `${miss.map(([r, n]) => `<div class="bd-sec recut"><b>⚠ ${n} line${n === 1 ? "" : "s"} missing from ${esc(nm(r))}'s file</b><div class="stu-note">Their file had no take of ${n === 1 ? "this line" : "these lines"} (marked below). Mark them as pickups and they go on ${esc(r)}'s list${isNarrator(r) ? "" : " for you to send"}.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="miss:${esc(r)}" ${dis}>🔁 Mark as pickups</button></div></div>`).join("")}${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button><button class="stu-btn" data-p="recutkeep:${esc(r)}" ${dis}>Keep mine</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
+    return `${miss.map(([r, n]) => `<div class="bd-sec recut"><b>⚠ ${n} line${n === 1 ? "" : "s"} missing from ${esc(nm(r))}'s file</b><div class="stu-note">Their file had no take of ${n === 1 ? "this line" : "these lines"} (marked below). Mark them as pickups and they go on ${esc(r)}'s list${isNarrator(r) ? "" : " for you to send"}.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="miss:${esc(r)}" ${dis}>🔁 Mark as pickups</button></div></div>`).join("")}${nexts.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(nm(r))} sent new cuts (${n} line${n === 1 ? "" : "s"})</b><div class="stu-note">Their lines are already in this chapter, so nothing has changed yet. <b>Replace the list</b> makes the new cuts the ones listed here and leaves your placed clips as they are. <b>Re-splice with new cuts</b> takes all of ${esc(nm(r))}'s clips out and splices the new ones in afresh (your moves to their clips go; Undo brings them back).</div><div class="fx-chips"><button class="stu-btn" data-p="newlist:${esc(r)}" ${dis}>Replace the list</button><button class="stu-btn stu-rec" data-p="resplice:${esc(r)}" ${dis}>Re-splice with new cuts</button><button class="stu-btn quiet" data-p="recutkeep:${esc(r)}" ${dis}>Keep mine</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
         <div class="co-chips"><span>${runs.length} in this chapter</span><span class="${arrived === runs.length ? "ok" : arrived ? "" : "warn"}">${arrived} arrived</span><span class="${placed ? "ok" : ""}">${placed} in</span>${slots ? `<span class="warn">${slots} slots waiting</span>` : ""}</div>
         <label class="check"><input type="checkbox" data-duet="auto" ${duetOpt("auto") ? "checked" : ""}> <b>Auto-place while I record</b></label>
         <div class="stu-note">Read through. When you've finished the line before theirs and gone quiet, their line drops in on their track${duetOpt("hear") ? " and plays in your headphones" : ""}; wait for “Your turn”. If their audio isn't in yet, a slot is marked and it splices in later. <b>${esc(kl("click"))}</b> drops their next line in by hand.</div>
         <label class="check"><input type="checkbox" data-duet="hear" ${duetOpt("hear") ? "checked" : ""}> Play their line in my headphones</label>
-        <div class="fx-chips"><button class="stu-btn stu-rec" data-p="spliceall" ${dis} ${arrived > placed ? "" : "disabled"} title="Fill the slots, and place any line not yet in by your word timing">⤓ Splice all</button><button class="stu-btn" data-p="bring" ${dis}>Check for new lines</button><button class="stu-btn" data-p="bringfrom" ${dis}>Load from a folder…</button></div></div>
+        <div class="fx-chips"><button class="stu-btn stu-rec" data-p="spliceall" ${dis} ${arrived > placed ? "" : "disabled"} title="Fill the slots, and place any line not yet in by your word timing">⤓ Splice all</button><button class="stu-btn" data-p="bring" ${dis}>Check for new lines</button><button class="stu-btn" data-p="bringfrom" ${dis}>Load from a folder…</button></div>
+        ${[...new Set(runs.map(x => x.r))].filter(r => B.audio.tracks.some(t => t.clips.some(c => c.line && c.line.r === r)) && lineFor(runs.find(x => x.r === r) || {})).map(r => `<div class="fx-chips" style="margin-top:4px"><button class="stu-btn" data-p="resplice:${esc(r)}" ${dis} title="Take all of ${esc(nm(r))}'s clips out of this chapter and splice the latest cuts in afresh">🔁 Re-splice ${esc(nm(r))}'s lines</button></div>`).join("")}</div>
       <div class="bd-sec">${runs.map((x, i) => { const l = lineFor(x), p = placedClip(x), sl = !p && slotOf(x);
         return `<div class="co-line ${p ? "placed" : sl ? "slot" : ""}"><span class="n">${i + 1}</span><span>${esc(qt(short(x.text, 16)))}<br><i>${esc(nm(x.r))} · ${!l && !p && ((duetData()[x.r] || {}).missing || []).includes(x.from) ? '<b class="warn-t">missing from their file</b> · ' : ""}${p ? "in · " + clock(B.audio.tracks[p.ti].clips[p.ci].at) : sl ? "slot at " + clock(sl.t) : ""}${l ? (p || sl ? " · " : "") + l.dur.toFixed(1) + " s" + (l.check ? ' · <b class="warn-t">check</b>' : "") + (l.pk ? " · pickup" : "") : (p || sl ? "" : "") + (l ? "" : " not arrived")}</i></span>
           <span class="fx-chips">${l ? audBtn("l:" + i, `data-p="lplay:${i}"`, "Listen") : ""}${p ? `<button class="stu-btn" data-p="lgo:${i}" title="Go to it">go</button><button class="stu-btn" data-p="lout:${i}" ${dis} title="Take it back out">↩</button>` : l ? `<button class="stu-btn" data-p="lin:${i}" ${dis} title="Put it in at the playhead (snaps to the pause)">Place</button>` : ""}<button class="stu-btn" data-p="lask:${i}" title="Mark as a pickup for ${esc(x.r)}">🔁</button></span></div>`; }).join("")}</div>

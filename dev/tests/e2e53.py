@@ -14,7 +14,7 @@ async def main():
     for k, (name, title) in enumerate([("sample.docx","Saltwater Saga 1"), ("duet.docx","Saltwater Saga 2"), ("sample.docx","Other Book")]):
         await pg.goto(U+"#/library"); await pg.goto(U+"#/import"); await pg.wait_for_selector("#file", state="attached", timeout=60000)
         await pg.set_input_files("#file",FIX+"/"+name); await pg.wait_for_selector("#create", timeout=60000); await pg.fill("#it",title); await pg.click("#create")
-        await pg.wait_for_function(f"Store.books.length==={k+1}", timeout=60000)
+        await pg.wait_for_function(f"Store.books.length==={k+1} && location.hash.startsWith('#/book/')", timeout=60000)
     await pg.wait_for_function("Store.books.length===3")
     ids = await pg.evaluate("Object.fromEntries(Store.books.map(b=>[b.title,b.id]))")
     print("series keys:", await pg.evaluate("Store.books.map(b=>b.title+' → '+LRPace.seriesOf(b))"))

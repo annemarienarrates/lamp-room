@@ -577,12 +577,12 @@
       <div class="ask-act">${a.ch ? `<button class="btn small quiet" data-askgo="${esc(a.ch)}">Go to chapter</button>` : ""}${mine ? `<button class="btn small" data-askdone="${esc(a.id)}" title="Mark it dealt with">✓ Done</button>` : ""}</div></div>`;
     if (mine) {
       const team = (Store.settings.narrators || []).map(n => n.name).filter(n => !Store.samePerson(n, me));
-      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>You lead this book.</b> <span class="muted">Only you change its text, chapters, who reads what and credits; everyone keeps their own recordings and progress.</span></div><div class="spacer"></div>
+      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>You lead this book.</b> <span class="muted">Only you change its text, chapters and credits, and who reads what for everyone; anyone can give lines to a reader in their own copy, and everyone keeps their own recordings and progress.</span></div><div class="spacer"></div>
         ${!book.shared && team.length ? `<label class="small">Hand the Lead to<select id="handon"><option value="">—</option>${team.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>` : book.shared ? `<span class="small muted">In a shared project the Lead is the folder's owner.</span>` : ""}</div>
         ${asks.length ? `<div class="section-label" style="margin-top:12px">Asked of you · ${asks.length}</div>${asks.map(askRow).join("")}` : ""}`;
     } else {
       const myAsks = asks.filter(a => Store.samePerson(a.who, me));
-      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>${esc(lead)} leads this book.</b> <span class="muted">The text, chapters, who reads what, credits and cast names are ${esc(lead)}'s to change. Your recordings, takes and progress are yours.</span></div><div class="spacer"></div>
+      bar.innerHTML = `<div class="row" style="align-items:center"><div><b>${esc(lead)} leads this book.</b> <span class="muted">The text, chapters, credits, cast names and who reads what for everyone are ${esc(lead)}'s to change. You can give lines to a reader in your own copy (select the words in the Booth), and your recordings, takes and progress are yours.</span></div><div class="spacer"></div>
         <button class="btn" id="askLead">Ask ${esc(lead)} to fix something</button></div>
         ${myAsks.length ? `<div class="section-label" style="margin-top:12px">Waiting with ${esc(lead)} · ${myAsks.length}</div>${myAsks.map(askRow).join("")}` : ""}`;
       // lock the book's own controls; the Booth links, the reader, the planner card, the cover and the shared card stay
