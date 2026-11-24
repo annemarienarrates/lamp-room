@@ -94,6 +94,7 @@
       case "shfin": B.exp = null; B.expShared = true; return exportDialog(true);
       case "asmoff": return assemble(false);
       case "recut": return swapRecut(x);
+      case "recutkeep": return keepRecut(x);
       case "lplay": { const l = lineFor(theirRuns()[+x]); if (l) toggleAud("l:" + x, () => playLine(l, null, "l:" + x)); return; }
       case "lgo": { const p = placedClip(theirRuns()[+x]); if (p) seek(B.audio.tracks[p.ti].clips[p.ci].at); return; }
       case "lout": return unplace(theirRuns()[+x]);

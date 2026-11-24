@@ -295,27 +295,32 @@
     return got;
   }
   // placed lines whose newest version (from a re-send) isn't the one in the chapter
+  // a send you've already swapped in (or chosen to keep yours over) stays quiet until a newer one arrives
   function recutOf(r) {
-    const out = [], rec = duetData()[r]; if (!rec) return out;
+    const out = [], rec = duetData()[r]; if (!rec || rec.done === rec.made) return out;
     B.audio.tracks.forEach((tr, ti) => tr.clips.forEach((c, ci) => { if (!c.line || c.line.r !== r) return; const l = rec.lines.find(z => z.from === c.line.from); if (l && l.file !== c.file) out.push({ ti, ci, l }); }));
     return out;
   }
   // swap a placed line for a new version: the chapter grows or shrinks to fit (your audio moves along with it)
   function swapClip(ti, ci, l) {
-    const c = B.audio.tracks[ti].clips[ci], end = c.at + c.dur, d = l.dur - c.dur;
+    const c = B.audio.tracks[ti].clips[ci], end = c.at + c.dur, d = l.dur - c.dur, tag = Prep.uid(); c.swapTag = tag;
     if (d > 0.005) T().insertGap(B.audio, end, d);
     else if (d < -0.005) { const a = end + d, busy = B.audio.tracks.some((tr, k) => k !== ti && tr.clips.some(z => z.at < end - 0.01 && z.at + z.dur > a + 0.01)); if (!busy) T().deleteRange(B.audio, a, end); }
-    const k = B.audio.tracks[ti].clips.find(z => z.line && c.line && z.line.from === c.line.from && z.line.r === c.line.r) || c;
+    const k = B.audio.tracks[ti].clips.find(z => z.swapTag === tag) || B.audio.tracks[ti].clips.find(z => z.line && c.line && z.line.from === c.line.from && z.line.r === c.line.r) || c;
+    delete k.swapTag; delete c.swapTag;
     k.file = l.file; k.off = l.hin || 0; k.dur = l.dur; delete k.fi; delete k.fo; delete k.g;
   }
   function swapRecut(r) {
     if (B.rec || B.busy) return;
-    const todo = recutOf(r).sort((a, b) => B.audio.tracks[b.ti].clips[b.ci].at - B.audio.tracks[a.ti].clips[a.ci].at);   // last first, so earlier times stay put
+    const seen = new Set(), todo = recutOf(r).filter(x => { const k = x.l.from; if (seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a, b) => B.audio.tracks[b.ti].clips[b.ci].at - B.audio.tracks[a.ti].clips[a.ci].at);   // last first, so earlier times stay put
     if (!todo.length) { toast("Nothing to swap."); return; }
     pushUndo(); for (const x of todo) swapClip(x.ti, x.ci, x.l);
+    duetData()[r].done = duetData()[r].made;
     if (B.recut) delete B.recut[r];
     edited(); renderSide(); notice("🔁 " + todo.length + " of " + r + "'s line" + (todo.length === 1 ? "" : "s") + " swapped for the new cut. Undo puts the old ones back.");
   }
+  function keepRecut(r) { const d = duetData()[r]; if (!d) return; d.done = d.made; if (B.recut) delete B.recut[r]; Store.saveBook(B.book); renderSide(); toast("Keeping the lines you have. A newer send from " + r + " will ask again."); }
   async function pickLinesFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines", mode: "read" }); await bringLines(d); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
   async function pickCopyFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines-out", mode: "readwrite" }); const sub = await d.getDirectoryHandle((B.book.folder + " - " + B.chap.title + " - " + B.readingAs).replace(/[\\/:*?"<>|]+/g, "-"), { create: true }); await sendLines(sub); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
 
@@ -335,7 +340,7 @@
     const arrived = runs.filter(x => lineFor(x)).length, placed = runs.filter(x => placedClip(x)).length, slots = runs.filter(x => !placedClip(x) && slotOf(x)).length, who = [...new Set(runs.map(x => x.r))].join(" & ");
     const rcs = [...new Set(runs.map(x => x.r))].map(r => [r, recutOf(r).length]).filter(z => z[1]);
     const miss = [...new Set(runs.map(x => x.r))].map(r => [r, runs.filter(x => x.r === r && ((duetData()[r] || {}).missing || []).includes(x.from) && !lineFor(x)).length]).filter(z => z[1]);
-    return `${miss.map(([r, n]) => `<div class="bd-sec recut"><b>⚠ ${n} line${n === 1 ? "" : "s"} missing from ${esc(nm(r))}'s file</b><div class="stu-note">Their file had no take of ${n === 1 ? "this line" : "these lines"} (marked below). Mark them as pickups and they go on ${esc(r)}'s list${isNarrator(r) ? "" : " for you to send"}.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="miss:${esc(r)}" ${dis}>🔁 Mark as pickups</button></div></div>`).join("")}${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
+    return `${miss.map(([r, n]) => `<div class="bd-sec recut"><b>⚠ ${n} line${n === 1 ? "" : "s"} missing from ${esc(nm(r))}'s file</b><div class="stu-note">Their file had no take of ${n === 1 ? "this line" : "these lines"} (marked below). Mark them as pickups and they go on ${esc(r)}'s list${isNarrator(r) ? "" : " for you to send"}.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="miss:${esc(r)}" ${dis}>🔁 Mark as pickups</button></div></div>`).join("")}${rcs.map(([r, n]) => `<div class="bd-sec recut"><b>🔁 ${esc(r)} re-cut ${n} line${n === 1 ? "" : "s"} you've already placed</b><div class="stu-note">Swap in the new cut: each one replaces the old in place, and the chapter grows or shrinks to fit. Undo puts the old ones back.</div><div class="fx-chips"><button class="stu-btn stu-rec" data-p="recut:${esc(r)}" ${dis}>Swap them in</button><button class="stu-btn" data-p="recutkeep:${esc(r)}" ${dis}>Keep mine</button></div></div>`).join("")}<div class="bd-sec"><b>${esc(who)}'s lines</b>
         <div class="co-chips"><span>${runs.length} in this chapter</span><span class="${arrived === runs.length ? "ok" : arrived ? "" : "warn"}">${arrived} arrived</span><span class="${placed ? "ok" : ""}">${placed} in</span>${slots ? `<span class="warn">${slots} slots waiting</span>` : ""}</div>
         <label class="check"><input type="checkbox" data-duet="auto" ${duetOpt("auto") ? "checked" : ""}> <b>Auto-place while I record</b></label>
         <div class="stu-note">Read through. When you've finished the line before theirs and gone quiet, their line drops in on their track${duetOpt("hear") ? " and plays in your headphones" : ""}; wait for “Your turn”. If their audio isn't in yet, a slot is marked and it splices in later. <b>${esc(kl("click"))}</b> drops their next line in by hand.</div>

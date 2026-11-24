@@ -64,6 +64,12 @@ async def main():
     left = await pg.evaluate("Booth._test.recutOf('Jack').length")
     print("swapped by itself:", f0 != f1, "| left:", left, "|", await pg.evaluate(C))
     if f0 == f1 or left: errs.append("re-sent lines didn't swap in by themselves")
+    await pg.evaluate("Booth.state.side=null; Booth.state.tab='duet'; Booth._test.act('tools')"); await pg.wait_for_timeout(300)
+    if await pg.query_selector(".bd-sec.recut"): errs.append("the re-cut notice should go once the lines are swapped")
+    # split a swapped line in two: still no notice (that send is done) until a newer send arrives
+    await pg.evaluate("(()=>{const a=Booth.state.audio; for(const t of a.tracks){const i=t.clips.findIndex(c=>c.line); if(i>=0){const c=t.clips[i], h=c.dur/2; t.clips.splice(i+1,0,Object.assign({},c,{at:c.at+h,off:(c.off||0)+h,dur:c.dur-h})); c.dur=h; break;}}})()")
+    print("after splitting a placed line, waiting:", await pg.evaluate("Booth._test.recutOf('Jack').length"))
+    if await pg.evaluate("Booth._test.recutOf('Jack').length"): errs.append("a handled send shouldn't ask again")
     await pg.evaluate("Booth._test.undo()"); await pg.wait_for_timeout(200)
     print("undo restores old:", await pg.evaluate("Booth.state.audio.tracks.flatMap(t=>t.clips).filter(c=>c.line).map(c=>c.file).join(',')") == f0)
     # 4. flub just after their line: the line stays whole in front of the re-read
