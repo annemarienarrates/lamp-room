@@ -89,6 +89,27 @@ async def main():
     await pg.goto(U+f"#/booth/{bid}/0?tab=pickups"); await pg.wait_for_timeout(2500)
     print("status:", await pg.evaluate("Booth._test.pkMine().map(q=>q.status)"), "| clip with pk:", await pg.evaluate("Booth.state.audio.tracks.flatMap(t=>t.clips).filter(c=>c.pk).map(c=>[c.file,+c.dur.toFixed(2),c.pk.old.file])"))
     await pg.screenshot(path="shots/c-anne-in.png")
+    # where did it go? "go" jumps to the pickup and selects it; a pickup replaced later says so, with Put in again
+    pid = await pg.evaluate("Booth._test.pkMine()[0].id")
+    await pg.evaluate("Booth._test.renderSide()"); await pg.wait_for_timeout(300)
+    row = await pg.evaluate(f"(document.querySelector('[data-p=\"pkgo:{pid}\"]')||{{}}).closest?.('.co-line')?.innerText||''"); print("pickup row:", row.replace("\n"," | "))
+    if "in at" not in row: errs.append("a placed pickup should say where it sits, with go")
+    await pg.click(f"[data-p='pkgo:{pid}']"); await pg.wait_for_timeout(500)
+    got = await pg.evaluate("(()=>{const B=Booth.state,s=B.selTake,c=s&&B.audio.tracks[s.ti].clips[s.ci];return {file:c&&c.file,at:c&&c.at,ph:B.playhead}})()"); print("go:", got)
+    if got["file"] != f"pk-{pid}.wav" or not (got["at"] - 2 <= got["ph"] <= got["at"] + 1.5): errs.append("go should select the pickup clip and move the playhead just before it")
+    await pg.keyboard.press("Space"); await pg.wait_for_timeout(200)
+    # re-splice keeps the pickup
+    r0 = await pg.evaluate("Booth._test.pkMine()[0].to")
+    await pg.evaluate(f"Booth._test.resplice('{r0}')"); await pg.wait_for_timeout(1500)
+    still = await pg.evaluate(f"Booth.state.audio.tracks.flatMap(t=>t.clips).some(c=>c.file==='pk-{pid}.wav')"); print("pickup after re-splice:", still, await pg.evaluate("[...document.querySelectorAll('.notice')].map(n=>n.innerText).pop()||''"))
+    if not still: errs.append("re-splice should keep a placed pickup")
+    # something replaced it anyway: it says so, and Put in again brings it back
+    await pg.evaluate(f"(()=>{{const B=Booth.state;for(const t of B.audio.tracks)for(const c of t.clips)if(c.file==='pk-{pid}.wav'){{const o=c.pk.old;c.file=o.file;c.off=o.off;delete c.pk;}}Booth._test.edited();Booth._test.renderSide()}})()"); await pg.wait_for_timeout(400)
+    lost = await pg.evaluate(f"(document.querySelector('[data-p=\"pkagain:{pid}\"]')||{{}}).closest?.('.co-line')?.innerText||''"); print("lost row:", lost.replace("\n"," | "))
+    if "not in the chapter now" not in lost: errs.append("a pickup that's been replaced should say it's not in the chapter now")
+    await pg.click(f"[data-p='pkagain:{pid}']"); await pg.wait_for_timeout(1500)
+    back = await pg.evaluate(f"Booth.state.audio.tracks.flatMap(t=>t.clips).some(c=>c.file==='pk-{pid}.wav')"); print("put in again:", back)
+    if not back: errs.append("Put in again should put the pickup back")
     # outside cast pickups: ask Cast 1 for two, copy list, drop their file
     await pg.evaluate("(async()=>{const rs=Booth._test.runsIn(Booth.state.chap).filter(x=>x.r==='Cast 1');await Booth._test.askPickup(rs[0],'Angrier');await Booth._test.askPickup(rs[1],'');})()"); await pg.wait_for_timeout(600)
     print("list:\n", await pg.evaluate("Booth._test.castPickupList('Cast 1').text"))

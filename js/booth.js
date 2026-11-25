@@ -126,6 +126,7 @@
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
     if (amLead() && !assembled() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
+    else if (pkMine().some(q => q.status === "open" && q.chapterId === B.chap.id)) setTimeout(() => { if (B && B.ci === ci) applyPickups(true).catch(() => {}); }, 400);   // anyone's asked-for pickups go in when they open the chapter
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
     if (B.mine.every(m => !m) && !assembled() && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }
@@ -480,6 +481,8 @@
       case "impmine": { const f = await pickAudioFile(); if (f) return importMine(f); return; }
       case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) toggleAud("pk:" + x, () => playPickupReply(q, "pk:" + x)); return; }
       case "pkin": return applyPickups();
+      case "pkgo": return goPickup(x);
+      case "pkagain": return putPickupAgain(x);
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
       case "miss": return markMissing(x);
@@ -2163,7 +2166,7 @@
     const byLine = new Map(); B.audio.tracks.forEach((t, ti) => t.clips.forEach(c => { if (c.line && c.line.r === r) { const k = c.line.from; if (!byLine.has(k)) byLine.set(k, []); byLine.get(k).push({ ti, c }); } }));
     const groups = [...byLine.entries()].sort((a, b) => Math.min(...b[1].map(z => z.c.at)) - Math.min(...a[1].map(z => z.c.at)));
     const busyIn = (a, b) => B.audio.tracks.some((_, j) => T().extract(B.audio, j, a, b).length);
-    let n = 0, out = 0; B.busy = "splice";
+    let n = 0, out = 0, kept = 0; B.busy = "splice";
     try {
       for (const [from, list] of groups) {
         // keep the first clip of the line where it is (with any moves or fixes); extra copies of the same line go
@@ -2174,11 +2177,13 @@
         }
         const x = theirRuns().find(z => z.r === r && z.from === from), l = x && lineFor(x), keep = list[0];
         const ci = B.audio.tracks[keep.ti].clips.indexOf(keep.c);
-        if (l && ci >= 0) { busyNote("Re-splicing " + nm(r) + "'s lines… " + (++n)); swapClip(keep.ti, ci, l); }
+        const isPk = keep.c.pk || /^pk-/.test(keep.c.file || "");                 // a pickup stays: it's newer than any cut
+        if (isPk) kept++;
+        else if (l && ci >= 0) { busyNote("Re-splicing " + nm(r) + "'s lines… " + (++n)); swapClip(keep.ti, ci, l); }
       }
     } finally { B.busy = null; busyNote(""); }
     await spliceAll(true);                       // one Undo step for the whole re-splice
-    notice("🔁 Re-spliced " + nm(r) + "'s lines with the new cuts: " + n + " swapped in where the old ones sat" + (out ? ", " + out + " extra cop" + (out === 1 ? "y" : "ies") + " taken out" : "") + ". Undo puts it back as it was.");
+    notice("🔁 Re-spliced " + nm(r) + "'s lines with the new cuts: " + n + " swapped in where the old ones sat" + (kept ? ", " + kept + " pickup" + (kept === 1 ? "" : "s") + " kept" : "") + (out ? ", " + out + " extra cop" + (out === 1 ? "y" : "ies") + " taken out" : "") + ". Undo puts it back as it was.");
   }
   function keepRecut(r) { const d = duetData()[r]; if (!d) return; if (d.next) { d.done = d.next.made; delete d.next; } else d.done = d.made; if (B.recut) delete B.recut[r]; Store.saveBook(B.book); renderSide(); toast("Keeping the lines you have. A newer send from " + r + " will ask again."); }
   async function pickLinesFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines", mode: "read" }); await bringLines(d); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
@@ -3329,6 +3334,26 @@
   }
   function askPickupPrompt(run) { if (!run) return; const note = window.prompt("Pickup for " + run.r + ":\n“" + short(run.text, 20) + "”\n\nA note for them (optional):", ""); if (note === null) return; return askPickup(run, note.trim()); }
   async function cancelPickup(id) { const list = pkMine().map(q => Object.assign({}, q)), q = list.find(z => z.id === id); if (!q) return; q.status = "cancelled"; await saveMine(list.filter(z => z.status !== "cancelled" || z.id === id)); renderSide(); }
+  // where a pickup sits in this chapter: { ti, ci, c }, or null if it isn't there (taken out, or replaced later)
+  function pkClipOf(q) {
+    for (let ti = 0; ti < B.audio.tracks.length; ti++) { const ci = B.audio.tracks[ti].clips.findIndex(c => (c.pk && c.pk.id === q.id) || c.file === "pk-" + q.id + ".wav"); if (ci >= 0) return { ti, ci, c: B.audio.tracks[ti].clips[ci] }; }
+    return null;
+  }
+  // go to a pickup: select it on its track, bring it into view and play it from a moment before
+  function goPickup(id) {
+    const q = pkAll().find(z => z.id === id); if (!q) return;
+    if (q.chapterId !== B.chap.id) { const k = chIndex(q.chapterId); if (k >= 0) openChapter(k); return; }
+    const p = pkClipOf(q); if (!p) { toast("That pickup isn't in this chapter now."); return; }
+    const v = view(), cv = document.getElementById("wave"), W = cv ? cv.clientWidth : 800;
+    v.t0 = Math.max(0, p.c.at - (W / v.pps) * 0.3);
+    seek(Math.max(0, p.c.at - 1.5)); selectTake(p.ti, p.ci); drawWave(); togglePlay(true);
+  }
+  // a pickup marked in that's no longer in the chapter: put it in again over the line's current read
+  async function putPickupAgain(id) {
+    const list = pkMine().map(q => Object.assign({}, q)), q = list.find(z => z.id === id); if (!q) return;
+    q.status = "open"; delete q.in; await saveMine(list); const n = await applyPickups();
+    if (!n) toast("Couldn't put it in: their line isn't in this chapter. Place the line first (🤝 Collaborate), then press Put in again.");
+  }
   // swap one placed line for its pickup: the timeline grows or shrinks by the difference, on every track
   function replaceClip(ti, ci, file, dur, id) {
     const a = B.audio, c = a.tracks[ti].clips[ci], at = c.at, od = c.dur;
@@ -3476,8 +3501,9 @@
         const qs = by[r].sort((a, b) => chIndex(a.chapterId) - chIndex(b.chapterId) || a.w0 - b.w0), waiting = qs.filter(q => q.status === "open" && !Store.pickupReply(B.book, q)).length;
         return `<div class="pk-who"><b>${esc(nm(r))}</b> <span class="muted">${waiting ? waiting + " waiting" : "nothing waiting"}</span>${isNarrator(r) ? "" : `<div class="fx-chips"><button class="stu-btn" data-p="pkcopy:${esc(r)}" ${waiting ? "" : "disabled"}>📋 Copy the list</button><button class="stu-btn" data-p="pkdrop:${esc(r)}" ${dis} ${waiting ? "" : "disabled"}>🎧 Drop in their pickups…</button></div>`}</div>` +
           qs.map(q => { const rep = Store.pickupReply(B.book, q), here = q.chapterId === B.chap.id, st = q.status === "in" ? "in" : rep ? "arrived" : "waiting";
-            return `<div class="co-line ${st === "in" ? "placed" : st === "arrived" ? "" : "slot"}"><span class="n">${st === "in" ? "✓" : st === "arrived" ? "⬇" : "…"}</span><span>${esc(qt(short(q.text, 14)))}<br><i>${esc(q.chapter || "")} · ${st}${q.note ? " · “" + esc(short(q.note, 10)) + "”" : ""}</i></span>
-              <span class="fx-chips">${rep ? audBtn("pk:" + q.id, `data-p="pkplay:${q.id}"`, "Listen") : ""}${st === "arrived" ? (here ? `<button class="stu-btn stu-rec" data-p="pkin" ${dis}>Put in</button>` : `<button class="stu-btn" data-ci="${chIndex(q.chapterId)}" title="Open that chapter: it goes in">go</button>`) : ""}${q.status === "open" ? `<button class="stu-btn" data-p="pkcancel:${q.id}" title="Never mind">✕</button>` : ""}</span></div>`; }).join("");
+            const at = st === "in" && here ? pkClipOf(q) : null, lost = st === "in" && here && !at;
+            return `<div class="co-line ${st === "in" && !lost ? "placed" : st === "arrived" ? "" : "slot"}"><span class="n">${lost ? "⚠" : st === "in" ? "✓" : st === "arrived" ? "⬇" : "…"}</span><span>${esc(qt(short(q.text, 14)))}<br><i>${esc(q.chapter || "")} · ${at ? "in at " + clock(at.c.at) : lost ? "<b class=\"warn-t\">not in the chapter now</b> (replaced later)" : st}${q.note ? " · “" + esc(short(q.note, 10)) + "”" : ""}</i></span>
+              <span class="fx-chips">${at ? `<button class="stu-btn" data-p="pkgo:${q.id}" title="Go to it: selects it on its track and plays it in place">go</button>` : ""}${lost && rep ? `<button class="stu-btn stu-rec" data-p="pkagain:${q.id}" ${dis}>Put in again</button>` : ""}${rep ? audBtn("pk:" + q.id, `data-p="pkplay:${q.id}"`, "Listen") : ""}${st === "arrived" ? (here ? `<button class="stu-btn stu-rec" data-p="pkin" ${dis}>Put in</button>` : `<button class="stu-btn" data-ci="${chIndex(q.chapterId)}" title="Open that chapter: it goes in">go</button>`) : ""}${q.status === "open" ? `<button class="stu-btn" data-p="pkcancel:${q.id}" title="Never mind">✕</button>` : ""}</span></div>`; }).join("");
       }).join("") + `</div>`;
     }
     return h;
@@ -3485,5 +3511,5 @@
 
   window.Booth = { open, close, get state() { return B; }, ACTIONS, keyLabel: a => kl(a) };
   // Test hooks exist only in ?test mode, so the everyday app carries no back door.
-  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, view, RULER, drawWave, resplice, takeNewList, keepRecut, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState };
+  if (/[?&]test\b/.test(location.search)) window.Booth._test = { markPos, everyoneRuns, duetData, view, RULER, drawWave, resplice, takeNewList, keepRecut, renderCueWin, importMine, wavMarkers, sendToShared, bringInSends, trackSet, pkZone, heard, nextSentence, chapterComplete, mapChapter, findInBook, goHit, replaceSel, unpackOrig, proofChapter, skipLine, recutOf, swapRecut, selLine, renderLineEd, liveDrop, selectTake: (a,b) => selectTake(a,b), act, cutTakes, findPauses, evenPauses, learnTone, addSpace, drawWave,  castDrop, castPickupDrop, askPickup, applyPickups, pickupRecorder, pkForMe, pkMine, copyCastList, castPickupList, runsIn, decodeFile, theirRuns, myRuns, sendLines, bringLines, spliceAll, duetClick, checkGoals, chapterComplete, amLead, applyFx, armFx, previewFx, deleteTake, selectTake, gainSel, acxCheck, setReader, fxLast, act, keys, swapAlt, nextRecStart0, undo, redo, heard, flub, punchAt, stopRecording, startRecording, recordToggle, addMarker, clickWord, switchTrackLive, cut, copy, paste, deleteSel, splitHere, selectAll, addTrack, exportDialog, mix, len, seek, clockState, renderSide: () => renderSide(), edited: () => edited(), pkClipOf };
 })();

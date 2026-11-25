@@ -115,6 +115,8 @@
       case "impmine": { const f = await pickAudioFile(); if (f) return importMine(f); return; }
       case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) toggleAud("pk:" + x, () => playPickupReply(q, "pk:" + x)); return; }
       case "pkin": return applyPickups();
+      case "pkgo": return goPickup(x);
+      case "pkagain": return putPickupAgain(x);
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
       case "miss": return markMissing(x);

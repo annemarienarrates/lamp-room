@@ -130,6 +130,7 @@
         ["Ask for a pickup", "The lead: click 🔁 on a line in Collaborate, or select its words in the text. After bringing in everyone's takes: 🔁 Ask on any flag in 🚩 Pickups. Add a note if you like."],
         ["Your partner gets it", "It shows on their Dashboard (Heads up) and in their Booth. They open Tools ▸ Pickups, press 🎙 Record, read it (R to record, S to stop), listen, and Send."],
         ["It goes in by itself", "When their pickup arrives, it replaces the old read in your chapter the moment you open it. The timeline grows or shrinks to fit. Undo takes it out."],
+        ["Check where it went", "Tools ▸ Pickups ▸ Asked of others shows each one placed in this chapter as “in at 10:47”. go jumps there, selects the pickup on its track and plays it from a moment before. One that's been replaced since (a re-send, a move) is marked ⚠ not in the chapter now, with Put in again. 🔁 Re-splice leaves pickups where they are."],
         ["Pickups from cast", "Pickups ▸ 📋 Copy the list, and send it to them. When their file comes back, 🎧 Drop in their pickups: cut at the clicks, each one goes in."]
       ] },
     { id: "cele", icon: "✨", title: "Celebrations & combo", lead: "Big glowing words when you earn them.",

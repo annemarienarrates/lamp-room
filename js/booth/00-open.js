@@ -128,6 +128,7 @@
     if (B.chap.orig && (!B.chap.orig.for || B.chap.orig.for === B.readingAs) && !B.audio.tracks.some(t => t.clips.some(c => c.base))) setTimeout(() => { if (B && B.ci === ci) unpackOrig().catch(e => toast("Couldn't open this chapter's finished audio: " + e.message)); }, 300);
     setTimeout(() => B && checkGoals(true), 1500);
     if (amLead() && !assembled() && theirRuns().length) setTimeout(async () => { if (B && B.ci === ci) { await bringLines(null, true).catch(() => {}); if (B && B.ci === ci) applyPickups(true).catch(() => {}); } }, 400);
+    else if (pkMine().some(q => q.status === "open" && q.chapterId === B.chap.id)) setTimeout(() => { if (B && B.ci === ci) applyPickups(true).catch(() => {}); }, 400);   // anyone's asked-for pickups go in when they open the chapter
     if (pkForMe().some(q => !Store.pickupReply(B.book, q)) && !B.pkTold) { B.pkTold = true; const n = pkForMe().filter(q => !Store.pickupReply(B.book, q)).length; const who = pkForMe()[0].asker; setTimeout(() => { if (B) toast("🔁 " + who + " asked you for " + n + " pickup" + (n === 1 ? "" : "s") + " in this book. Tools ▸ Pickups."); }, 900); }
     if (B.mine.every(m => !m) && !assembled() && !B.assembling) toast("Nothing in this chapter is yours to read as " + B.readingAs + ".");
   }

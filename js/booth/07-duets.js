@@ -331,7 +331,7 @@
     const byLine = new Map(); B.audio.tracks.forEach((t, ti) => t.clips.forEach(c => { if (c.line && c.line.r === r) { const k = c.line.from; if (!byLine.has(k)) byLine.set(k, []); byLine.get(k).push({ ti, c }); } }));
     const groups = [...byLine.entries()].sort((a, b) => Math.min(...b[1].map(z => z.c.at)) - Math.min(...a[1].map(z => z.c.at)));
     const busyIn = (a, b) => B.audio.tracks.some((_, j) => T().extract(B.audio, j, a, b).length);
-    let n = 0, out = 0; B.busy = "splice";
+    let n = 0, out = 0, kept = 0; B.busy = "splice";
     try {
       for (const [from, list] of groups) {
         // keep the first clip of the line where it is (with any moves or fixes); extra copies of the same line go
@@ -342,11 +342,13 @@
         }
         const x = theirRuns().find(z => z.r === r && z.from === from), l = x && lineFor(x), keep = list[0];
         const ci = B.audio.tracks[keep.ti].clips.indexOf(keep.c);
-        if (l && ci >= 0) { busyNote("Re-splicing " + nm(r) + "'s lines… " + (++n)); swapClip(keep.ti, ci, l); }
+        const isPk = keep.c.pk || /^pk-/.test(keep.c.file || "");                 // a pickup stays: it's newer than any cut
+        if (isPk) kept++;
+        else if (l && ci >= 0) { busyNote("Re-splicing " + nm(r) + "'s lines… " + (++n)); swapClip(keep.ti, ci, l); }
       }
     } finally { B.busy = null; busyNote(""); }
     await spliceAll(true);                       // one Undo step for the whole re-splice
-    notice("🔁 Re-spliced " + nm(r) + "'s lines with the new cuts: " + n + " swapped in where the old ones sat" + (out ? ", " + out + " extra cop" + (out === 1 ? "y" : "ies") + " taken out" : "") + ". Undo puts it back as it was.");
+    notice("🔁 Re-spliced " + nm(r) + "'s lines with the new cuts: " + n + " swapped in where the old ones sat" + (kept ? ", " + kept + " pickup" + (kept === 1 ? "" : "s") + " kept" : "") + (out ? ", " + out + " extra cop" + (out === 1 ? "y" : "ies") + " taken out" : "") + ". Undo puts it back as it was.");
   }
   function keepRecut(r) { const d = duetData()[r]; if (!d) return; if (d.next) { d.done = d.next.made; delete d.next; } else d.done = d.made; if (B.recut) delete B.recut[r]; Store.saveBook(B.book); renderSide(); toast("Keeping the lines you have. A newer send from " + r + " will ask again."); }
   async function pickLinesFolder() { try { const d = await window.showDirectoryPicker({ id: "lamp-room-lines", mode: "read" }); await bringLines(d); } catch (e) { if (e.name !== "AbortError") toast(e.message); } }
