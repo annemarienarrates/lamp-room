@@ -22,6 +22,7 @@ async def main():
     # Anne leads
     await as_(pg, "Anne", f"#/book/{bid}")
     print("Anne sees:", (await pg.inner_text(".lead-bar"))[:90].replace("\n"," "))
+    if not await pg.evaluate("document.querySelector('.lead-bar').nextElementSibling?.id==='chcard'"): ERR.append("the Lead line should sit just above the chapters list")
     st = await pg.evaluate("({lead: Store.books[0].lead, fmt: Store.books[0].fmt})"); print("stamped:", st)
     if st["lead"] != "Anne" or st["fmt"] != 2: ERR.append("lead/fmt not stamped on save")
     if await pg.evaluate("document.querySelector('[data-f=title]').disabled"): ERR.append("Lead is locked out")

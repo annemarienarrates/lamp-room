@@ -507,7 +507,7 @@
       ${charScriptsCard(book)}
       ${sharedCard(book)}
 
-      <div class="card">
+      <div class="card" id="chcard">
         <div class="row" style="align-items:center;margin-bottom:6px"><h2 style="margin:0">Chapters</h2><div class="spacer"></div>
           <span class="small muted">Set status for all included:</span><select class="status" id="bulk"><option value="">—</option>${statusOpts("")}</select></div>
         <table class="ch"><thead><tr><th title="Include in counts">In</th><th>#</th><th>Title</th><th class="num">Words</th><th class="num">FH</th>${book.parts ? "<th>POV</th>" : ""}<th>Status</th><th></th></tr></thead>
@@ -589,7 +589,7 @@
       const keep = el => el.closest("#sharedc, .ll, .book-cover, .lead-bar") || (book.shared && el.closest("#cscripts")) || el.matches("[data-open]");
       $$("input, select, textarea, button", main()).forEach(el => { if (keep(el)) return; el.disabled = true; el.title = "Ask " + lead + " to change this"; });
     }
-    const tiles = $(".tiles", main()); tiles.parentNode.insertBefore(bar, tiles);
+    const chc = $("#chcard", main()) || $(".tiles", main()); chc.parentNode.insertBefore(bar, chc);   // just above the chapters list
     $$("[data-askgo]", bar).forEach(b => b.onclick = () => { const i = book.chapters.findIndex(c => c.id === b.dataset.askgo); if (i >= 0) location.hash = "#/booth/" + book.id + "/" + i; });
     $$("[data-askdone]", bar).forEach(b => b.onclick = () => { LRPeople.clearAsk(book, b.dataset.askdone); save(true); toast("Marked done."); });
     const ho = $("#handon", bar); if (ho) ho.onchange = () => { const n = ho.value; if (!n) return;
