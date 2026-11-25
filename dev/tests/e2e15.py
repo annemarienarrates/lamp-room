@@ -46,7 +46,16 @@ async def main():
     await pg.select_option("[data-tab]","duet"); await pg.wait_for_timeout(300)
     await pg.screenshot(path="shots/c-duet.png")
     n0 = await pg.evaluate("Booth._test.len()")
+    # the panel: Splice all and the outside-recording drop come before the folded list; folder loading is under More…
+    lay = await pg.evaluate("""(()=>{const secs=[...document.querySelectorAll('.bd-sec')].map(s=>s.querySelector('b,summary')?.innerText||''); const list=document.querySelector('.co-list'), more=document.querySelector('.co-more');
+      return {secs, listOpen: list && list.open, loadInMore: !!(more && more.querySelector('[data-p=bringfrom]')), mainRow: [...document.querySelectorAll('[data-p=spliceall]')].length};})()""")
+    print("collaborate layout:", lay)
+    if lay["listOpen"] or not lay["loadInMore"]: errs.append("list should start folded and Load from a folder sit under More…")
+    order = [x for x in lay["secs"] if "outside" in x.lower() or x.startswith("All ")]
+    if not order or "outside" not in order[0].lower(): errs.append("the outside-recording section should come before the list")
+    await pg.click(".co-list > summary"); await pg.wait_for_timeout(300)
     await pg.click("[data-p='lin:0']"); await pg.wait_for_timeout(600)
+    if not await pg.evaluate("document.querySelector('.co-list').open"): errs.append("the list should stay open once opened")
     print("placed Jack line; len", round(n0,2), "->", round(await pg.evaluate("Booth._test.len()"),2))
     # ask Jack for a pickup (prompt answered by dialog handler)
     await pg.click("[data-p='lask:0']"); await pg.wait_for_timeout(700)

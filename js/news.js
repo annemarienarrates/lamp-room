@@ -6,6 +6,7 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-25a", roles: ["team"], title: "A tidier Collaborate", body: "The list of partner lines folds into one line (open it when you need it; it remembers). A recording from outside the Lamp Room sits right under Splice all. Load from a folder and Copy to a folder, rarely needed now, are under More…" },
     { id: "2026-11-24f", roles: ["team"], title: "New cuts: you choose", body: "A re-send no longer changes the chapter by itself. Collaborate offers Replace the list (the new cuts become the list; your clips stay put), Re-splice with new cuts (each of their clips swapped for its new cut where it sits, doubled-up copies out), or Keep mine. 🔁 Re-splice is there any time, and Undo puts it all back." },
     { id: "2026-11-24e", roles: ["team"], title: "Auphonic, round two", body: "Chapters now go to Auphonic as a lossless FLAC, about a third of the size, uploading in the background with progress on the Dashboard while you keep working. Results come home through Google Drive: connect Drive in Auphonic, then Settings ▸ This computer ▸ Auphonic ▸ pick it and show the Lamp Room the folder. They're filed into Studio ▸ Mastered under their delivery names." },
     { id: "2026-11-24d", roles: ["team"], title: "Assign lines in your own copy", body: "Anyone can select words and pick who reads them again. If you're not the Lead, it changes your copy only (your counts, pacer and lines); the Lead's choice still changes the book for everyone. Text edits stay with the Lead." },

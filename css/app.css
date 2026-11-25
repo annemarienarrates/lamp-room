@@ -826,3 +826,10 @@ body.booth-on #presence { top: 8px; }
 .head-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; opacity: .55; }
 .head-x:hover { opacity: 1; color: var(--ink); }
 .pk-fx { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; font-size: 13px; color: var(--muted); } .pk-fx select { flex: 1; }
+/* Collaborate: folded line lists and the More… options */
+.co-list > summary, .co-more > summary { cursor: pointer; list-style: none; }
+.co-list > summary::-webkit-details-marker, .co-more > summary::-webkit-details-marker { display: none; }
+.co-list > summary::before { content: "▸ "; color: var(--muted); } .co-list[open] > summary::before { content: "▾ "; }
+.co-list[open] > summary { margin-bottom: 6px; }
+.co-more { margin-top: 6px; } .co-more > summary { font-size: 12px; color: var(--muted); }
+.co-more > summary:hover { color: var(--ink); }
