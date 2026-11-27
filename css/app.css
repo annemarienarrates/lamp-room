@@ -887,3 +887,13 @@ html[data-theme="thornwood"] { background: radial-gradient(1100px 600px at 30% -
 [data-theme="thornwood"] .ms .w.cur { background: #a7c08030; box-shadow: 0 0 0 2px #a7c08024, 0 0 12px -3px #a7c080; color: #f0f6e0; border-radius: 3px; }
 [data-theme="thornwood"] .trk-head.sel { box-shadow: 0 0 12px -4px #a7c080; }
 #lr-rain.fx-forest { opacity: 1; }
+
+/* the Effects bench (Tools page) */
+.bench .bn-drop { margin-top: 12px; border: 1.5px dashed var(--line2); border-radius: 10px; padding: 16px; text-align: center; color: var(--muted); }
+.bench .bn-drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
+.bench .bn-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.bench .bn-row { display: grid; grid-template-columns: 28px 1fr auto auto auto; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }
+.bench .bn-row.done { border-color: color-mix(in srgb, var(--good) 50%, var(--line)); }
+.bench .bn-row.error { border-color: var(--bad); }
+.bench .bn-n { text-align: center; color: var(--muted); font-weight: 600; }
+.bench .bn-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

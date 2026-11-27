@@ -888,7 +888,7 @@
     const c = viewCalc.s = viewCalc.s || { words: 90000, rate: { type: "pfh", amount: 250 }, myShare: 100, cast: [{ name: (S.narrators[0] || {}).name, share: 100 }], due: "" };
     const e = Prep.estimate(c.words, c, estSettings(null)), days = c.due ? Prep.workdaysUntil(c.due) : null;
     main().innerHTML = `<h1>Tools</h1><h2>Word &amp; time calculator</h2>
-      <div class="card"><div class="row">
+      <div class="card" id="calc"><div class="row">
         <label>Words<input type="number" id="cw" value="${c.words}" style="width:130px"></label>
         <label>Narrator<select id="cn">${S.narrators.map(n => `<option ${n.name === c.cast[0].name ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></label>
         <label>Rate type<select id="crt">${RATE_TYPES.map(([k, l]) => `<option value="${k}" ${c.rate.type === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -903,9 +903,14 @@
         <div class="tile"><span>Booth days</span><b>${e.days.toFixed(1)}</b><em>${LRPace.hoursPerDay(c.cast[0].name)} hrs / day · done ${esc(prettyDate(Prep.addWorkdays(e.days)))}</em></div>
         <div class="tile"><span>Pay</span><b>${money(e.mine)}</b><em>${e.gross !== e.mine ? "of " + money(e.gross) : ""}</em></div>
         ${days != null ? `<div class="tile"><span>Workdays to due</span><b>${days}</b><em>${num(days ? c.words / days : c.words)} words / day needed</em></div>` : ""}
-      </div></div>`;
+      </div></div>
+      <h2 id="bench-h">🎛 Effects bench</h2>
+      <p class="muted small" style="margin-top:-6px">Put one of your voices on loose clips (the announcer lines your editor cut out, say) and get them back as WAVs, ready for her session.</p>
+      <div id="bench"></div>`;
+    LRBench.mount($("#bench"), { book: route.q && route.q.get("bench") || undefined, fx: route.q && route.q.get("fx") || undefined });
+    if (route.q && route.q.get("bench") != null) setTimeout(() => $("#bench-h") && $("#bench-h").scrollIntoView({ block: "start" }), 50);
     const upd = () => { c.words = Number($("#cw").value) || 0; c.cast = [{ name: $("#cn").value, share: 100 }]; c.rate = { type: $("#crt").value, amount: Number($("#cra").value) || 0 }; c.myShare = Number($("#csh").value); c.due = $("#cd").value; viewCalc(); };
-    $$("#main input:not(#ct), #main select").forEach(el => el.onchange = upd);
+    $$("#calc input:not(#ct), #calc select").forEach(el => el.onchange = upd);
     $("#ct").oninput = e => { $("#cw").value = Prep.countWords(e.target.value); clearTimeout(viewCalc.t); viewCalc.t = setTimeout(() => { const keepOpen = true; upd(); if (keepOpen) { $("#main details").open = true; $("#ct").value = e.target.value; $("#ct").focus(); } }, 500); };
   }
 

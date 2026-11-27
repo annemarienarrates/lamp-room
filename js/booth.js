@@ -482,6 +482,7 @@
       case "pkplay": { const q = pkAll().find(z => z.id === x); if (q) toggleAud("pk:" + x, () => playPickupReply(q, "pk:" + x)); return; }
       case "pkin": return applyPickups();
       case "pkgo": return goPickup(x);
+      case "bench": { const ti = B.fxTrack != null ? Math.min(B.fxTrack, B.audio.tracks.length - 1) : B.track; location.hash = "#/calc?bench=" + encodeURIComponent(B.book.id) + "&fx=t" + ti; return; }
       case "pkagain": return putPickupAgain(x);
       case "pkcancel": return cancelPickup(x);
       case "lask": return askPickupPrompt(theirRuns()[+x]);
@@ -540,6 +541,7 @@
     }).join("");
     const ps = Store.settings.fxPresets || {};
     h += `<div class="bd-sec"><b>Voice presets</b><div class="stu-note">Save this track's armed effects and track sound as a named voice, then put it on any track or book.</div>
+      <div class="fx-chips"><button class="stu-btn" data-p="bench" ${B.rec ? "disabled" : ""} title="Tools ▸ Effects bench: put this track's voice on loose clips (someone else's edit, say) and get them back as WAVs">🎛 Process clips…</button></div>
       <div class="fx-chips">${Object.keys(ps).map(n => `<span class="fx-pre"><button class="stu-btn" data-p="loadpreset:${esc(n)}" title="Put this voice on the track">${esc(n)}</button><button class="stu-btn" data-p="delpreset:${esc(n)}" title="Delete">✕</button></span>`).join("")}<button class="stu-btn" data-p="savepreset">＋ Save as preset</button></div></div>`;
     return h;
   }
