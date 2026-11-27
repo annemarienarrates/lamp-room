@@ -55,7 +55,7 @@
   function split(blocks, method) { const r = Prep.detect(blocks, method); return Prep.buildChapters(blocks, r.starts).filter(c => c.included); }
   async function createJob(name, chapters) {
     const j = { id: Prep.uid(), name: name || "Proof", created: new Date().toISOString(), ignore: [],
-      chapters: chapters.map(c => ({ id: c.id, title: c.title, paras: c.paras, words: c.words, audio: null, status: "", flags: [], map: [] })) };
+      chapters: chapters.map(c => ({ id: c.id, title: c.title, paras: c.paras, words: c.words, skip: !!c.skip, audio: null, status: "", flags: [], map: [] })) };
     await saveJob(j); S.jobs = null; S.job = j; S.ch = null; S.form = null; render(); return j;
   }
 
@@ -69,13 +69,40 @@
     if (c.flags.length && !confirm("“" + c.title + "” already has " + c.flags.length + " flag" + (c.flags.length === 1 ? "" : "s") + ". Keep them? (Cancel clears them so you can proof the new audio fresh.)")) { c.flags = []; c.map = []; c.status = ""; }
     else if (!c.flags.length) c.status = "";
   }
+  const included = j => j.chapters.map((c, i) => i).filter(i => !j.chapters[i].skip);
+  // leave a chapter out (title page, copyright…) or bring it back
+  async function setSkip(ci, skip) {
+    const j = S.job, c = j.chapters[ci]; c.skip = !!skip;
+    if (skip && S.ch === ci) S.ch = null;
+    await saveJob(j);
+    if (skip && c.audio) say("“" + c.title + "” still holds " + c.audio.name + ". If the audio is now off by one, press ↕ Re-pair audio.");
+    render();
+  }
+  // every file already brought in, back in file-name order onto the chapters that are in
+  async function repair() {
+    const j = S.job, have = j.chapters.filter(c => c.audio).map(c => ({ audio: c.audio, from: c })).sort((a, b) => a.audio.name.localeCompare(b.audio.name, undefined, { numeric: true }));
+    const inc = included(j); if (!have.length) return;
+    const n = Math.min(have.length, inc.length), moves = [];
+    for (let k = 0; k < n; k++) moves.push([inc[k], have[k]]);
+    const changed = moves.filter(([ci, h]) => j.chapters[ci] !== h.from);
+    const left = have.slice(n);
+    if (!changed.length && !have.some(h => h.from.skip)) { say("The audio already lines up with the chapters you've kept."); return; }
+    if (!confirm("Re-pair in file-name order:\n\n" + moves.map(([ci, h]) => "  " + j.chapters[ci].title + "  ←  " + h.audio.name).join("\n") + (left.length ? "\n\nLeft without a chapter: " + left.map(h => h.audio.name).join(", ") : "") + "\n\nA chapter that gets different audio loses its flags, so it can be proofed fresh.")) return;
+    const prev = new Map(j.chapters.map(c => [c, c.audio]));
+    j.chapters.forEach(c => c.audio = null);
+    for (const [ci, h] of moves) { const c = j.chapters[ci]; c.audio = h.audio; if (!prev.get(c) || prev.get(c).file !== h.audio.file) { c.flags = []; c.map = []; c.status = ""; c.proofedAt = null; c.dur = null; } }
+    for (const c of j.chapters) if (!c.audio && prev.get(c)) { c.flags = []; c.map = []; c.status = ""; c.proofedAt = null; c.dur = null; }
+    try { const d = await audioDir(j, false); if (d) for (const h of left) await d.removeEntry(h.audio.file).catch(() => {}); } catch (e) {}
+    await saveJob(j); render();
+  }
   async function attachMany(files) {
     const j = S.job, list = [...files].filter(f => /\.(wav|mp3|m4a|aac|aif|aiff|flac|ogg)$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     if (!list.length) { say("No audio files there."); return; }
-    const pairs = list.slice(0, j.chapters.length).map((f, i) => "  " + j.chapters[i].title + "  ←  " + f.name).join("\n");
-    if (!confirm("Matched in file-name order:\n\n" + pairs + (list.length !== j.chapters.length ? "\n\n(" + list.length + " files for " + j.chapters.length + " chapters.)" : "") + "\n\nBring them in?")) return;
+    const inc = included(j), n = Math.min(list.length, inc.length);
+    const pairs = list.slice(0, n).map((f, k) => "  " + j.chapters[inc[k]].title + "  ←  " + f.name).join("\n");
+    if (!confirm("Matched in file-name order (chapters you've left out are skipped):\n\n" + pairs + (list.length !== inc.length ? "\n\n(" + list.length + " files for " + inc.length + " chapters.)" : "") + "\n\nBring them in?")) return;
     if (!(await studio(true))) return;
-    for (let i = 0; i < Math.min(list.length, j.chapters.length); i++) { setNote("Copying " + list[i].name + "…"); await attach(i, list[i]); }
+    for (let k = 0; k < n; k++) { setNote("Copying " + list[k].name + "…"); await attach(inc[k], list[k]); }
     setNote(""); await saveJob(j); render();
   }
 
@@ -205,14 +232,15 @@
   function renderJobs() {
     const F = S.form;
     el.innerHTML = `<div class="card pdesk">
-      ${S.jobs.length ? `<div class="pd-jobs">${S.jobs.map(j => { const n = j.chapters.length, done = j.chapters.filter(c => c.status === "reviewed").length, pk = j.chapters.reduce((a, c) => a + picks(c).length, 0);
+      ${S.jobs.length ? `<div class="pd-jobs">${S.jobs.map(j => { const n = j.chapters.filter(c => !c.skip).length, done = j.chapters.filter(c => !c.skip && c.status === "reviewed").length, pk = j.chapters.reduce((a, c) => a + picks(c).length, 0);
         return `<button class="pd-job" data-pd="job:${esc(j.id)}"><b>${esc(j.name)}</b><span class="small muted">${n} chapters · ${done} reviewed · ${pk} pickup${pk === 1 ? "" : "s"}</span></button>`; }).join("")}</div>` : `<p class="small muted" style="margin-top:0">No proof jobs yet.</p>`}
       <details class="pd-new" ${F || !S.jobs.length ? "open" : ""}><summary><b>New proof job</b></summary>
         <div class="row" style="align-items:flex-end;margin-top:8px"><label>Name<input id="pd-name" value="${esc(F ? F.name : "")}" placeholder="e.g. SAB1 proof" style="width:220px"></label>
           <label>Manuscript<input type="file" id="pd-file" accept=".docx,.txt,.md"></label>
           ${F && F.blocks ? `<label>Split chapters on<select id="pd-split">${Object.entries(Prep.METHOD_LABELS).map(([k, l]) => `<option value="${k}" ${S.splitMethod === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}</div>
         <details class="small" style="margin-top:6px"><summary>…or paste the text</summary><textarea id="pd-paste" rows="5" placeholder="Paste the whole manuscript">${esc(F && F.pasted || "")}</textarea><button class="btn small" id="pd-usepaste">Use this text</button></details>
-        ${F && F.chapters ? `<p class="small" style="margin:10px 0 4px"><b>${F.chapters.length} chapter${F.chapters.length === 1 ? "" : "s"}</b>: ${esc(F.chapters.slice(0, 8).map(c => c.title).join(" · "))}${F.chapters.length > 8 ? " …" : ""}</p>
+        ${F && F.chapters ? `<p class="small" style="margin:10px 0 4px"><b>${F.chapters.filter(c => !c.skip).length} of ${F.chapters.length} chapters in.</b> Untick anything that isn't narrated (a title page, copyright, a publisher's note…), so audio isn't paired to it. You can change this later too.</p>
+          <div class="pd-pick">${F.chapters.map((c, i) => `<label class="check small"><input type="checkbox" data-pd-in="${i}" ${c.skip ? "" : "checked"}> ${esc(c.title)} <span class="muted">· ${(c.words || 0).toLocaleString()}</span></label>`).join("")}</div>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="pd-create">Create the job</button></div>` : ""}
       </details></div>`;
     el.querySelectorAll("[data-pd^='job:']").forEach(b => b.onclick = () => { S.job = S.jobs.find(j => j.id === b.dataset.pd.slice(4)); S.ch = null; render(); });
@@ -223,6 +251,7 @@
     el.querySelector("#pd-usepaste").onclick = async () => { const t = el.querySelector("#pd-paste").value; if (!t.trim()) return;
       S.form = Object.assign(S.form || {}, { pasted: t, blocks: await readManuscript(null, t), name: (S.form && S.form.name) || "Proof" }); resplit(); };
     const sp = el.querySelector("#pd-split"); if (sp) sp.onchange = () => { S.splitMethod = sp.value; resplit(); };
+    el.querySelectorAll("[data-pd-in]").forEach(b => b.onchange = () => { S.form.chapters[+b.dataset.pdIn].skip = !b.checked; renderJobs(); });
     const cr = el.querySelector("#pd-create"); if (cr) cr.onclick = () => createJob(S.form.name, S.form.chapters).catch(e => say(e.message));
   }
   function statusOf(c, ci) {
@@ -234,20 +263,24 @@
     return o ? `<span class="pd-st warn">${o} to review</span>${p ? ` <span class="pd-st">${p} pickup${p === 1 ? "" : "s"}</span>` : ""}` : `<span class="pd-st ok">✓ reviewed · ${p} pickup${p === 1 ? "" : "s"}</span>`;
   }
   function renderJob() {
-    const j = S.job, busy = !!S.run, todo = j.chapters.map((c, i) => i).filter(i => j.chapters[i].audio && !j.chapters[i].proofedAt);
-    const allPk = j.chapters.reduce((a, c) => a + picks(c).length, 0);
+    const j = S.job, busy = !!S.run, todo = included(j).filter(i => j.chapters[i].audio && !j.chapters[i].proofedAt);
+    const allPk = j.chapters.reduce((a, c) => a + (c.skip ? 0 : picks(c).length), 0), stray = j.chapters.some(c => c.skip && c.audio);
     let h = `<div class="card pdesk">
       <div class="row" style="align-items:center"><button class="btn small quiet" data-pd="back">← All proof jobs</button><h3 style="margin:0 0 0 8px">${esc(j.name)}</h3><div class="spacer"></div>
         <button class="btn small" data-pd="bringall" ${busy ? "disabled" : ""}>📼 Bring in chapter audio…</button>
+        ${j.chapters.some(c => c.audio) ? `<button class="btn small ${stray ? "primary" : ""}" data-pd="repair" ${busy ? "disabled" : ""} title="Put the audio you've brought in back onto the chapters you've kept, in file-name order">↕ Re-pair audio</button>` : ""}
         ${busy ? `<button class="btn small" data-pd="stop">Stop after this chapter</button>` : `<button class="btn small primary" data-pd="proofall" ${todo.length ? "" : "disabled"}>🔎 Proof ${todo.length ? todo.length + " chapter" + (todo.length === 1 ? "" : "s") : "all"}</button>`}</div>
       <div class="small muted" id="pd-note">${esc(noteText)}</div>
-      <table class="pd-chs"><tbody>${j.chapters.map((c, i) => `<tr class="${S.ch === i ? "on" : ""}">
-          <td class="muted">${i + 1}</td><td><b>${esc(c.title)}</b><br><span class="small muted">${(c.words || 0).toLocaleString()} words${c.audio ? " · " + esc(c.audio.name) : ""}${c.dur ? " · " + clock(c.dur) : ""}</span></td>
+      <table class="pd-chs"><tbody>${j.chapters.map((c, i) => c.skip ? `<tr class="skip">
+          <td class="muted">–</td><td><b>${esc(c.title)}</b><br><span class="small muted">${(c.words || 0).toLocaleString()} words · left out${c.audio ? " · still holds " + esc(c.audio.name) : ""}</span></td><td></td>
+          <td class="pd-acts"><button class="btn small quiet" data-pd="unskip:${i}" ${busy ? "disabled" : ""}>Include</button></td></tr>` : `<tr class="${S.ch === i ? "on" : ""}">
+          <td class="muted">${included(j).indexOf(i) + 1}</td><td><b>${esc(c.title)}</b><br><span class="small muted">${(c.words || 0).toLocaleString()} words${c.audio ? " · " + esc(c.audio.name) : ""}${c.dur ? " · " + clock(c.dur) : ""}</span></td>
           <td>${statusOf(c, i)}</td>
           <td class="pd-acts"><label class="btn small quiet" title="Choose this chapter's audio">${c.audio ? "Replace audio" : "Add audio"}<input type="file" accept="audio/*,.wav,.mp3,.m4a,.aif,.aiff,.flac" data-pd-one="${i}" hidden ${busy ? "disabled" : ""}></label>
             ${c.audio ? `<button class="btn small" data-pd="proof:${i}" ${busy ? "disabled" : ""}>${c.proofedAt ? "Proof again" : "Proof"}</button>` : ""}
             ${c.proofedAt ? `<button class="btn small ${S.ch === i ? "primary" : ""}" data-pd="review:${i}">Review</button>` : ""}
-            ${picks(c).length ? `<button class="btn small" data-pd="copy:${i}" title="Copy this chapter's pickups as rows for a Google Sheet">📋 Copy</button>` : ""}</td></tr>`).join("")}</tbody></table>
+            ${picks(c).length ? `<button class="btn small" data-pd="copy:${i}" title="Copy this chapter's pickups as rows for a Google Sheet">📋 Copy</button>` : ""}
+            <button class="btn small quiet" data-pd="skip:${i}" ${busy ? "disabled" : ""} title="Not narrated (title page, copyright…): leave it out, and audio isn't paired to it">Leave out</button></td></tr>`).join("")}</tbody></table>
       <div class="row" style="margin-top:8px"><button class="btn small quiet danger" data-pd="delete" ${busy ? "disabled" : ""}>Delete this proof job</button><div class="spacer"></div>
         ${allPk ? `<label class="check small"><input type="checkbox" id="pd-head"> With a header row</label><button class="btn small" data-pd="copyall">📋 Copy every pickup (${allPk})</button>` : ""}</div></div>`;
     if (S.ch != null && j.chapters[S.ch]) h += reviewHtml();
@@ -299,13 +332,16 @@
     switch (k) {
       case "back": stopAudio(); S.job = null; S.ch = null; S.jobs = null; return render();
       case "bringall": { const inp = document.createElement("input"); inp.type = "file"; inp.multiple = true; inp.accept = "audio/*,.wav,.mp3,.m4a,.aif,.aiff,.flac"; inp.onchange = () => attachMany(inp.files); inp.click(); return; }
-      case "proofall": return runQueue(j.chapters.map((z, i) => i).filter(i => j.chapters[i].audio && !j.chapters[i].proofedAt));
+      case "proofall": return runQueue(included(j).filter(i => j.chapters[i].audio && !j.chapters[i].proofedAt));
+      case "skip": return setSkip(+x, true);
+      case "unskip": return setSkip(+x, false);
+      case "repair": return repair();
       case "proof": { const i = +x; if (j.chapters[i].proofedAt && !confirm("Proof “" + j.chapters[i].title + "” again? Pickups and ignores you've already marked are kept.")) return; return runQueue([i]); }
       case "stop": S.stop = true; setNote("Stopping after this chapter…"); return;
       case "review": return openChapter(+x);
       case "close": stopAudio(); S.ch = null; return render();
       case "copy": return copy(rowsFor(j.chapters[+x]), el.querySelector("#pd-head")?.checked);
-      case "copyall": return copy(j.chapters.flatMap(rowsFor), el.querySelector("#pd-head")?.checked);
+      case "copyall": return copy(j.chapters.filter(c => !c.skip).flatMap(rowsFor), el.querySelector("#pd-head")?.checked);
       case "delete": if (!confirm("Delete the proof job “" + j.name + "”? Its flags and pickups go, and so does its copy of the audio in your Studio folder. Your own audio files elsewhere aren't touched.")) return;
         await deleteJob(j); S.job = null; S.ch = null; S.jobs = null; return render();
       case "play": { const f = c.flags.find(z => z.id === x); S.sel = c.flags.indexOf(f); return play(f.t); }
@@ -329,5 +365,5 @@
   });
 
   function mount(target) { el = target; render(); }
-  window.LRProofDesk = { mount, createJob, readManuscript, split, attach, attachMany, runQueue, proofChapter, rowsFor, tsv, copy, listJobs, get state() { return S; }, act, setFlag, addManual, lineOf };
+  window.LRProofDesk = { mount, setSkip, repair, createJob, readManuscript, split, attach, attachMany, runQueue, proofChapter, rowsFor, tsv, copy, listJobs, get state() { return S; }, act, setFlag, addManual, lineOf };
 })();

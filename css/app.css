@@ -933,3 +933,5 @@ html[data-theme="thornwood"] { background: radial-gradient(1100px 600px at 30% -
 .pd-text .w.sel { outline: 2px solid var(--accent); }
 .btn.tiny { padding: 1px 7px; font-size: 12px; }
 @media (max-width: 900px) { .pd-grid { grid-template-columns: 1fr; } }
+.pdesk .pd-chs tr.skip td { opacity: .55; }
+.pdesk .pd-pick { display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 200px; overflow: auto; padding: 6px 0; }
