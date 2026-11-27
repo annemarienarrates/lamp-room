@@ -897,3 +897,39 @@ html[data-theme="thornwood"] { background: radial-gradient(1100px 600px at 30% -
 .bench .bn-row.error { border-color: var(--bad); }
 .bench .bn-n { text-align: center; color: var(--muted); font-weight: 600; }
 .bench .bn-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* the Proofing desk (Tools page) */
+.pdesk .pd-jobs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pdesk .pd-job { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); color: var(--ink); cursor: pointer; text-align: left; }
+.pdesk .pd-job:hover { border-color: var(--accent); }
+.pdesk .pd-chs { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.pdesk .pd-chs td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.pdesk .pd-chs tr.on td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pdesk .pd-acts { text-align: right; white-space: nowrap; }
+.pdesk .pd-acts .btn { margin-left: 4px; }
+.pd-st { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
+.pd-st.run { border-color: var(--accent); color: var(--accent); }
+.pd-st.warn { border-color: var(--warn); color: var(--warn); }
+.pd-st.ok { border-color: var(--good); color: var(--good); }
+.pd-review { margin-top: 14px; }
+.pd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; }
+.pd-flags { max-height: 70vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+.pd-flag { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); cursor: pointer; }
+.pd-flag.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pd-flag.ignored { opacity: .55; }
+.pd-flag.pickup { border-left: 3px solid var(--warn); }
+.pd-flag .pd-t { font-variant-numeric: tabular-nums; }
+.pd-flag .pd-state { font-size: 12px; color: var(--warn); }
+.pd-flag .pd-line { font-size: 13px; margin: 4px 0; color: var(--mid); }
+.pd-flag mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.pd-flag .pd-do { margin-top: 6px; flex-wrap: wrap; }
+.pd-flag .pd-note { flex: 1; min-width: 140px; }
+.pd-text { max-height: 70vh; overflow: auto; font-family: var(--serif, Georgia, serif); font-size: 15px; line-height: 1.75; padding-right: 6px; }
+.pd-text .w { cursor: pointer; border-radius: 3px; }
+.pd-text .w:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.pd-text .w.f-open { background: color-mix(in srgb, var(--bad) 22%, transparent); }
+.pd-text .w.f-pickup { background: color-mix(in srgb, var(--warn) 30%, transparent); }
+.pd-text .w.f-ignored { text-decoration: underline dotted var(--muted); }
+.pd-text .w.sel { outline: 2px solid var(--accent); }
+.btn.tiny { padding: 1px 7px; font-size: 12px; }
+@media (max-width: 900px) { .pd-grid { grid-template-columns: 1fr; } }

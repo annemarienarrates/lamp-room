@@ -906,7 +906,11 @@
       </div></div>
       <h2 id="bench-h">🎛 Effects bench</h2>
       <p class="muted small" style="margin-top:-6px">Put one of your voices on loose clips (the announcer lines your editor cut out, say) and get them back as WAVs, ready for her session.</p>
-      <div id="bench"></div>`;
+      <div id="bench"></div>
+      <h2 id="pdesk-h">🔎 Proofing desk</h2>
+      <p class="muted small" style="margin-top:-6px">Proof any finished audiobook against its manuscript, chapter by chapter, cast and all, made here or anywhere. Review the flags, then copy each chapter's pickups straight into your shared sheet. Nothing here counts toward titles, words or booth time.</p>
+      <div id="pdesk"></div>`;
+    LRProofDesk.mount($("#pdesk"));
     LRBench.mount($("#bench"), { book: route.q && route.q.get("bench") || undefined, fx: route.q && route.q.get("fx") || undefined });
     if (route.q && route.q.get("bench") != null) setTimeout(() => $("#bench-h") && $("#bench-h").scrollIntoView({ block: "start" }), 50);
     const upd = () => { c.words = Number($("#cw").value) || 0; c.cast = [{ name: $("#cn").value, share: 100 }]; c.rate = { type: $("#crt").value, amount: Number($("#cra").value) || 0 }; c.myShare = Number($("#csh").value); c.due = $("#cd").value; viewCalc(); };
