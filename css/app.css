@@ -833,3 +833,57 @@ body.booth-on #presence { top: 8px; }
 .co-list[open] > summary { margin-bottom: 6px; }
 .co-more { margin-top: 6px; } .co-more > summary { font-size: 12px; color: var(--muted); }
 .co-more > summary:hover { color: var(--ink); }
+
+/* ---------- Firmament: a starry sky. Deep indigo and old gold; the stars and the odd shooting star are drawn in js/themefx.js ---------- */
+[data-theme="firmament"] {
+  --bg: #070a1c; --panel: #0d1230; --panel2: #121840; --ink: #e3e6f7; --muted: #8a8fbf; --mid: #c7cbef; --line: #222a5c; --line2: #313a78;
+  --accent: #e8c56a; --accent-hi: #f4dc9a; --accent-ink: #1b1607; --accent2: #9fb4ff; --good: #b9d98a; --warn: #e8c56a; --bad: #ff7a7a; --current: #e8c56a;
+  --serif: "Cormorant Garamond", "Fraunces", Georgia, serif;
+  --shadow: 0 0 0 1px #e8c56a12, 0 10px 26px #0009; --shadow2: 0 0 30px -10px #e8c56a77, 0 10px 30px -12px #000;
+  --lane: #050716; --lane2: #0a0e26; --tick: #313a78; --tick-ink: #c9b27a; --wave: #e8c56a; --wave2: #9fb4ff;
+  --head: #0d1230; --head-line: #222a5c; --head-sel: #1c2358; --head-btn: #151b46; --head-ink: #e3e6f7; }
+html[data-theme="firmament"] { background: radial-gradient(1200px 640px at 70% -15%, #1c2360 0%, transparent 62%), radial-gradient(800px 500px at 0% 110%, #20124a66, transparent 60%), #070a1c; }
+[data-theme="firmament"] body { background: transparent; }
+[data-theme="firmament"] h1, [data-theme="firmament"] h2, [data-theme="firmament"] .brand { font-family: var(--serif); font-weight: 600; letter-spacing: .05em; color: #f1e3b8; text-shadow: 0 0 12px #e8c56a55; }
+[data-theme="firmament"] h3, [data-theme="firmament"] .section-label { letter-spacing: .14em; }
+[data-theme="firmament"] .view-header h2::after { background: linear-gradient(90deg, transparent, #e8c56a, transparent); height: 1px; box-shadow: 0 0 8px #e8c56a; }
+[data-theme="firmament"] .tile b, [data-theme="firmament"] .sb-item b, [data-theme="firmament"] .bd-time, [data-theme="firmament"] .ring .ctr { color: #f4dc9a; text-shadow: 0 0 10px #e8c56a66; }
+[data-theme="firmament"] .btn.primary, [data-theme="firmament"] .stu-rec { background: #e8c56a; border-color: #f4dc9a; color: #1b1607; box-shadow: 0 0 14px -3px #e8c56a; }
+[data-theme="firmament"] .btn:hover, [data-theme="firmament"] .stu-btn:hover:not(:disabled) { border-color: #e8c56a; color: #f4dc9a; box-shadow: 0 0 12px -4px #e8c56a; }
+[data-theme="firmament"] .card, [data-theme="firmament"] .project-card, [data-theme="firmament"] .dt-card { background: #0d1230e6; border-color: #222a5c; box-shadow: 0 0 0 1px #9fb4ff0d, 0 10px 26px -12px #000; }
+[data-theme="firmament"] .project-card:hover { border-color: #e8c56a88; box-shadow: 0 0 24px -8px #e8c56a; }
+[data-theme="firmament"] .gpr-fill, [data-theme="firmament"] .pc-bar i { background: linear-gradient(90deg, #9fb4ff, #e8c56a); box-shadow: 0 0 8px #e8c56a88; }
+[data-theme="firmament"] .ring .arc { stroke: #e8c56a; filter: drop-shadow(0 0 4px #e8c56a); }
+[data-theme="firmament"] nav a.on { color: #f4dc9a; box-shadow: inset 0 -2px 0 #e8c56a, 0 6px 14px -8px #e8c56a; }
+[data-theme="firmament"] .bd-lcd { border-color: #e8c56a44; box-shadow: inset 0 0 14px #000, 0 0 12px -5px #e8c56a; }
+[data-theme="firmament"] #ms-page { background: #0a0e26; border-color: #222a5c; box-shadow: 0 0 0 1px #e8c56a14, 0 0 50px -22px #9fb4ff, 0 20px 40px -20px #000; }
+[data-theme="firmament"] .ms .w.cur { background: #e8c56a2a; box-shadow: 0 0 0 2px #e8c56a24, 0 0 14px -3px #e8c56a; color: #fff4d6; border-radius: 3px; }
+[data-theme="firmament"] .trk-head.sel { box-shadow: 0 0 14px -4px #e8c56a; }
+[data-theme="firmament"] #cele-words .cw-title { font-family: var(--serif); letter-spacing: .06em; }
+#lr-rain.fx-stars { opacity: .9; }
+
+/* ---------- Thornwood: a dark forest. Moss, bark and lichen; the pines and fireflies are drawn in js/themefx.js ---------- */
+[data-theme="thornwood"] {
+  --bg: #121a15; --panel: #1a231e; --panel2: #212c26; --ink: #ddd3b8; --muted: #8a9584; --mid: #c9bfa2; --line: #2e3b33; --line2: #3e4d43;
+  --accent: #a7c080; --accent-hi: #c4d9a2; --accent-ink: #172012; --accent2: #dbbc7f; --good: #a7c080; --warn: #dbbc7f; --bad: #e67e80; --current: #dbbc7f;
+  --serif: "Fraunces", Georgia, serif;
+  --shadow: 0 0 0 1px #a7c08010, 0 10px 24px #0008; --shadow2: 0 0 28px -10px #a7c08077, 0 10px 30px -12px #000;
+  --lane: #0e1511; --lane2: #151e18; --tick: #3e4d43; --tick-ink: #a9b39d; --wave: #a7c080; --wave2: #dbbc7f;
+  --head: #1a231e; --head-line: #2e3b33; --head-sel: #2a3a2c; --head-btn: #222d26; --head-ink: #ddd3b8; }
+html[data-theme="thornwood"] { background: radial-gradient(1100px 600px at 30% -12%, #26382a 0%, transparent 62%), #121a15; }
+[data-theme="thornwood"] body { background: transparent; }
+[data-theme="thornwood"] h1, [data-theme="thornwood"] h2, [data-theme="thornwood"] .brand { font-family: var(--serif); color: #e4dabd; text-shadow: 0 0 14px #a7c08044; }
+[data-theme="thornwood"] .view-header h2::after { background: linear-gradient(90deg, #a7c080, #dbbc7f); height: 2px; }
+[data-theme="thornwood"] .tile b, [data-theme="thornwood"] .sb-item b, [data-theme="thornwood"] .bd-time, [data-theme="thornwood"] .ring .ctr { color: #dbbc7f; }
+[data-theme="thornwood"] .btn.primary, [data-theme="thornwood"] .stu-rec { background: #a7c080; border-color: #c4d9a2; color: #172012; }
+[data-theme="thornwood"] .btn:hover, [data-theme="thornwood"] .stu-btn:hover:not(:disabled) { border-color: #a7c080; color: #c4d9a2; box-shadow: 0 0 12px -5px #a7c080; }
+[data-theme="thornwood"] .card, [data-theme="thornwood"] .project-card, [data-theme="thornwood"] .dt-card { background: #1a231ee8; border-color: #2e3b33; }
+[data-theme="thornwood"] .project-card:hover { border-color: #a7c08099; box-shadow: 0 0 22px -10px #a7c080; }
+[data-theme="thornwood"] .gpr-fill, [data-theme="thornwood"] .pc-bar i { background: linear-gradient(90deg, #7f9a5c, #a7c080); }
+[data-theme="thornwood"] .ring .arc { stroke: #a7c080; filter: drop-shadow(0 0 3px #a7c08099); }
+[data-theme="thornwood"] nav a.on { color: #c4d9a2; box-shadow: inset 0 -2px 0 #a7c080; }
+[data-theme="thornwood"] .bd-lcd { border-color: #a7c08044; box-shadow: inset 0 0 14px #000; }
+[data-theme="thornwood"] #ms-page { background: #161f1a; border-color: #2e3b33; box-shadow: 0 0 0 1px #a7c08012, 0 20px 40px -20px #000; }
+[data-theme="thornwood"] .ms .w.cur { background: #a7c08030; box-shadow: 0 0 0 2px #a7c08024, 0 0 12px -3px #a7c080; color: #f0f6e0; border-radius: 3px; }
+[data-theme="thornwood"] .trk-head.sel { box-shadow: 0 0 12px -4px #a7c080; }
+#lr-rain.fx-forest { opacity: 1; }

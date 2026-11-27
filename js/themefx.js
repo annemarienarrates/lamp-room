@@ -1,12 +1,12 @@
-/* The Lamp Room — theme effects that need more than CSS: Phosphor's digital rain, Signal's neon horizon, Sanguine's candlelit chamber, and the "motion off" switch.
+/* The Lamp Room — theme effects that need more than CSS: Phosphor's digital rain, Signal's neon horizon, Sanguine's candlelit chamber, Firmament's stars, Thornwood's fireflies, and the "motion off" switch.
    They sit behind every panel (never behind the text you read), and stop while you record or when the tab is hidden. */
 (function () {
   "use strict";
   const html = document.documentElement;
   let cv = null, g = null, raf = 0, last = 0, kind = null;
   const calm = () => !!(window.Store && Store.settings && Store.settings.calm) || matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const which = () => calm() ? null : html.dataset.theme === "phosphor" ? "rain" : html.dataset.theme === "signal" ? "grid" : html.dataset.theme === "sanguine" ? "candle" : null;
-  const paused = () => document.hidden || document.body.classList.contains("booth-recording");
+  const which = () => calm() ? null : html.dataset.theme === "phosphor" ? "rain" : html.dataset.theme === "signal" ? "grid" : html.dataset.theme === "sanguine" ? "candle" : html.dataset.theme === "firmament" ? "stars" : html.dataset.theme === "thornwood" ? "forest" : null;
+  const paused = () => document.hidden || document.body.classList.contains("booth-recording") || !!(window.Booth && Booth.state && Booth.state.player && Booth.state.player.playing);
 
   // ---------- Phosphor: digital rain ----------
   const GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ012345789Z:・.\"=*+-<>¦";
@@ -112,10 +112,70 @@
       g.restore(); }
   }
 
+  // ---------- Firmament: a slow star field, a faint band of the Milky Way, a shooting star every so often ----------
+  let sky = [], band = [], shoot = null, nextShoot = 0;
+  function starsInit() {
+    const W = innerWidth, H = innerHeight;
+    sky = Array.from({ length: Math.round(W * H / 5200) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() < 0.08 ? rnd(1.2, 1.9) : rnd(0.3, 1.1), p: rnd(0, 6.28), k: rnd(0.25, 1.1), warm: Math.random() < 0.18 }));
+    band = Array.from({ length: Math.round(W / 9) }, () => { const f = Math.random(); return { x: f * W, y: H * (0.85 - 0.7 * f) + rnd(-1, 1) * H * 0.09, r: rnd(0.2, 0.7) }; });
+    shoot = null; nextShoot = performance.now() + rnd(8000, 20000);
+  }
+  function starfield(now) {
+    if (now - last < 50) return; last = now;
+    const W = innerWidth, H = innerHeight, t = (now - t0) / 1000;
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = "rgba(200,205,255,.22)"; for (const b of band) g.fillRect(b.x, b.y, b.r, b.r);
+    for (const o of sky) { const a = 0.3 + 0.7 * Math.abs(Math.sin(t * o.k * 0.6 + o.p)); g.fillStyle = o.warm ? `rgba(255,236,190,${a.toFixed(2)})` : `rgba(225,230,255,${a.toFixed(2)})`;
+      if (o.r > 1.2) { const gr = g.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r * 4); gr.addColorStop(0, g.fillStyle); gr.addColorStop(1, "rgba(255,240,200,0)"); g.fillStyle = gr; g.fillRect(o.x - o.r * 4, o.y - o.r * 4, o.r * 8, o.r * 8); }
+      else { g.beginPath(); g.arc(o.x, o.y, o.r, 0, 6.28); g.fill(); } }
+    if (!shoot && now > nextShoot) shoot = { x: rnd(0.35, 0.95) * W, y: rnd(0.02, 0.35) * H, t: now, len: rnd(120, 220), a: rnd(0.32, 0.48) };
+    if (shoot) { const k = (now - shoot.t) / 1100;
+      if (k >= 1) { shoot = null; nextShoot = now + rnd(25000, 70000); }
+      else { const d = k * shoot.len * 2, x = shoot.x - Math.cos(shoot.a) * d, y = shoot.y + Math.sin(shoot.a) * d, tx = x + Math.cos(shoot.a) * shoot.len * 0.5, ty = y - Math.sin(shoot.a) * shoot.len * 0.5;
+        const gr = g.createLinearGradient(x, y, tx, ty); gr.addColorStop(0, `rgba(255,244,214,${(0.9 * (1 - k)).toFixed(2)})`); gr.addColorStop(1, "rgba(255,244,214,0)");
+        g.strokeStyle = gr; g.lineWidth = 1.4; g.beginPath(); g.moveTo(x, y); g.lineTo(tx, ty); g.stroke(); } }
+  }
+
+  // ---------- Thornwood: three ridges of pines along the bottom, mist between them, fireflies drifting ----------
+  let flies = [], ridges = null;
+  function forestInit() {
+    const W = innerWidth, H = innerHeight;
+    flies = Array.from({ length: Math.round(W / 90) + 6 }, () => ({ x: Math.random() * W, y: rnd(0.45, 0.97) * H, p: rnd(0, 6.28), sx: rnd(10, 30), sy: rnd(6, 16), k: rnd(0.08, 0.2), b: rnd(0.4, 0.9) }));
+    // draw the trees once; each frame only the fireflies move
+    ridges = document.createElement("canvas"); const d = Math.min(2, devicePixelRatio || 1); ridges.width = W * d; ridges.height = H * d; const c = ridges.getContext("2d"); c.scale(d, d);
+    const layers = [["#1b2a21", 0.30, 46], ["#16221b", 0.22, 36], ["#101912", 0.14, 28]];
+    layers.forEach(([col, hgt, step], li) => {
+      let seed = 7 + li * 31; const r = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+      if (li < 2) { const m = c.createLinearGradient(0, H * (1 - hgt - 0.08), 0, H); m.addColorStop(0, "rgba(167,192,128,0)"); m.addColorStop(0.5, "rgba(167,192,128,.035)"); m.addColorStop(1, "rgba(167,192,128,0)"); c.fillStyle = m; c.fillRect(0, H * (1 - hgt - 0.08), W, H * hgt); }
+      c.fillStyle = col; c.beginPath(); c.moveTo(0, H);
+      for (let x = -step; x < W + step; x += step * (0.6 + r() * 0.6)) {
+        const top = H * (1 - hgt * (0.55 + r() * 0.45)), w = step * (0.45 + r() * 0.3), base = H * (1 - hgt * 0.25);
+        c.lineTo(x - w, base); for (let k = 0; k < 5; k++) { const f = k / 5, yy = base - (base - top) * f, ww = w * (1 - f) ; c.lineTo(x - ww * 0.55, yy - (base - top) * 0.08); c.lineTo(x - ww, yy); }
+        c.lineTo(x, top); for (let k = 4; k >= 0; k--) { const f = k / 5, yy = base - (base - top) * f, ww = w * (1 - f); c.lineTo(x + ww, yy); c.lineTo(x + ww * 0.55, yy - (base - top) * 0.08); }
+        c.lineTo(x + w, base);
+      }
+      c.lineTo(W, H); c.closePath(); c.fill();
+    });
+  }
+  function forest(now) {
+    if (now - last < 40) return; last = now;
+    const W = innerWidth, H = innerHeight, t = (now - t0) / 1000;
+    g.clearRect(0, 0, W, H);
+    if (ridges) g.drawImage(ridges, 0, 0, W, H);
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (const f of flies) {
+      const x = f.x + Math.sin(t * f.k + f.p) * f.sx * 3, y = f.y + Math.cos(t * f.k * 1.3 + f.p) * f.sy * 2;
+      const glow = Math.max(0, Math.sin(t * 0.9 * f.b + f.p)), a = 0.15 + 0.85 * glow * glow;
+      const gr = g.createRadialGradient(x, y, 0, x, y, 10); gr.addColorStop(0, `rgba(222,245,150,${(0.85 * a).toFixed(3)})`); gr.addColorStop(0.3, `rgba(190,225,110,${(0.35 * a).toFixed(3)})`); gr.addColorStop(1, "rgba(190,225,110,0)");
+      g.fillStyle = gr; g.fillRect(x - 10, y - 10, 20, 20);
+    }
+    g.restore();
+  }
+
   function size() {
     if (!cv) return; const d = Math.min(2, devicePixelRatio || 1);
     cv.width = innerWidth * d; cv.height = innerHeight * d; cv.style.width = innerWidth + "px"; cv.style.height = innerHeight + "px"; g.setTransform(d, 0, 0, d, 0, 0);
-    cols = Array.from({ length: Math.ceil(innerWidth / FS) }, () => Math.floor(Math.random() * innerHeight / FS)); gridInit(); candleInit();
+    cols = Array.from({ length: Math.ceil(innerWidth / FS) }, () => Math.floor(Math.random() * innerHeight / FS)); gridInit(); candleInit(); starsInit(); forestInit();
   }
   function start(k) {
     if (cv && kind === k) return; stop();
@@ -127,7 +187,7 @@
   function frame(now) {
     raf = requestAnimationFrame(frame);
     if (paused()) return;
-    if (kind === "rain") rain(now); else if (kind === "grid") grid(now); else if (kind === "candle") candle(now);
+    if (kind === "rain") rain(now); else if (kind === "grid") grid(now); else if (kind === "candle") candle(now); else if (kind === "stars") starfield(now); else if (kind === "forest") forest(now);
   }
   function sync() { html.classList.toggle("fx-calm", calm()); const k = which(); if (k) start(k); else stop(); }
   new MutationObserver(sync).observe(html, { attributes: true, attributeFilter: ["data-theme"] });

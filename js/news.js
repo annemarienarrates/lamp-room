@@ -6,6 +6,7 @@
 (function () {
   "use strict";
   const NEWS = [
+    { id: "2026-11-27a", roles: ["team"], title: "Two new themes", body: "Settings ▸ Look ▸ Theme: Firmament (indigo night and old gold, slow-twinkling stars, a shooting star now and then) and Thornwood (moss and bark, pines along the bottom, fireflies). Like all the moving themes, they hold still while you record or play back, and Motion off stops them." },
     { id: "2026-11-25b", roles: ["team"], title: "Check your pickups", body: "Tools ▸ Pickups ▸ Asked of others now says where each pickup sits (“in at 10:47”), and go jumps straight to it and plays it in place. If one got replaced later, it says so, with Put in again. Re-splice now leaves pickups alone, and pickups you asked for go in when you open the chapter, Lead or not." },
     { id: "2026-11-25a", roles: ["team"], title: "A tidier Collaborate", body: "The list of partner lines folds into one line (open it when you need it; it remembers). A recording from outside the Lamp Room sits right under Splice all. Load from a folder and Copy to a folder, rarely needed now, are under More…" },
     { id: "2026-11-24f", roles: ["team"], title: "New cuts: you choose", body: "A re-send no longer changes the chapter by itself. Collaborate offers Replace the list (the new cuts become the list; your clips stay put), Re-splice with new cuts (each of their clips swapped for its new cut where it sits, doubled-up copies out), or Keep mine. 🔁 Re-splice is there any time, and Undo puts it all back." },
