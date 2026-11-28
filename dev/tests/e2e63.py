@@ -6,15 +6,16 @@ import asyncio, subprocess, sys
 from playwright.async_api import async_playwright
 srv = subprocess.Popen([sys.executable,"-m","http.server","8663","-d",ROOT],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 U="http://localhost:8663/index.html?test"
-TEXT = "Chapter One\\n\\nThe moon rose over Kaelthas and the wolves began to sing. Mira pulled her cloak tight against the cold wind. Kaelthas was silent.\\n\\nChapter Two\\n\\nMorning came slowly to the valley. Nobody spoke of the night before, not even old Bren."
+FILL = "\\n\\n".join(["The road ran on past the old mill and the river kept its own counsel."] * 14)
+TEXT = "Chapter One\\n\\nThe moon rose over Kaelthas and the wolves began to sing. Mira pulled her cloak tight against the cold wind.\\n\\n" + FILL + "\\n\\nKaelthas was silent.\\n\\nChapter Two\\n\\nMorning came slowly to the valley. Nobody spoke of the night before, not even old Bren."
 MOCK = """(()=>{ LRProof.load = async()=>({}); LRProof._mockTimed = (x, rate) => { const s = x.length/rate;
-  if (s < 15) return [{text:'The moon rose over Kale thoss and the wolves began to sing. Mira pulled her cloak against the cold wind.', t:[0,7]},{text:'Kale thoss was silent.', t:[7,9]}];
+  if (s < 15) return [{text:'The moon rose over Kale thoss and the wolves began to sing. Mira pulled her cloak against the cold wind.', t:[0,7]},{text:Array(14).fill('The road ran on past the old mill and the river kept its own counsel.').join(' '), t:[7,8]},{text:'Kale thoss was silent.', t:[8,9]}];
   return [{text:'Morning came really slowly to the valley. Nobody spoke of the night before, not even old Bren.', t:[0,12]}]; }; })()"""
 WAV = """((secs,name)=>{const r=16000,x=new Float32Array(r*secs);for(let i=0;i<x.length;i++)x[i]=0.2*Math.sin(i/9);return new File([LRBench.wav({ch:[x],rate:r,bits:16})],name,{type:'audio/wav'})})"""
 async def main():
   async with async_playwright() as p:
     br = await p.chromium.launch(executable_path=CHROME, args=["--no-sandbox"])
-    ctx = await br.new_context(viewport={"width":1440,"height":1000}); await ctx.add_init_script("try{localStorage.getItem('lr-me')||localStorage.setItem('lr-me','Anne')}catch(e){}")
+    ctx = await br.new_context(viewport={"width":1440,"height":760}); await ctx.add_init_script("try{localStorage.getItem('lr-me')||localStorage.setItem('lr-me','Anne')}catch(e){}")
     await ctx.grant_permissions(["clipboard-read","clipboard-write"], origin="http://localhost:8663")
     pg = await ctx.new_page(); errs=[]; pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("dialog", lambda d: asyncio.ensure_future(d.accept())); ERR=[]
     await pg.goto(U+"#/calc"); await pg.wait_for_selector("#pdesk .pdesk"); await pg.wait_for_timeout(500)
@@ -36,6 +37,23 @@ async def main():
     # review chapter one
     await pg.click("[data-pd='review:0']"); await pg.wait_for_selector(".pd-review")
     await pg.screenshot(path="/tmp/pdesk.png", full_page=True)
+    await pg.wait_for_timeout(900)
+    inview = await pg.evaluate("(()=>{const r=document.querySelector('.pd-review').getBoundingClientRect();return r.top>=-5&&r.top<innerHeight/2})()")
+    print("review in view:", inview)
+    if not inview: ERR.append("Review should bring the review window into view")
+    # the last flag (Kaelthas, far down the text): J/K to it, and the manuscript shows it; the flag list doesn't jump
+    await pg.keyboard.press("j"); await pg.keyboard.press("j"); await pg.wait_for_timeout(300)
+    vis = await pg.evaluate("(()=>{const t=document.querySelector('.pd-text'),w=t.querySelector('.w.sel'),a=t.getBoundingClientRect(),b=w.getBoundingClientRect();return [t.scrollTop>0, b.top>=a.top&&b.bottom<=a.bottom, LRProofDesk.state.sel]})()")
+    print("third flag shown in the text:", vis)
+    if not (vis[0] and vis[1] and vis[2] == 2): ERR.append("the manuscript should scroll to the selected flag")
+    # Space plays the flag you're on, even with a button focused
+    await pg.focus("[data-pd='close']"); await pg.keyboard.press(" "); await pg.wait_for_timeout(400)
+    sel_id = await pg.evaluate("LRProofDesk.state.job.chapters[0].flags[2].id"); playing = await pg.evaluate("LRProofDesk.state.playing")
+    print("space plays:", playing == sel_id, "still open:", await pg.evaluate("LRProofDesk.state.ch"))
+    if playing != sel_id or await pg.evaluate("LRProofDesk.state.ch") != 0: ERR.append("Space should play the selected flag (and not press the focused button)")
+    await pg.keyboard.press(" "); await pg.wait_for_timeout(200)
+    if await pg.evaluate("LRProofDesk.state.playing") is not None: ERR.append("Space again should stop it")
+    await pg.keyboard.press("k"); await pg.keyboard.press("k"); await pg.wait_for_timeout(200)
     ids = await pg.evaluate("LRProofDesk.state.job.chapters[0].flags.map(f=>f.id+'|'+f.kind)"); miss = [i.split("|")[0] for i in ids if i.endswith("missed")][0]
     await pg.click(f"[data-sel='{[i.split('|')[0] for i in ids].index(miss)}']"); await pg.wait_for_timeout(200)
     await pg.click(f"[data-pd='pick:{miss}']"); await pg.wait_for_timeout(200)

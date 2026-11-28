@@ -185,16 +185,16 @@
     say("📋 " + rows.length + " pickup" + (rows.length === 1 ? "" : "s") + " copied. Click the first empty row in your sheet and paste."); return t;
   }
 
-  async function play(t) {
+  async function play(t, fid) {
     const j = S.job, c = j.chapters[S.ch];
     if (audioFor !== c.audio?.file) {
       const f = await audioFile(j, S.ch); if (!f) { say("This chapter's audio isn't on this computer. Bring it in again to listen."); return; }
       if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = URL.createObjectURL(f); audioFor = c.audio.file;
       audioEl = audioEl || new Audio(); audioEl.src = audioUrl; await new Promise(r => { audioEl.onloadedmetadata = r; setTimeout(r, 1500); });
     }
-    audioEl.currentTime = Math.max(0, t - 2); audioEl.play().catch(() => {}); render();
+    audioEl.currentTime = Math.max(0, t - 2); audioEl.play().catch(() => {}); S.playing = fid || null;
   }
-  function stopAudio() { if (audioEl) audioEl.pause(); }
+  function stopAudio() { if (audioEl) audioEl.pause(); S.playing = null; }
   function timeAt(c, i) { let t = 0; for (const p of c.map || []) { if (p[1] > i) break; t = p[0]; } return t; }
   async function setFlag(fid, patch, quiet) {
     const c = S.job.chapters[S.ch], f = c.flags.find(z => z.id === fid); if (!f) return;
@@ -216,7 +216,7 @@
     c.flags.push(f); c.flags.sort((p, q) => p.t - q.t || p.from - q.from); S.sel = c.flags.indexOf(f); await saveJob(S.job); render();
     const n = el.querySelector(`[data-pd-note="${f.id}"]`); if (n) n.focus();
   }
-  function openChapter(ci) { S.ch = ci; stopAudio(); const c = S.job.chapters[ci]; S.sel = Math.max(0, (c.flags || []).findIndex(f => f.state === "open")); render(); }
+  function openChapter(ci) { S.ch = ci; stopAudio(); const c = S.job.chapters[ci]; S.sel = Math.max(0, (c.flags || []).findIndex(f => f.state === "open")); S.scroll = true; S.toReview = true; render(); }
 
   // ---------------- the panel ----------------
   let noteText = "";
@@ -284,7 +284,9 @@
       <div class="row" style="margin-top:8px"><button class="btn small quiet danger" data-pd="delete" ${busy ? "disabled" : ""}>Delete this proof job</button><div class="spacer"></div>
         ${allPk ? `<label class="check small"><input type="checkbox" id="pd-head"> With a header row</label><button class="btn small" data-pd="copyall">📋 Copy every pickup (${allPk})</button>` : ""}</div></div>`;
     if (S.ch != null && j.chapters[S.ch]) h += reviewHtml();
+    const keep = [".pd-flags", ".pd-text"].map(q => el.querySelector(q)?.scrollTop || 0);
     el.innerHTML = h;
+    [".pd-flags", ".pd-text"].forEach((q, n) => { const b = el.querySelector(q); if (b) b.scrollTop = keep[n]; });
     wireJob();
   }
   function reviewHtml() {
@@ -316,14 +318,18 @@
     const j = S.job;
     el.querySelectorAll("[data-pd]").forEach(b => b.onclick = e => { e.stopPropagation(); act(b.dataset.pd); });
     el.querySelectorAll("[data-pd-one]").forEach(inp => inp.onchange = async () => { const f = inp.files[0]; if (!f) return; if (!(await studio(true))) return; setNote("Copying " + f.name + "…"); await attach(+inp.dataset.pdOne, f); setNote(""); await saveJob(j); render(); });
-    el.querySelectorAll("[data-sel]").forEach(d => d.onclick = e => { if (e.target.closest("button,select,input")) return; S.sel = +d.dataset.sel; render(); });
+    el.querySelectorAll("[data-sel]").forEach(d => d.onclick = e => { if (e.target.closest("button,select,input")) return; if (S.sel !== +d.dataset.sel) { S.sel = +d.dataset.sel; S.scroll = true; render(); } });
     el.querySelectorAll("[data-pd-issue]").forEach(s => s.onchange = () => setFlag(s.dataset.pdIssue, { issue: s.value }, true));
     el.querySelectorAll("[data-pd-note]").forEach(n => { n.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") n.blur(); }; n.onchange = () => setFlag(n.dataset.pdNote, { note: n.value }, true); n.oninput = () => { clearTimeout(n._t); n._t = setTimeout(() => setFlag(n.dataset.pdNote, { note: n.value }, true), 600); }; });
     const tx = el.querySelector(".pd-text");
     if (tx) {
-      tx.onclick = e => { const w = e.target.closest(".w"); if (!w) return; if (w.dataset.k != null) { S.sel = +w.dataset.k; render(); } const c = j.chapters[S.ch]; play(timeAt(c, +w.dataset.i) + 1.5); };
+      tx.onclick = e => { const w = e.target.closest(".w"); if (!w) return; if (w.dataset.k != null && S.sel !== +w.dataset.k) { S.sel = +w.dataset.k; S.scroll = true; render(); } const c = j.chapters[S.ch]; play(timeAt(c, +w.dataset.i) + 1.5); };
       tx.ondblclick = e => { const w = e.target.closest(".w"); if (w) addManual(+w.dataset.i); };
-      const s = el.querySelector(".pd-flag.sel"); if (s && S.scroll) { s.scrollIntoView({ block: "nearest" }); const ws = tx.querySelector(".w.sel"); if (ws) ws.scrollIntoView({ block: "center" }); } S.scroll = false;
+      if (S.scroll) { const fl = el.querySelector(".pd-flags"), s = el.querySelector(".pd-flag.sel"), ws = tx.querySelector(".w.sel");
+        if (fl && s && (s.offsetTop < fl.scrollTop || s.offsetTop + s.offsetHeight > fl.scrollTop + fl.clientHeight)) fl.scrollTop = s.offsetTop - 8;
+        if (ws) tx.scrollTop = Math.max(0, ws.offsetTop - tx.clientHeight / 2); }
+      S.scroll = false;
+      if (S.toReview) { S.toReview = false; const r = el.querySelector(".pd-review"); if (r) r.scrollIntoView({ behavior: "smooth", block: "start" }); }
     }
   }
   async function act(a) {
@@ -344,7 +350,7 @@
       case "copyall": return copy(j.chapters.filter(c => !c.skip).flatMap(rowsFor), el.querySelector("#pd-head")?.checked);
       case "delete": if (!confirm("Delete the proof job “" + j.name + "”? Its flags and pickups go, and so does its copy of the audio in your Studio folder. Your own audio files elsewhere aren't touched.")) return;
         await deleteJob(j); S.job = null; S.ch = null; S.jobs = null; return render();
-      case "play": { const f = c.flags.find(z => z.id === x); S.sel = c.flags.indexOf(f); return play(f.t); }
+      case "play": { const f = c.flags.find(z => z.id === x), n = c.flags.indexOf(f); if (S.sel !== n) { S.sel = n; S.scroll = true; render(); } return play(f.t, f.id); }
       case "pick": return setFlag(x, { state: "pickup" });
       case "ign": return setFlag(x, { state: "ignored" });
       case "reopen": return setFlag(x, { state: "open" });
@@ -359,7 +365,8 @@
     const c = S.job.chapters[S.ch], fl = c.flags || [], f = fl[S.sel]; if (!fl.length) return;
     const k = e.key.toLowerCase();
     if (k === "j" || k === "k") { e.preventDefault(); S.sel = Math.max(0, Math.min(fl.length - 1, S.sel + (k === "j" ? 1 : -1))); S.scroll = true; render(); }
-    else if (k === " ") { e.preventDefault(); if (audioEl && !audioEl.paused) stopAudio(); else if (f) play(f.t); }
+    else if (k === " ") { e.preventDefault(); if (document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur();
+      if (audioEl && !audioEl.paused && S.playing === (f && f.id)) stopAudio(); else if (f) play(f.t, f.id); }
     else if (k === "p" && f) { e.preventDefault(); setFlag(f.id, { state: "pickup" }).then(() => { const nx = fl.findIndex((z, n) => n > S.sel && z.state === "open"); if (nx >= 0) { S.sel = nx; S.scroll = true; render(); } }); }
     else if (k === "i" && f) { e.preventDefault(); setFlag(f.id, { state: "ignored" }).then(() => { const nx = fl.findIndex((z, n) => n > S.sel && z.state === "open"); if (nx >= 0) { S.sel = nx; S.scroll = true; render(); } }); }
   });
